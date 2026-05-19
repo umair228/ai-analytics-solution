@@ -149,3 +149,56 @@ def insights(request):
     record_audit(request, AuditLog.Action.QUERY, target_type="Dataset",
                  target_id=dataset.id, summary=f"AI insights for '{dataset.name}'")
     return Response({"dataset": dataset.id, "insights": text})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def widget_suggest(request):
+    """Use Claude to suggest chart configurations for a dataset."""
+    if not is_configured():
+        return _NOT_CONFIGURED
+
+    dataset = _accessible_dataset(request, request.data.get("dataset"))
+    if dataset is None:
+        return Response(
+            {"error": True, "detail": "Dataset not found or access denied."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        context = build_dataset_context(dataset)
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": True, "detail": f"Could not load dataset: {exc}"},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    prompt = (
+        f"{context}\n\n"
+        "Based on the dataset above, suggest 4–5 useful dashboard widgets. "
+        "For each widget return a JSON object with these keys:\n"
+        "  widget_type  — one of: bar, line, pie, kpi, table, scatter, area\n"
+        "  title        — short descriptive title\n"
+        "  category_field — best column for the X axis or grouping (exact column name)\n"
+        "  value_field    — best column for the Y axis or KPI value (exact column name)\n"
+        "  rollup         — one of: sum, count, avg, min, max\n"
+        "  reason         — one sentence explaining the value of this chart\n"
+        "Return a raw JSON array only — no markdown, no explanation."
+    )
+
+    try:
+        import json
+        from .client import _get_client
+        resp = _get_client().messages.create(
+            model=getattr(settings, "CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
+            max_tokens=900,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+        start, end = text.find("["), text.rfind("]") + 1
+        suggestions = json.loads(text[start:end]) if start != -1 else []
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": True, "detail": f"AI request failed: {exc}"},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    record_audit(request, AuditLog.Action.QUERY, target_type="Dataset",
+                 target_id=dataset.id, summary=f"AI widget suggestions for '{dataset.name}'")
+    return Response({"dataset": dataset.id, "suggestions": suggestions})
