@@ -27,5 +27,8 @@ sqlparse>=0.5
 # AI assistant (Claude API)
 anthropic>=0.40
 
+# HTTP client (used for webhook notifications)
+requests>=2.32
+
 # Production server
 gunicorn>=23
