@@ -11,6 +11,7 @@ from analytics.engine import (
     compare as run_compare,
     df_to_rows,
 )
+from analytics.predict import auto_summary, detect_anomalies, forecast as run_forecast
 from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
@@ -26,7 +27,7 @@ def _error(exc):
 
 class DatasetViewSet(viewsets.ModelViewSet):
     """Reusable, cached result sets backed by saved queries, with a
-    pandas-powered statistics / aggregation / comparison engine."""
+    pandas-powered statistics / aggregation / comparison / prediction engine."""
 
     serializer_class = DatasetSerializer
     permission_classes = [IsAnalystOrAbove, IsOwnerOrSharedReadOnly]
@@ -44,6 +45,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
         if self.action in (
             "list", "retrieve", "data", "refresh",
             "statistics", "aggregate", "compare",
+            "forecast", "anomalies", "summary",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
@@ -127,3 +129,42 @@ class DatasetViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def forecast(self, request, pk=None):
+        """Forecast a numeric column with a trend summary."""
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+            periods = int(request.data.get("periods", 6) or 6)
+            result = run_forecast(
+                df, request.data.get("value_column"), max(1, min(periods, 60))
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def anomalies(self, request, pk=None):
+        """Detect outliers in a numeric column."""
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+            result = detect_anomalies(
+                df,
+                request.data.get("value_column"),
+                request.data.get("method", "zscore"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(result)
+
+    @action(detail=True, methods=["get"])
+    def summary(self, request, pk=None):
+        """Auto-generated per-column insights for the dataset."""
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(auto_summary(df))
