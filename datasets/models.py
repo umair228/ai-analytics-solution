@@ -147,3 +147,25 @@ class AlertEvent(TimeStampedModel):
 
     def __str__(self):
         return f"Event for '{self.alert.name}' @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class DatasetReport(TimeStampedModel):
+    """A scheduled CSV email report for a dataset."""
+
+    class Schedule(models.TextChoices):
+        DAILY   = "daily",   "Daily"
+        WEEKLY  = "weekly",  "Weekly"
+        MONTHLY = "monthly", "Monthly"
+
+    dataset          = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="reports")
+    name             = models.CharField(max_length=200)
+    recipient_emails = models.TextField(help_text="Comma-separated list of recipient email addresses")
+    schedule         = models.CharField(max_length=10, choices=Schedule.choices, default=Schedule.DAILY)
+    is_active        = models.BooleanField(default=True)
+    last_sent_at     = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.schedule})"

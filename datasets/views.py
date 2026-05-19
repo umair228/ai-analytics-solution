@@ -21,8 +21,8 @@ from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
 from django.utils import timezone
 
-from .models import AlertEvent, Dataset, DatasetAlert
-from .serializers import AlertEventSerializer, DatasetAlertSerializer, DatasetSerializer
+from .models import AlertEvent, Dataset, DatasetAlert, DatasetReport
+from .serializers import AlertEventSerializer, DatasetAlertSerializer, DatasetReportSerializer, DatasetSerializer
 from .services import refresh_dataset
 
 
@@ -323,3 +323,16 @@ class AlertEventViewSet(viewsets.ReadOnlyModelViewSet):
             acknowledged=True, acknowledged_at=now, acknowledged_by=request.user,
         )
         return Response({"acknowledged": updated})
+
+
+class DatasetReportViewSet(viewsets.ModelViewSet):
+    """CRUD for scheduled dataset email reports."""
+    serializer_class = DatasetReportSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if self.request.user.is_admin:
+            return DatasetReport.objects.select_related("dataset").all()
+        return DatasetReport.objects.select_related("dataset").filter(
+            dataset__owner=self.request.user
+        )

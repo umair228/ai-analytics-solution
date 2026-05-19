@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import AlertEvent, Dataset, DatasetAlert
+from .models import AlertEvent, Dataset, DatasetAlert, DatasetReport
 
 
 class DatasetSerializer(serializers.ModelSerializer):
@@ -87,3 +87,12 @@ class AlertEventSerializer(serializers.ModelSerializer):
             "id", "alert", "triggered_value", "message",
             "acknowledged_at", "acknowledged_by", "created_at",
         ]
+
+
+class DatasetReportSerializer(serializers.ModelSerializer):
+    dataset_name = serializers.CharField(source="dataset.name", read_only=True)
+
+    class Meta:
+        model = DatasetReport
+        fields = ["id", "dataset", "dataset_name", "name", "recipient_emails", "schedule", "is_active", "last_sent_at", "created_at"]
+        read_only_fields = ["id", "last_sent_at", "created_at"]
