@@ -1,5 +1,6 @@
 import secrets
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics, viewsets
@@ -56,6 +57,34 @@ class DashboardViewSet(viewsets.ModelViewSet):
         )
         return Response(
             DashboardSerializer(fresh, context={"request": request}).data
+        )
+
+    @action(detail=True, methods=["post"], url_path="clone", url_name="clone")
+    def clone(self, request, pk=None):
+        """Duplicate a dashboard with all its widgets."""
+        original = self.get_object()
+        with transaction.atomic():
+            cloned = Dashboard.objects.create(
+                name=f"Copy of {original.name}",
+                description=original.description,
+                owner=request.user,
+                visibility=Dashboard.Visibility.PRIVATE,
+                filters=original.filters,
+            )
+            for widget in original.widgets.all():
+                Widget.objects.create(
+                    dashboard=cloned,
+                    title=widget.title,
+                    widget_type=widget.widget_type,
+                    dataset=widget.dataset,
+                    config=widget.config,
+                    x=widget.x, y=widget.y,
+                    w=widget.w, h=widget.h,
+                    order=widget.order,
+                )
+        return Response(
+            DashboardSerializer(cloned, context={"request": request}).data,
+            status=201,
         )
 
     @action(detail=True, methods=["post", "get"], url_path="share-token", url_name="share-token")
