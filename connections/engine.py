@@ -79,6 +79,21 @@ def build_url(datasource, database: str | None = None):
             raise ConnectionConfigError("SQLite data source requires a file path.")
         return f"sqlite:///{path}"
 
+    if st == SourceType.ODBC:
+        dsn = opts.get("dsn") or datasource.database_name
+        if not dsn:
+            raise ConnectionConfigError("ODBC data source requires a DSN name.")
+        parts = [f"DSN={dsn}"]
+        if opts.get("windows_auth"):
+            parts.append("Trusted_Connection=yes")
+        elif datasource.username:
+            parts.append(f"UID={datasource.username}")
+            parts.append(f"PWD={datasource.password}")
+        if opts.get("extra_params"):
+            parts.append(opts["extra_params"])
+        odbc_str = ";".join(parts)
+        return URL.create("mssql+pyodbc", query={"odbc_connect": odbc_str})
+
     if st in SourceType.FILE_TYPES:
         path = opts.get("materialized_path")
         if not path:
@@ -94,7 +109,7 @@ def _connect_args(datasource) -> dict:
     st = datasource.source_type
     if st in (SourceType.POSTGRES, SourceType.MYSQL):
         return {"connect_timeout": settings.DSE_CONNECTION_TEST_TIMEOUT}
-    if st == SourceType.MSSQL:
+    if st in (SourceType.MSSQL, SourceType.ODBC):
         return {"timeout": settings.DSE_QUERY_TIMEOUT_SECONDS}
     return {}
 

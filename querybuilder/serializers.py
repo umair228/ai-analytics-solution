@@ -13,7 +13,7 @@ class QueryDefinitionSerializer(serializers.ModelSerializer):
             "id", "name", "description", "datasource", "datasource_name",
             "database", "mode", "spec", "raw_sql", "generated_sql",
             "owner", "owner_username", "site", "visibility", "shared_with",
-            "last_run_at", "last_row_count", "created_at", "updated_at",
+            "parameters", "last_run_at", "last_row_count", "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "owner", "generated_sql", "last_run_at",

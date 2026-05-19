@@ -43,6 +43,9 @@ class QueryDefinition(TimeStampedModel):
         settings.AUTH_USER_MODEL, blank=True, related_name="shared_queries"
     )
 
+    # Declared parameters: [{"name": "start_date", "type": "date", "default": "", "required": true}, ...]
+    parameters = models.JSONField(default=list, blank=True)
+
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_row_count = models.IntegerField(null=True, blank=True)
 

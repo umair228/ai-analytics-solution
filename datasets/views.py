@@ -19,8 +19,10 @@ from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
-from .models import Dataset
-from .serializers import DatasetSerializer
+from django.utils import timezone
+
+from .models import AlertEvent, Dataset, DatasetAlert
+from .serializers import AlertEventSerializer, DatasetAlertSerializer, DatasetSerializer
 from .services import refresh_dataset
 
 
@@ -73,8 +75,38 @@ class DatasetViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def data(self, request, pk=None):
-        """Dataset rows, including any calculated fields."""
+        """Dataset rows, including any calculated fields.
+
+        Pass ?params={"key":"value",...} (URL-encoded JSON) to inject query
+        parameters into a parameterised raw-SQL query on the fly without
+        updating the cached result.
+        """
         dataset = self.get_object()
+        import json
+        raw_params = request.query_params.get("params")
+        live_params = None
+        if raw_params:
+            try:
+                live_params = json.loads(raw_params)
+            except (ValueError, TypeError):
+                live_params = None
+
+        if live_params:
+            # Run fresh with the supplied params; bypass the cache.
+            try:
+                from querybuilder.executor import execute_raw_sql, execute_spec
+                from querybuilder.models import QueryDefinition
+                q = dataset.query
+                merged = {**(dataset.param_defaults or {}), **live_params}
+                if q.mode == QueryDefinition.Mode.RAW:
+                    result = execute_raw_sql(q.datasource, q.raw_sql,
+                                            q.database or None, params=merged)
+                else:
+                    result = execute_spec(q.datasource, q.spec, q.database or None)
+                return Response({**result, "last_refreshed_at": dataset.last_refreshed_at})
+            except Exception as exc:  # noqa: BLE001
+                return _error(exc)
+
         if request.query_params.get("refresh") == "1":
             try:
                 refresh_dataset(dataset)
@@ -230,3 +262,64 @@ class DatasetViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         return Response(result)
+
+
+class AlertViewSet(viewsets.ModelViewSet):
+    """CRUD for dataset threshold alerts."""
+
+    serializer_class = DatasetAlertSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = DatasetAlert.objects.select_related("dataset", "owner").prefetch_related("events")
+        if user.is_admin:
+            return qs
+        return qs.filter(
+            Q(owner=user) | Q(dataset__owner=user) | Q(dataset__shared_with=user)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def toggle(self, request, pk=None):
+        alert = self.get_object()
+        alert.is_active = not alert.is_active
+        alert.save(update_fields=["is_active", "updated_at"])
+        return Response(DatasetAlertSerializer(alert, context={"request": request}).data)
+
+
+class AlertEventViewSet(viewsets.ReadOnlyModelViewSet):
+    """List and acknowledge alert events."""
+
+    serializer_class = AlertEventSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = AlertEvent.objects.select_related("alert", "alert__dataset", "acknowledged_by")
+        if user.is_admin:
+            return qs
+        return qs.filter(
+            Q(alert__owner=user) | Q(alert__dataset__owner=user) |
+            Q(alert__dataset__shared_with=user)
+        ).distinct()
+
+    @action(detail=True, methods=["post"])
+    def acknowledge(self, request, pk=None):
+        event = self.get_object()
+        if not event.acknowledged:
+            event.acknowledged = True
+            event.acknowledged_at = timezone.now()
+            event.acknowledged_by = request.user
+            event.save(update_fields=["acknowledged", "acknowledged_at", "acknowledged_by"])
+        return Response(AlertEventSerializer(event, context={"request": request}).data)
+
+    @action(detail=False, methods=["post"])
+    def acknowledge_all(self, request):
+        now = timezone.now()
+        updated = self.get_queryset().filter(acknowledged=False).update(
+            acknowledged=True, acknowledged_at=now, acknowledged_by=request.user,
+        )
+        return Response({"acknowledged": updated})

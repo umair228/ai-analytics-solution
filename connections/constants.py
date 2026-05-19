@@ -7,6 +7,7 @@ class SourceType:
     POSTGRES = "postgres"
     MYSQL = "mysql"
     SQLITE = "sqlite"
+    ODBC = "odbc"
     EXCEL = "excel"
     CSV = "csv"
 
@@ -16,11 +17,12 @@ class SourceType:
         (POSTGRES, "PostgreSQL"),
         (MYSQL, "MySQL / MariaDB"),
         (SQLITE, "SQLite"),
+        (ODBC, "Generic ODBC / DSN"),
         (EXCEL, "Excel Workbook"),
         (CSV, "CSV / Text File"),
     ]
 
-    DATABASE_TYPES = {MSSQL, ORACLE, POSTGRES, MYSQL, SQLITE}
+    DATABASE_TYPES = {MSSQL, ORACLE, POSTGRES, MYSQL, SQLITE, ODBC}
     FILE_TYPES = {EXCEL, CSV}
 
 
@@ -72,5 +74,11 @@ SOURCE_TYPE_CATALOG = [
         "value": SourceType.CSV, "label": "CSV / Text File",
         "category": "file", "default_port": None,
         "fields": ["file"], "supports_windows_auth": False,
+    },
+    {
+        "value": SourceType.ODBC, "label": "Generic ODBC / DSN",
+        "category": "database", "default_port": None,
+        "fields": ["dsn", "username", "password"],
+        "supports_windows_auth": True,
     },
 ]

@@ -83,9 +83,10 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
             return _err("Data source not found or access denied.", status.HTTP_404_NOT_FOUND)
         database = request.data.get("database") or None
         mode = request.data.get("mode", "builder")
+        params = request.data.get("params") or None
         try:
             if mode == "raw":
-                result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database)
+                result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database, params=params)
             else:
                 result = execute_spec(ds, request.data.get("spec") or {}, database)
         except (SpecError, CompileError, QueryError) as exc:
@@ -107,9 +108,10 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                 "You do not have access to this query's data source.",
                 status.HTTP_403_FORBIDDEN,
             )
+        params = request.data.get("params") or None
         try:
             if query.mode == QueryDefinition.Mode.RAW:
-                result = execute_raw_sql(ds, query.raw_sql, query.database or None)
+                result = execute_raw_sql(ds, query.raw_sql, query.database or None, params=params)
             else:
                 result = execute_spec(ds, query.spec, query.database or None)
         except (SpecError, CompileError, QueryError) as exc:

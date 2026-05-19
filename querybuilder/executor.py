@@ -68,13 +68,18 @@ def execute_spec(datasource, raw_spec, database=None):
         raise QueryError(str(exc)) from exc
 
 
-def execute_raw_sql(datasource, sql, database=None):
-    """Execute a hand-written SQL statement after enforcing read-only rules."""
+def execute_raw_sql(datasource, sql, database=None, params=None):
+    """Execute a hand-written SQL statement after enforcing read-only rules.
+
+    params: optional dict of named bind-parameters, e.g. {"start_date": "2024-01-01"}.
+    Use :name syntax in SQL: SELECT * FROM t WHERE date >= :start_date
+    """
     assert_read_only(sql)
     engine = get_engine(datasource, database)
     try:
         with engine.connect() as conn:
-            result = conn.execute(text(sql))
+            stmt = text(sql)
+            result = conn.execute(stmt, params or {})
             return _result_payload(result, sql, settings.DSE_QUERY_MAX_ROWS)
     except QueryError:
         raise
