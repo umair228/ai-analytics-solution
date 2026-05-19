@@ -44,6 +44,9 @@ class Dataset(TimeStampedModel):
     last_refreshed_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
 
+    # User-defined calculated fields: [{"name": ..., "expression": ...}]
+    calculated_fields = models.JSONField(default=list, blank=True)
+
     class Meta:
         ordering = ["-updated_at"]
 
