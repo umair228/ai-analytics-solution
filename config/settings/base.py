@@ -172,3 +172,17 @@ DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
 # --------------------------------------------------------------------------
 CLAUDE_API_KEY = config("CLAUDE_API_KEY", default="")
 CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
+
+# --------------------------------------------------------------------------
+# Email (alert notifications).  Dev default = console backend (no SMTP needed).
+# --------------------------------------------------------------------------
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = config("EMAIL_HOST", default="localhost")
+EMAIL_PORT = config("EMAIL_PORT", default=25, cast=int)
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="dse-alerts@localhost")

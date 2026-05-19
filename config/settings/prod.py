@@ -27,3 +27,7 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 X_FRAME_OPTIONS = "DENY"
+
+# Use SMTP in prod when EMAIL_HOST is configured, fall back to console.
+if config("EMAIL_HOST", default=""):
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"

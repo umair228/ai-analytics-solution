@@ -53,6 +53,7 @@ class DatasetAlertSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "dataset", "dataset_name", "column",
             "aggregation", "condition", "threshold", "is_active",
+            "notify_email", "notify_webhook",
             "owner", "owner_username", "unread_count",
             "last_checked_at", "last_triggered_at", "created_at", "updated_at",
         ]

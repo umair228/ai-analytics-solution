@@ -111,6 +111,10 @@ class DatasetAlert(TimeStampedModel):
     threshold   = models.FloatField()
     is_active   = models.BooleanField(default=True)
 
+    # Notification targets — both optional
+    notify_email   = models.EmailField(blank=True)
+    notify_webhook = models.URLField(blank=True)
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="alerts"
     )

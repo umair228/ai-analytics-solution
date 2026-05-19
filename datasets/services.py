@@ -1,9 +1,16 @@
 """Dataset refresh and alert evaluation."""
+import logging
+
 import pandas as pd
+import requests
+from django.core.mail import send_mail
+from django.conf import settings
 from django.utils import timezone
 
 from querybuilder.executor import execute_raw_sql, execute_spec
 from querybuilder.models import QueryDefinition
+
+logger = logging.getLogger(__name__)
 
 _COND_OPS = {
     "gt":  lambda v, t: v > t,
@@ -104,8 +111,34 @@ def evaluate_alerts(dataset):
                 triggered_value=value,
                 message=message,
             )
+            _notify(alert, message)
 
         update_fields = {"last_checked_at": now, "updated_at": now}
         if triggered:
             update_fields["last_triggered_at"] = now
         DatasetAlert.objects.filter(pk=alert.pk).update(**update_fields)
+
+
+def _notify(alert, message: str) -> None:
+    """Send email and/or webhook notification for a triggered alert."""
+    if alert.notify_email:
+        try:
+            send_mail(
+                subject=f"[DSE Alert] {alert.name}",
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[alert.notify_email],
+                fail_silently=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Alert email failed for alert %s: %s", alert.id, exc)
+
+    if alert.notify_webhook:
+        try:
+            requests.post(
+                alert.notify_webhook,
+                json={"alert": alert.name, "dataset": alert.dataset.name, "message": message},
+                timeout=10,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Alert webhook failed for alert %s: %s", alert.id, exc)
