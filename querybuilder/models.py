@@ -54,3 +54,31 @@ class QueryDefinition(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+
+class QueryRun(TimeStampedModel):
+    """A single execution of a query — saved or ad-hoc."""
+
+    query = models.ForeignKey(
+        QueryDefinition, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="runs",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="query_runs",
+    )
+    datasource = models.ForeignKey(
+        "connections.DataSource", on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+",
+    )
+    sql = models.TextField(blank=True)
+    row_count = models.IntegerField(null=True, blank=True)
+    duration_ms = models.IntegerField(null=True, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        label = self.query.name if self.query_id else "ad-hoc"
+        return f"{label} by {self.user_id} @ {self.created_at}"

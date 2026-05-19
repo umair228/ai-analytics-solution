@@ -1,6 +1,8 @@
+import time
+
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,9 +14,21 @@ from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
 from .compiler import CompileError, compile_spec
 from .executor import QueryError, execute_raw_sql, execute_spec
-from .models import QueryDefinition
+from .models import QueryDefinition, QueryRun
 from .serializers import QueryDefinitionSerializer
 from .spec import SpecError
+
+
+class QueryRunSerializer(serializers.ModelSerializer):
+    query_name = serializers.CharField(source="query.name", read_only=True, default=None)
+    datasource_name = serializers.CharField(source="datasource.name", read_only=True, default=None)
+
+    class Meta:
+        model = QueryRun
+        fields = [
+            "id", "query", "query_name", "datasource", "datasource_name",
+            "sql", "row_count", "duration_ms", "error", "created_at",
+        ]
 
 
 def _err(detail, code=status.HTTP_400_BAD_REQUEST):
@@ -84,15 +98,28 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
         database = request.data.get("database") or None
         mode = request.data.get("mode", "builder")
         params = request.data.get("params") or None
+        t0 = time.monotonic()
         try:
             if mode == "raw":
                 result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database, params=params)
             else:
                 result = execute_spec(ds, request.data.get("spec") or {}, database)
         except (SpecError, CompileError, QueryError) as exc:
+            QueryRun.objects.create(
+                user=request.user, datasource=ds,
+                sql=request.data.get("raw_sql", ""),
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error=str(exc),
+            )
             return _err(exc)
         except Exception as exc:  # noqa: BLE001
             return _err(exc)
+        QueryRun.objects.create(
+            user=request.user, datasource=ds,
+            sql=result.get("sql", ""),
+            row_count=result["row_count"],
+            duration_ms=int((time.monotonic() - t0) * 1000),
+        )
         record_audit(request, AuditLog.Action.QUERY, target_type="DataSource",
                      target_id=ds.id, summary=f"Ad-hoc query on '{ds.name}'",
                      detail={"rows": result["row_count"]})
@@ -109,15 +136,29 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
         params = request.data.get("params") or None
+        t0 = time.monotonic()
         try:
             if query.mode == QueryDefinition.Mode.RAW:
                 result = execute_raw_sql(ds, query.raw_sql, query.database or None, params=params)
             else:
                 result = execute_spec(ds, query.spec, query.database or None)
         except (SpecError, CompileError, QueryError) as exc:
+            QueryRun.objects.create(
+                query=query, user=request.user, datasource=ds,
+                sql=query.raw_sql or query.generated_sql,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                error=str(exc),
+            )
             return _err(exc)
         except Exception as exc:  # noqa: BLE001
             return _err(exc)
+        dur = int((time.monotonic() - t0) * 1000)
+        QueryRun.objects.create(
+            query=query, user=request.user, datasource=ds,
+            sql=result.get("sql", ""),
+            row_count=result["row_count"],
+            duration_ms=dur,
+        )
         query.generated_sql = result.get("sql", "")
         query.last_run_at = timezone.now()
         query.last_row_count = result["row_count"]
@@ -126,3 +167,12 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                      target_id=query.id, summary=f"Ran query '{query.name}'",
                      detail={"rows": result["row_count"]})
         return Response(result)
+
+    # ---- run history --------------------------------------------------------
+    @action(detail=False, methods=["get"], url_path="history")
+    def history(self, request):
+        """Recent query runs for the current user (last 50)."""
+        runs = QueryRun.objects.filter(user=request.user).select_related(
+            "query", "datasource"
+        )[:50]
+        return Response(QueryRunSerializer(runs, many=True).data)

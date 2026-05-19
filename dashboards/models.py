@@ -54,6 +54,7 @@ class Widget(TimeStampedModel):
         BOXPLOT = "boxplot", "Box plot"
         KPI = "kpi", "KPI card"
         TABLE = "table", "Table"
+        TEXT = "text", "Text / Note"
 
     dashboard = models.ForeignKey(
         Dashboard, on_delete=models.CASCADE, related_name="widgets"
