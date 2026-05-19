@@ -16,6 +16,10 @@ psycopg2-binary>=2.9  # PostgreSQL
 pandas>=2.2
 openpyxl>=3.1
 
+# Natural-language semantic query engine ("Ask Data")
+# After install also run: python -m spacy download en_core_web_sm
+spacy>=3.7,<3.9
+
 # Security / SQL safety
 cryptography>=43
 sqlparse>=0.5

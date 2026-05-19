@@ -16,15 +16,17 @@ def refresh_dataset(dataset):
     else:
         result = execute_spec(datasource, query.spec, database)
 
+    now = timezone.now()
     dataset.cached_columns = result["columns"]
     dataset.cached_rows = result["rows"]
     dataset.row_count = result["row_count"]
-    dataset.last_refreshed_at = timezone.now()
+    dataset.last_refreshed_at = now
     dataset.last_error = ""
+    dataset.schedule_next_refresh(from_time=now)
     dataset.save(
         update_fields=[
             "cached_columns", "cached_rows", "row_count",
-            "last_refreshed_at", "last_error", "updated_at",
+            "last_refreshed_at", "last_error", "next_refresh_at", "updated_at",
         ]
     )
     return result

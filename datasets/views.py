@@ -12,6 +12,8 @@ from analytics.engine import (
     df_to_rows,
 )
 from analytics.predict import auto_summary, detect_anomalies, forecast as run_forecast
+from analytics.profiling import profile_dataset
+from analytics.semantic import SemanticError, answer_question, suggest_questions
 from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
@@ -45,7 +47,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
         if self.action in (
             "list", "retrieve", "data", "refresh",
             "statistics", "aggregate", "compare",
-            "forecast", "anomalies", "summary",
+            "forecast", "anomalies", "summary", "ask", "profile",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
@@ -168,3 +170,45 @@ class DatasetViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         return Response(auto_summary(df))
+
+    @action(detail=True, methods=["get", "post"])
+    def ask(self, request, pk=None):
+        """Natural-language Q&A over the dataset (deterministic semantic engine).
+
+        GET  -> suggested example questions for this dataset.
+        POST -> answer a question ({"question": "..."}).
+        """
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+
+        if request.method == "GET":
+            return Response({"suggestions": suggest_questions(df, dataset.name)})
+
+        question = (request.data.get("question") or "").strip()
+        try:
+            result = answer_question(df, question, dataset.name)
+        except SemanticError as exc:
+            return Response({
+                "understood": False,
+                "answer": str(exc),
+                "question": question,
+                "suggestions": suggest_questions(df, dataset.name),
+            })
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        record_audit(request, AuditLog.Action.QUERY, target_type="Dataset",
+                     target_id=dataset.id, summary=f"Asked: {question[:60]}")
+        return Response(result)
+
+    @action(detail=True, methods=["get"])
+    def profile(self, request, pk=None):
+        """Full data-quality profile: per-column distributions and quality flags."""
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(profile_dataset(df))

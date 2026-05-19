@@ -1,5 +1,8 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from core.models import TimeStampedModel
 
@@ -14,6 +17,12 @@ class Dataset(TimeStampedModel):
     class Visibility(models.TextChoices):
         PRIVATE = "private", "Private"
         SHARED = "shared", "Shared"
+
+    class RefreshInterval(models.TextChoices):
+        MANUAL = "manual", "Manual only"
+        HOURLY = "hourly", "Every hour"
+        DAILY = "daily", "Every day"
+        WEEKLY = "weekly", "Every week"
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -47,11 +56,31 @@ class Dataset(TimeStampedModel):
     # User-defined calculated fields: [{"name": ..., "expression": ...}]
     calculated_fields = models.JSONField(default=list, blank=True)
 
+    # Scheduled auto-refresh
+    refresh_interval = models.CharField(
+        max_length=10, choices=RefreshInterval.choices,
+        default=RefreshInterval.MANUAL,
+    )
+    next_refresh_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         ordering = ["-updated_at"]
 
     def __str__(self):
         return self.name
+
+    # How long each interval waits between refreshes.
+    INTERVAL_DELTA = {
+        RefreshInterval.HOURLY: timedelta(hours=1),
+        RefreshInterval.DAILY: timedelta(days=1),
+        RefreshInterval.WEEKLY: timedelta(weeks=1),
+    }
+
+    def schedule_next_refresh(self, from_time=None):
+        """Set ``next_refresh_at`` based on the configured interval."""
+        delta = self.INTERVAL_DELTA.get(self.refresh_interval)
+        self.next_refresh_at = (from_time or timezone.now()) + delta if delta else None
+        return self.next_refresh_at
 
     def accessible_by(self, user) -> bool:
         if user.is_admin or self.owner_id == user.id:
