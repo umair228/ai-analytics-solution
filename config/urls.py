@@ -11,6 +11,8 @@ urlpatterns = [
     path("api/", include("accounts.urls")),
     path("api/", include("connections.urls")),
     path("api/", include("querybuilder.urls")),
+    path("api/", include("datasets.urls")),
+    path("api/", include("dashboards.urls")),
 ]
 
 if settings.DEBUG:

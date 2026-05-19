@@ -34,6 +34,8 @@ INSTALLED_APPS = [
     "accounts",
     "connections",
     "querybuilder",
+    "datasets",
+    "dashboards",
 ]
 
 MIDDLEWARE = [
