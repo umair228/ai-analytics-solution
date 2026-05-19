@@ -3,6 +3,8 @@
 This is the abstraction that lets one codebase talk to SQL Server, Oracle,
 PostgreSQL, MySQL, SQLite and (via materialization) Excel/CSV uniformly.
 """
+import os
+
 from django.conf import settings
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL, Engine
@@ -77,6 +79,18 @@ def build_url(datasource, database: str | None = None):
         path = opts.get("path") or db
         if not path:
             raise ConnectionConfigError("SQLite data source requires a file path.")
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            parent = os.path.dirname(path)
+            if not os.path.isdir(parent):
+                raise ConnectionConfigError(
+                    f"SQLite file not found and parent directory does not exist: {path}"
+                )
+            raise ConnectionConfigError(
+                f"SQLite database file does not exist: {path}\n"
+                "Check the path in the connection settings — it must be an absolute path "
+                "accessible inside the server/container."
+            )
         return f"sqlite:///{path}"
 
     if st == SourceType.ODBC:
@@ -99,6 +113,12 @@ def build_url(datasource, database: str | None = None):
         if not path:
             raise ConnectionConfigError(
                 "This file data source has no uploaded file yet — upload one first."
+            )
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            raise ConnectionConfigError(
+                f"Materialized file not found: {path}\n"
+                "Re-upload the file to refresh this data source."
             )
         return f"sqlite:///{path}"
 
