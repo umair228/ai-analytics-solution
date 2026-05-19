@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "querybuilder",
     "datasets",
     "dashboards",
+    "ai",
 ]
 
 MIDDLEWARE = [
@@ -165,3 +166,9 @@ DSE_CONNECTION_TEST_TIMEOUT = config("DSE_CONNECTION_TEST_TIMEOUT", default=10, 
 
 # Where file-based data sources (Excel/CSV) are materialized to SQLite
 DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
+
+# --------------------------------------------------------------------------
+# AI assistant (Claude API)
+# --------------------------------------------------------------------------
+CLAUDE_API_KEY = config("CLAUDE_API_KEY", default="")
+CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
