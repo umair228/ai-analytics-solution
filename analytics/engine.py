@@ -155,6 +155,50 @@ def column_statistics(df):
 
 
 # --------------------------------------------------------------------------
+# Rolling window analytics
+# --------------------------------------------------------------------------
+_ROLLING_FUNCS = {"mean", "sum", "min", "max"}
+
+
+def rolling_window(df, value_column, index_column=None, window=7, func="mean"):
+    """Rolling window over a numeric series — moving average/sum/min/max plus
+    period-over-period percentage change.
+
+    If *index_column* is supplied the result rows carry its values as labels;
+    otherwise the row position (0-based) is used.
+    """
+    if not value_column or value_column not in df.columns:
+        raise AnalyticsError("A valid 'value_column' is required.")
+    func = (func or "mean").lower()
+    if func not in _ROLLING_FUNCS:
+        raise AnalyticsError(f"Unsupported function '{func}'. Use one of: {', '.join(sorted(_ROLLING_FUNCS))}.")
+
+    window = max(1, int(window or 7))
+    series = pd.to_numeric(df[value_column], errors="coerce")
+    rolled = getattr(series.rolling(window=window, min_periods=1), func)()
+    pct = series.pct_change(periods=1).mul(100)
+
+    if index_column and index_column in df.columns:
+        labels = df[index_column].astype(str).tolist()
+    else:
+        labels = list(range(len(series)))
+
+    rows = [
+        [labels[i], _num(series.iloc[i]), _num(rolled.iloc[i]),
+         _num(pct.iloc[i]) if not pd.isna(pct.iloc[i]) else None]
+        for i in range(len(series))
+    ]
+    return {
+        "value_column": value_column,
+        "index_column": index_column,
+        "window": window,
+        "function": func,
+        "columns": ["label", "value", f"rolling_{func}", "pct_change"],
+        "rows": rows,
+    }
+
+
+# --------------------------------------------------------------------------
 # Aggregation
 # --------------------------------------------------------------------------
 def aggregate(df, group_by, measure, aggregation):

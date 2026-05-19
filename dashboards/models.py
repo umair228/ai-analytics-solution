@@ -48,6 +48,10 @@ class Widget(TimeStampedModel):
         LINE = "line", "Line chart"
         PIE = "pie", "Pie chart"
         AREA = "area", "Area chart"
+        SCATTER = "scatter", "Scatter plot"
+        HISTOGRAM = "histogram", "Histogram"
+        HEATMAP = "heatmap", "Heatmap"
+        BOXPLOT = "boxplot", "Box plot"
         KPI = "kpi", "KPI card"
         TABLE = "table", "Table"
 

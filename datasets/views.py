@@ -10,6 +10,7 @@ from analytics.engine import (
     column_statistics,
     compare as run_compare,
     df_to_rows,
+    rolling_window,
 )
 from analytics.predict import auto_summary, detect_anomalies, forecast as run_forecast
 from analytics.profiling import profile_dataset
@@ -212,3 +213,20 @@ class DatasetViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         return Response(profile_dataset(df))
+
+    @action(detail=True, methods=["post"])
+    def rolling(self, request, pk=None):
+        """Rolling window analytics — moving average/sum/min/max and pct change."""
+        dataset = self.get_object()
+        try:
+            df = build_dataframe(dataset)
+            result = rolling_window(
+                df,
+                value_column=request.data.get("value_column"),
+                index_column=request.data.get("index_column"),
+                window=int(request.data.get("window", 7) or 7),
+                func=request.data.get("function", "mean"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(result)
