@@ -1,15 +1,18 @@
+import secrets
+
 from django.db.models import Q
-from rest_framework import viewsets
+from django.utils import timezone
+from rest_framework import generics, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
-from .models import Dashboard, Widget
+from .models import Dashboard, DashboardShareToken, Widget
 from .serializers import DashboardSerializer, WidgetSerializer
 
 
@@ -55,6 +58,22 @@ class DashboardViewSet(viewsets.ModelViewSet):
             DashboardSerializer(fresh, context={"request": request}).data
         )
 
+    @action(detail=True, methods=["post", "get"], url_path="share-token", url_name="share-token")
+    def share_token(self, request, pk=None):
+        """GET returns existing token (or null). POST creates one if absent."""
+        dashboard = self.get_object()
+        if request.method == "POST":
+            token_obj, _ = DashboardShareToken.objects.get_or_create(
+                dashboard=dashboard,
+                defaults={"token": secrets.token_urlsafe(32), "created_by": request.user},
+            )
+            return Response({"token": token_obj.token})
+        try:
+            token_obj = DashboardShareToken.objects.get(dashboard=dashboard)
+            return Response({"token": token_obj.token})
+        except DashboardShareToken.DoesNotExist:
+            return Response({"token": None})
+
 
 class WidgetViewSet(viewsets.ModelViewSet):
     """CRUD for dashboard widgets."""
@@ -87,3 +106,20 @@ class WidgetViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         self._ensure_access(serializer.instance.dashboard)
         serializer.save()
+
+
+class PublicDashboardView(generics.RetrieveAPIView):
+    """Read a dashboard by share token — no authentication required."""
+    serializer_class = DashboardSerializer
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get_object(self):
+        token_str = self.kwargs["token"]
+        try:
+            tok = DashboardShareToken.objects.select_related("dashboard").get(token=token_str)
+        except DashboardShareToken.DoesNotExist:
+            raise NotFound("Invalid or revoked share link.")
+        if tok.expires_at and tok.expires_at < timezone.now():
+            raise PermissionDenied("This share link has expired.")
+        return tok.dashboard

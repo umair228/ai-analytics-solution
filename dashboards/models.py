@@ -82,3 +82,20 @@ class Widget(TimeStampedModel):
 
     def __str__(self):
         return self.title or f"Widget {self.pk}"
+
+
+class DashboardShareToken(TimeStampedModel):
+    """A token that grants read-only public access to a dashboard."""
+    dashboard = models.ForeignKey(Dashboard, on_delete=models.CASCADE, related_name="share_tokens")
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name="+"
+    )
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Share token for {self.dashboard.name}"
