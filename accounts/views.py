@@ -9,8 +9,9 @@ from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAdmin
 
-from .models import Lab, Organization, Site
+from .models import APIToken, Lab, Organization, Site
 from .serializers import (
+    APITokenSerializer,
     DSETokenObtainPairSerializer,
     LabSerializer,
     OrganizationSerializer,
@@ -98,3 +99,17 @@ class LabViewSet(viewsets.ModelViewSet):
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated()]
         return [IsAdmin()]
+
+
+class APITokenViewSet(viewsets.ModelViewSet):
+    """Personal API tokens — users manage only their own tokens."""
+
+    serializer_class = APITokenSerializer
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return APIToken.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)

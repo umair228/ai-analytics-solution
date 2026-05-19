@@ -1,8 +1,10 @@
+import secrets
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import Lab, Organization, Site
+from .models import APIToken, Lab, Organization, Site
 
 User = get_user_model()
 
@@ -100,6 +102,22 @@ class RegisterSerializer(serializers.ModelSerializer):
         user.role = User.Role.VIEWER  # self-registered users start as viewers
         user.save()
         return user
+
+
+class APITokenSerializer(serializers.ModelSerializer):
+    """Serializer for personal API tokens.
+    The 'key' field is write-once — only returned on creation."""
+
+    key = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = APIToken
+        fields = ["id", "name", "key", "last_used_at", "created_at"]
+        read_only_fields = ["id", "key", "last_used_at", "created_at"]
+
+    def create(self, validated_data):
+        validated_data["key"] = secrets.token_urlsafe(32)
+        return super().create(validated_data)
 
 
 class DSETokenObtainPairSerializer(TokenObtainPairSerializer):

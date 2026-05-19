@@ -268,3 +268,23 @@ def compare(df, dimension, measure, aggregation):
         ],
         "rows": out,
     }
+
+
+# --------------------------------------------------------------------------
+# Correlation matrix
+# --------------------------------------------------------------------------
+def correlation_matrix(df, method="pearson"):
+    """Compute pairwise correlations for all numeric columns."""
+    numeric = df.select_dtypes(include="number")
+    if numeric.shape[1] < 2:
+        return {"columns": [], "matrix": [], "method": method}
+    corr = numeric.corr(method=method)
+    cols = [str(c) for c in corr.columns.tolist()]
+    matrix = []
+    for row_label in corr.index:
+        row = []
+        for col_label in corr.columns:
+            v = corr.at[row_label, col_label]
+            row.append(_num(v))
+        matrix.append(row)
+    return {"columns": cols, "matrix": matrix, "method": method}

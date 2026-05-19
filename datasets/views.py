@@ -9,6 +9,7 @@ from analytics.engine import (
     build_dataframe,
     column_statistics,
     compare as run_compare,
+    correlation_matrix,
     df_to_rows,
     rolling_window,
 )
@@ -51,6 +52,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "list", "retrieve", "data", "refresh",
             "statistics", "aggregate", "compare",
             "forecast", "anomalies", "summary", "ask", "profile",
+            "correlation", "rolling",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
@@ -245,6 +247,19 @@ class DatasetViewSet(viewsets.ModelViewSet):
         except Exception as exc:  # noqa: BLE001
             return _error(exc)
         return Response(profile_dataset(df))
+
+    @action(detail=True, methods=["get"])
+    def correlation(self, request, pk=None):
+        """Pairwise Pearson/Spearman correlation matrix for numeric columns."""
+        dataset = self.get_object()
+        method = request.query_params.get("method", "pearson")
+        if method not in ("pearson", "spearman", "kendall"):
+            method = "pearson"
+        try:
+            df = build_dataframe(dataset)
+        except Exception as exc:  # noqa: BLE001
+            return _error(exc)
+        return Response(correlation_matrix(df, method=method))
 
     @action(detail=True, methods=["post"])
     def rolling(self, request, pk=None):
