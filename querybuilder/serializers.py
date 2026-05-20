@@ -6,6 +6,7 @@ from .models import QueryDefinition
 class QueryDefinitionSerializer(serializers.ModelSerializer):
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     datasource_name = serializers.CharField(source="datasource.name", read_only=True)
+    database = serializers.CharField(allow_blank=True, allow_null=True, default="")
 
     class Meta:
         model = QueryDefinition
@@ -19,6 +20,9 @@ class QueryDefinitionSerializer(serializers.ModelSerializer):
             "id", "owner", "generated_sql", "last_run_at",
             "last_row_count", "created_at", "updated_at",
         ]
+
+    def validate_database(self, value):
+        return value or ""
 
     def create(self, validated_data):
         shared = validated_data.pop("shared_with", [])
