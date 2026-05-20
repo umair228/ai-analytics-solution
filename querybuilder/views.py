@@ -64,7 +64,12 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
         return ds if ds.accessible_by(self.request.user) else None
 
     def perform_create(self, serializer):
-        query = serializer.save()
+        try:
+            query = serializer.save()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception("QueryDefinition save failed")
+            raise serializers.ValidationError({"detail": str(exc)}) from exc
         record_audit(self.request, AuditLog.Action.CREATE, target_type="QueryDefinition",
                      target_id=query.id, summary=f"Saved query '{query.name}'")
 
