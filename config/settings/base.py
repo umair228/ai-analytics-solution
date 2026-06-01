@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "datasets",
     "dashboards",
     "ai",
+    "forecasting",
 ]
 
 MIDDLEWARE = [
@@ -173,6 +174,42 @@ DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
 # --------------------------------------------------------------------------
 CLAUDE_API_KEY = config("CLAUDE_API_KEY", default="")
 CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
+
+# --------------------------------------------------------------------------
+# Forecasting source database (LIMS — external SQL Server, read-only)
+#
+# The `forecasting` app reads operational LIMS tables (INSTRUMENTS1_LOG,
+# SAMPLE, INVENTORY_TRANS/ITEM) directly over pyodbc to train / serve the
+# NeuralProphet time-series models.  It does NOT use the Django ORM, so this
+# DB is kept separate from the app-metadata DB (DATABASES["default"]).
+# --------------------------------------------------------------------------
+FORECAST_DB = {
+    "ENGINE": config("DB_ENGINE", default="mssql"),
+    "DRIVER": config("DB_DRIVER", default="ODBC Driver 18 for SQL Server"),
+    "HOST": config("DB_HOST", default="127.0.0.1"),
+    "PORT": config("DB_PORT", default="1433"),
+    "NAME": config("DB_NAME", default="SMJMUN_DEV"),
+    "USER": config("DB_USER", default="SA"),
+    "PASSWORD": config("DB_PASSWORD", default=""),
+}
+
+# Inventory transactions may live in their own LIMS database. Default to the
+# same server/database as FORECAST_DB unless explicitly overridden.
+FORECAST_INVENTORY_DB = {
+    **FORECAST_DB,
+    "HOST": config("DB_HOST_INVENTORY", default=FORECAST_DB["HOST"]),
+    "NAME": config("DB_INVENTORY_NAME", default=FORECAST_DB["NAME"]),
+}
+
+# When True, the sample forecaster back-fills the dbo.SAMPLE.Labs column on
+# every request (Portal-BE behaviour). Off by default: the lab classification
+# is computed in-memory and the column write is a side-effect not needed for
+# the forecast result, so we avoid mutating the source DB on a GET.
+FORECAST_SYNC_LABS_COLUMN = config(
+    "FORECAST_SYNC_LABS_COLUMN", default=False, cast=bool
+)
+# Connection timeout (seconds) for the LIMS forecast DB.
+FORECAST_DB_TIMEOUT = config("FORECAST_DB_TIMEOUT", default=15, cast=int)
 
 # --------------------------------------------------------------------------
 # Email (alert notifications).  Dev default = console backend (no SMTP needed).

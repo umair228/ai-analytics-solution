@@ -13,7 +13,9 @@ PyMySQL>=1.1          # MySQL / MariaDB
 psycopg2-binary>=2.9  # PostgreSQL
 
 # File data sources + analytics
-pandas>=2.2
+# Pinned to the 2.2.x line: NeuralProphet 0.9.0 uses Series.view(), removed in
+# pandas 3.0. numpy is likewise held at <2 by NeuralProphet.
+pandas>=2.2,<2.3
 openpyxl>=3.1
 
 # Natural-language semantic query engine ("Ask Data")
@@ -29,6 +31,10 @@ anthropic>=0.40
 
 # HTTP client (used for webhook notifications)
 requests>=2.32
+
+# Forecasting (LIMS time-series models — `forecasting` app)
+# NeuralProphet pulls torch + pytorch-lightning and pins numpy<2 (1.26.x).
+neuralprophet==0.9.0
 
 # Production server
 gunicorn>=23
