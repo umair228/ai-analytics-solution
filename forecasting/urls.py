@@ -6,6 +6,7 @@ from .views import (
     SampleForecast,
     SectionForecast,
     InventoryForecast,
+    ForecastInsightsView,
 )
 
 urlpatterns = [
@@ -13,4 +14,5 @@ urlpatterns = [
     path("sample-forecast/", SampleForecast.as_view(), name="sample-forecast"),
     path("section-forecast/", SectionForecast.as_view(), name="section-forecast"),
     path("inventory-forecast/", InventoryForecast.as_view(), name="inventory-forecast"),
+    path("forecast-insights/", ForecastInsightsView.as_view(), name="forecast-insights"),
 ]
