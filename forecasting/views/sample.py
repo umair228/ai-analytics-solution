@@ -20,35 +20,47 @@ import pandas as pd
 import numpy as np
 from django.conf import settings
 
-from ..db import get_connection, read_sql
+from ..db import date_cast, get_connection, is_sqlite, read_sql, tbl
 
-labs = ["Food", "Veterinary", "Environment", "Construction", "CMS", "Drainage"]
+# refinery laboratory sections that get a per-section sample-volume model.
+labs = [
+    "Crude & Distillation", "Gasoline/Mogas", "Naphtha & Aromatics",
+    "Middle Distillates", "Fuel Oil & Asphalt", "Gas & LPG",
+    "Environmental & Water",
+]
+
+# LabWare GROUP_NAME -> refinery section. (Reverting to the Sharjah municipality
+# LIMS needs the old labs list + if/else mapping — preserved in git history.)
+GROUP_TO_SECTION = {
+    "CRUDE_DIST": "Crude & Distillation", "CRUDE_ASSAY": "Crude & Distillation",
+    "ATMOS_DIST": "Crude & Distillation",
+    "MOGAS_CHEM": "Gasoline/Mogas", "MOGAS_PHYS": "Gasoline/Mogas",
+    "GASOLINE_OCT": "Gasoline/Mogas",
+    "NAPH_AROM": "Naphtha & Aromatics", "REFORMATE": "Naphtha & Aromatics",
+    "BTX_AROM": "Naphtha & Aromatics", "PARA_XYL": "Naphtha & Aromatics",
+    "JET_KERO": "Middle Distillates", "DIESEL_PHYS": "Middle Distillates",
+    "GASOIL_HYDRO": "Middle Distillates", "MIDDIST": "Middle Distillates",
+    "FUELOIL_HSFO": "Fuel Oil & Asphalt", "ASPHALT_BIT": "Fuel Oil & Asphalt",
+    "LUBE_BASEOIL": "Fuel Oil & Asphalt", "LUBE_ASPHALT": "Fuel Oil & Asphalt",
+    "GAS_LPG": "Gas & LPG", "REFGAS_GC": "Gas & LPG", "LPG_SPEC": "Gas & LPG",
+    "ENV_WATER": "Environmental & Water", "UTIL_BFW": "Environmental & Water",
+    "EFFLUENT": "Environmental & Water", "ENV_AIR": "Environmental & Water",
+}
 
 APP_DIR = os.path.dirname(os.path.dirname(__file__))
 MODEL_DIR = os.path.join(APP_DIR, "artifacts", "sample")
 os.makedirs(MODEL_DIR, exist_ok=True)
-modelPathCombined = os.path.join(MODEL_DIR, "SharjahModelCombined.pkl")
-modelPathLabType = os.path.join(MODEL_DIR, "SharjahModelLabType_{lab}.pkl")
+modelPathCombined = os.path.join(MODEL_DIR, "RefinerySampleCombined.pkl")
+modelPathLabType = os.path.join(MODEL_DIR, "RefinerySampleSection_{lab}.pkl")
 
 
 def classifyLab(group):
-    if group.startswith("CML_") or group == "SCM_CONSTRUCTION":
-        return "Construction"
-    elif group in ("ENV_CHEM", "ENV_MICRO", "SCM_ENVIRONMENT"):
-        return "Environment"
-    elif group in ("FOOD_CHEM", "FOOD_MICRO", "FOOD_PHYSICAL", "SCM_FOOD"):
-        return "Food"
-    elif group == "SCM_VETERINARY":
-        return "Veterinary"
-    elif group in ("SCM_DRAINAGE", "DRN_CHEM"):
-        return "Drainage"
-    elif group == "CMS_GEOTECHNICAL":
-        return "CMS"
-    else:
-        return "Other"
+    return GROUP_TO_SECTION.get(group, "Other")
 
 
 def ensureLabsColumnExists():
+    if is_sqlite():
+        return  # SQLite warehouse already ships the classification in-memory.
     try:
         with get_connection(autocommit=True) as conn:
             cursor = conn.cursor()
@@ -73,11 +85,11 @@ def getLabData():
         try:
             ensureLabsColumnExists()
 
-            sql = """
+            sql = f"""
             SELECT
-                CAST(LOGIN_DATE AS DATE) AS ds,
+                {date_cast('LOGIN_DATE')} AS ds,
                 GROUP_NAME
-            FROM dbo.SAMPLE
+            FROM {tbl('SAMPLE')}
             WHERE LOGIN_DATE IS NOT NULL AND GROUP_NAME IS NOT NULL
             """
             with get_connection(autocommit=True) as conn:
@@ -91,7 +103,7 @@ def getLabData():
                 # Optional: back-fill the Labs column on the source table.
                 # Off by default (FORECAST_SYNC_LABS_COLUMN) since the forecast
                 # uses the in-memory classification and the write is a side-effect.
-                if getattr(settings, "FORECAST_SYNC_LABS_COLUMN", False):
+                if getattr(settings, "FORECAST_SYNC_LABS_COLUMN", False) and not is_sqlite():
                     cursor = conn.cursor()
                     for groupName, lab in df[["GROUP_NAME", "Labs"]].drop_duplicates().values:
                         cursor.execute(
@@ -342,7 +354,10 @@ class SectionForecast(APIView):
                 return Response({"error": f"No training data available for lab '{lab}' in the 2021-2023 range."}, status=status.HTTP_400_BAD_REQUEST)
 
             floor = modelDf["y"].min()
-            modelPath = modelPathLabType.format(lab=lab)
+            # Section names can contain "/" and spaces (e.g. "Gasoline/Mogas") —
+            # sanitise to a safe model filename.
+            safe_lab = lab.replace("/", "-").replace(" ", "_")
+            modelPath = modelPathLabType.format(lab=safe_lab)
             m = _load_model(modelPath, modelDf)
             if m is None:
                 return Response({"error": f"Failed to train or load model for lab '{lab}'."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

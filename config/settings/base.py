@@ -184,6 +184,8 @@ CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
 # DB is kept separate from the app-metadata DB (DATABASES["default"]).
 # --------------------------------------------------------------------------
 FORECAST_DB = {
+    # ENGINE: "mssql" (production LabWare LIMS over pyodbc) or "sqlite"
+    # (self-contained LIMS warehouse file — the refinery demo).
     "ENGINE": config("DB_ENGINE", default="mssql"),
     "DRIVER": config("DB_DRIVER", default="ODBC Driver 18 for SQL Server"),
     "HOST": config("DB_HOST", default="127.0.0.1"),
@@ -191,6 +193,9 @@ FORECAST_DB = {
     "NAME": config("DB_NAME", default="SMJMUN_DEV"),
     "USER": config("DB_USER", default="SA"),
     "PASSWORD": config("DB_PASSWORD", default=""),
+    # Path used only when ENGINE == "sqlite".
+    "PATH": config("DB_SQLITE_PATH",
+                   default=str(BASE_DIR / "media" / "refinery_lims.sqlite3")),
 }
 
 # Inventory transactions may live in their own LIMS database. Default to the

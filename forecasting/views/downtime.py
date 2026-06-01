@@ -18,14 +18,17 @@ from rest_framework import status
 import pandas as pd
 import numpy as np
 
-from ..db import get_connection, read_sql
+from ..db import get_connection, read_sql, tbl
 
 APP_DIR = os.path.dirname(os.path.dirname(__file__))
 MODELS_DIR = os.path.join(APP_DIR, "artifacts", "downtime")
 os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Default instrument shown when none is selected (refinery GC).
+DEFAULT_INSTRUMENT = "GC-401"
 
-def _fallback_payload(instrument="05_C_401", reason="database connection issues"):
+
+def _fallback_payload(instrument=DEFAULT_INSTRUMENT, reason="database connection issues"):
     """Static payload returned when the DB or model pipeline is unavailable."""
     return {
         "instrument": instrument,
@@ -98,7 +101,7 @@ def _load_or_train(model_path, df_prophet):
 
 class DowntimeForecastView(APIView):
     def get(self, request):
-        selected_instrument = request.query_params.get("instrument", "05_C_401")
+        selected_instrument = request.query_params.get("instrument", DEFAULT_INSTRUMENT)
         try:
             try:
                 conn = get_connection()
@@ -106,9 +109,9 @@ class DowntimeForecastView(APIView):
                 print(f"Database connection failed: {e}")
                 return Response(_fallback_payload(selected_instrument), status=status.HTTP_200_OK)
 
-            query = """
+            query = f"""
             SELECT INSTRUMENT, EVENT_TYPE, ENTERED_BY, ENTERED_ON
-            FROM dbo.INSTRUMENTS1_LOG
+            FROM {tbl('INSTRUMENTS1_LOG')}
             WHERE EVENT_TYPE IN ('ON', 'OFF') AND ENTERED_ON IS NOT NULL
             ORDER BY INSTRUMENT, ENTERED_ON;
             """

@@ -20,7 +20,7 @@ from rest_framework import status
 import pandas as pd
 import numpy as np
 
-from ..db import get_inventory_connection, read_sql
+from ..db import get_inventory_connection, read_sql, tbl
 
 APP_DIR = os.path.dirname(os.path.dirname(__file__))
 MODEL_DIR = os.path.join(APP_DIR, "artifacts", "inventory")
@@ -46,7 +46,7 @@ def _normalize_stock(raw: str) -> str:
 
 
 def getInventoryData():
-    sql = """
+    sql = f"""
     SELECT
         it.ITEM_NUMBER,
         it.STOCK,
@@ -56,8 +56,8 @@ def getInventoryData():
         tr.TRANSACTION_STATUS,
         tr.QUANTITY,
         tr.UNITS
-    FROM dbo.INVENTORY_TRANS AS tr
-    INNER JOIN dbo.INVENTORY_ITEM AS it
+    FROM {tbl('INVENTORY_TRANS')} AS tr
+    INNER JOIN {tbl('INVENTORY_ITEM')} AS it
         ON tr.INVENTORY_ITEM = it.ITEM_NUMBER
     WHERE
         tr.TRANSACTION_DATE IS NOT NULL

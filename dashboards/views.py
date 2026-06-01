@@ -26,7 +26,8 @@ class DashboardViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = Dashboard.objects.select_related("owner").prefetch_related(
-            "widgets", "widgets__dataset", "shared_with"
+            "widgets", "widgets__dataset",
+            "widgets__dataset__query__datasource", "shared_with"
         )
         if user.is_admin:
             return qs

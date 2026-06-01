@@ -19,15 +19,25 @@ class DashboardSerializer(serializers.ModelSerializer):
     widgets = WidgetSerializer(many=True, read_only=True)
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     widget_count = serializers.IntegerField(source="widgets.count", read_only=True)
+    datasource_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
         fields = [
             "id", "name", "description", "owner", "owner_username", "site",
             "visibility", "shared_with", "filters", "widgets", "widget_count",
-            "created_at", "updated_at",
+            "datasource_names", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
+
+    def get_datasource_names(self, obj):
+        """Distinct source databases this dashboard's widgets read from."""
+        names = set()
+        for w in obj.widgets.all():
+            ds = getattr(w, "dataset", None)
+            if ds and ds.query_id and ds.query.datasource_id:
+                names.add(ds.query.datasource.name)
+        return sorted(names)
 
     def create(self, validated_data):
         shared = validated_data.pop("shared_with", [])

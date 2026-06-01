@@ -1,0 +1,4177 @@
+{
+ "sections": [
+  {
+   "code": "CRUDE_DIST",
+   "name": "Crude Oil & Distillation",
+   "group_names": [
+    "CRUDE_DIST",
+    "CRUDE_ASSAY",
+    "ATMOS_DIST"
+   ],
+   "description": "Crude receipt and assay plus atmospheric/vacuum cut characterization: API gravity & density (ASTM D5002/D1298), TBP and physical distillation (D86/D7169/D2892), salt content (D3230), water by Karl Fischer/distillation (D6304/D4006), BS&W, RVP (D323/D5191), H2S & RSH mercaptans, sulfur (D4294/D2622), TAN (D664) and pour point (D97)."
+  },
+  {
+   "code": "MOGAS_CHEM",
+   "name": "Gasoline / Mogas Chemistry",
+   "group_names": [
+    "MOGAS_CHEM",
+    "MOGAS_PHYS",
+    "GASOLINE_OCT"
+   ],
+   "description": "Finished motor gasoline (Premium 95 / Regular 91) testing: research & motor octane RON/MON (D2699/D2700), PIONA & oxygenates by GC (D6730/D5599/D4815), benzene & aromatics (D3606/D5580), RVP (D5191), distillation (D86), sulfur (D5453), lead (D3237), gum (D381) and oxidation stability (D525)."
+  },
+  {
+   "code": "NAPH_AROM",
+   "name": "Naphtha, Reformate & Aromatics",
+   "group_names": [
+    "NAPH_AROM",
+    "REFORMATE",
+    "BTX_AROM",
+    "PARA_XYL"
+   ],
+   "description": "Naphtha feeds/reformate and aromatics-complex streams (benzene, toluene, mixed & para-xylene): detailed PIONA/PINA by GC (D6729/D5134), bromine index (D2710), non-aromatic & purity by GC (D7504/D3797/D5917), color (D1209 APHA), acid wash color, total chloride and sulfur speciation (D3961)."
+  },
+  {
+   "code": "MIDDIST",
+   "name": "Middle Distillates (Jet / Kero & Diesel / Gasoil)",
+   "group_names": [
+    "JET_KERO",
+    "DIESEL_PHYS",
+    "GASOIL_HYDRO",
+    "MIDDIST"
+   ],
+   "description": "Jet A-1/kerosene and automotive diesel/gasoil: flash point (D93), freeze point (D2386), smoke point (D1322), cetane index/number (D4737/D613), cloud & CFPP (D5773/D6371), pour point (D97), cold filter/lubricity HFRR (D6079), distillation (D86/D2887), sulfur (D5453) and FAME content (EN 14078)."
+  },
+  {
+   "code": "LUBE_ASPHALT",
+   "name": "Fuel Oil, Asphalt & Lube Base Oils",
+   "group_names": [
+    "FUELOIL_HSFO",
+    "ASPHALT_BIT",
+    "LUBE_BASEOIL",
+    "LUBE_ASPHALT"
+   ],
+   "description": "Heavy fuel oil/HSFO bunker, paving bitumen/asphalt and lube base oils: kinematic & dynamic viscosity (D445/D7042), CCAI, asphaltenes (D6560), MCRT/CCR (D4530), penetration & softening point (D5/D36), ductility, Sara fractions, viscosity index (D2270), CCS and acid/base number (D664/D2896)."
+  },
+  {
+   "code": "GAS_LPG",
+   "name": "Refinery Gas & LPG",
+   "group_names": [
+    "GAS_LPG",
+    "REFGAS_GC",
+    "LPG_SPEC"
+   ],
+   "description": "Fuel gas, LPG and propane/butane streams: refinery & natural gas composition by GC (D1945/D2163), calorific value/Wobbe (D3588), vapor pressure of LPG (D1267/D6897), residue & evaporation (D2158), total & speciated sulfur (D6667/D5504), H2S by stain tube (D2420) and copper corrosion (D1838)."
+  },
+  {
+   "code": "ENV_WATER",
+   "name": "Environmental, Water & Utilities",
+   "group_names": [
+    "ENV_WATER",
+    "UTIL_BFW",
+    "EFFLUENT",
+    "ENV_AIR"
+   ],
+   "description": "Boiler feed/cooling water, steam condensate, effluent/wastewater and stack/ambient air: pH & conductivity (D1293/D1125), TDS/TSS, hardness, silica, phosphate, dissolved O2, oil-in-water (D7066), COD/BOD, total sulfur & H2S in gas, and trace metals by ICP (D1976)."
+  },
+  {
+   "code": "QC_CAL",
+   "name": "QA/QC & Calibration",
+   "group_names": [
+    "QC_CAL",
+    "QC_CHECK",
+    "RM_CRM",
+    "PT_ROUND"
+   ],
+   "description": "Cross-section quality unit: control-chart QC check samples, certified reference materials/CRM verification, instrument calibration & verification (balances, GC/ICP/XRF, density meters), method validation, proficiency-test/ASTM ILCP round robins, blanks/spikes and uncertainty budgets."
+  }
+ ],
+ "analysts": [
+  {
+   "name": "Abdullah Al-Qahtani",
+   "role": "Section Head",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "name": "Faisal Al-Otaibi",
+   "role": "Senior Analyst",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "name": "Ramesh Pillai",
+   "role": "Analyst",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "name": "Mohammed Al-Ghamdi",
+   "role": "Section Head",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "name": "Sara Al-Dossari",
+   "role": "Senior Analyst",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "name": "Rajesh Kumar",
+   "role": "Analyst",
+   "section_code": "NAPH_AROM"
+  },
+  {
+   "name": "Khalid Al-Harbi",
+   "role": "Section Head",
+   "section_code": "NAPH_AROM"
+  },
+  {
+   "name": "Ahmed Al-Shehri",
+   "role": "Senior Analyst",
+   "section_code": "MIDDIST"
+  },
+  {
+   "name": "Joseph Mathew",
+   "role": "Analyst",
+   "section_code": "MIDDIST"
+  },
+  {
+   "name": "Tariq Al-Zahrani",
+   "role": "Section Head",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "name": "Imran Siddiqui",
+   "role": "Senior Analyst",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "name": "Yousef Al-Maliki",
+   "role": "Section Head",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "name": "Suresh Nair",
+   "role": "Analyst",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "name": "Noura Al-Rashidi",
+   "role": "Senior Analyst",
+   "section_code": "ENV_WATER"
+  },
+  {
+   "name": "Bandar Al-Subaie",
+   "role": "Analyst",
+   "section_code": "ENV_WATER"
+  },
+  {
+   "name": "Fatima Al-Amri",
+   "role": "QC Chemist",
+   "section_code": "QC_CAL"
+  }
+ ],
+ "products": [
+  {
+   "code": "LPG-C3C4",
+   "name": "LPG (Commercial Propane/Butane Mix)",
+   "stream_type": "finished_product",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "PROP-COM",
+   "name": "Commercial Propane",
+   "stream_type": "finished_product",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "BUT-COM",
+   "name": "Commercial Butane",
+   "stream_type": "finished_product",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "LNAP-STR",
+   "name": "Light Straight-Run Naphtha",
+   "stream_type": "intermediate",
+   "section_code": "NAPHTHA_PHYS"
+  },
+  {
+   "code": "HNAP-STR",
+   "name": "Heavy Straight-Run Naphtha (Reformer Feed)",
+   "stream_type": "intermediate",
+   "section_code": "NAPHTHA_PHYS"
+  },
+  {
+   "code": "REFORM",
+   "name": "Platformate / Reformate",
+   "stream_type": "blendstock",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "code": "ISOM",
+   "name": "Isomerate (Light Naphtha Isomerisation)",
+   "stream_type": "blendstock",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "code": "MOGAS-91",
+   "name": "Gasoline 91 RON (Mogas 91 Unleaded)",
+   "stream_type": "finished_product",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "code": "MOGAS-95",
+   "name": "Gasoline 95 RON (Mogas 95 Unleaded)",
+   "stream_type": "finished_product",
+   "section_code": "MOGAS_CHEM"
+  },
+  {
+   "code": "BENZENE",
+   "name": "Benzene (Aromatics Extraction)",
+   "stream_type": "petrochemical",
+   "section_code": "AROM_BTX"
+  },
+  {
+   "code": "TOLUENE",
+   "name": "Toluene (Aromatics Extraction)",
+   "stream_type": "petrochemical",
+   "section_code": "AROM_BTX"
+  },
+  {
+   "code": "MX-XYL",
+   "name": "Mixed Xylenes",
+   "stream_type": "petrochemical",
+   "section_code": "AROM_BTX"
+  },
+  {
+   "code": "JETA1",
+   "name": "Jet A-1 Aviation Turbine Fuel (DEF STAN 91-091 / ASTM D1655)",
+   "stream_type": "FINISHED",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "KERO",
+   "name": "Kerosene / SK Untreated Kero (Merox feed)",
+   "stream_type": "INTERMEDIATE",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "ULSD10",
+   "name": "Automotive Gas Oil - Saudi ULSD 10 ppm (EN590-like Diesel)",
+   "stream_type": "FINISHED",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "AGO500",
+   "name": "Automotive Gas Oil - Diesel 500 ppm S (Grade 2-D)",
+   "stream_type": "FINISHED",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "LGO",
+   "name": "Light Gas Oil (HDS feed / blendstock)",
+   "stream_type": "INTERMEDIATE",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "HGO",
+   "name": "Heavy Gas Oil (Hydrocracker / FCC feed cut)",
+   "stream_type": "INTERMEDIATE",
+   "section_code": "MIDDLE_DIST"
+  },
+  {
+   "code": "CRUDE-AH",
+   "name": "Arabian Heavy Crude Oil (feed)",
+   "stream_type": "crude",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "code": "CRUDE-AM",
+   "name": "Arabian Medium Crude Oil (feed)",
+   "stream_type": "crude",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "code": "ATM-RES",
+   "name": "Atmospheric Residue (Long Residue, CDU bottoms)",
+   "stream_type": "intermediate",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "code": "VAC-RES",
+   "name": "Vacuum Residue (Short Residue, VDU bottoms)",
+   "stream_type": "intermediate",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "code": "VGO-HVY",
+   "name": "Heavy Vacuum Gas Oil (HVGO)",
+   "stream_type": "intermediate",
+   "section_code": "CRUDE_DIST"
+  },
+  {
+   "code": "RFO-380",
+   "name": "Residual Fuel Oil RMG 380 (Bunker, ISO 8217)",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "RFO-180",
+   "name": "Residual Fuel Oil RMG 180 (Bunker, ISO 8217)",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "LSFO-05",
+   "name": "Very Low Sulphur Fuel Oil RMG 0.50% (IMO 2020)",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "BIT-6070",
+   "name": "Penetration-Grade Bitumen 60/70 (Asphalt)",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "BIT-8010",
+   "name": "Penetration-Grade Bitumen 80/100 (Asphalt)",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "LBO-150N",
+   "name": "Lube Base Oil Group II 150N",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "LBO-500N",
+   "name": "Lube Base Oil Group II 500N",
+   "stream_type": "finished",
+   "section_code": "LUBE_ASPHALT"
+  },
+  {
+   "code": "SUL-SLD",
+   "name": "Granulated Solid Sulphur (Claus product)",
+   "stream_type": "finished",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "LPG-MIX",
+   "name": "Mixed LPG (Commercial Propane-Butane)",
+   "stream_type": "finished",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "PROP-COM",
+   "name": "Commercial Propane (C3)",
+   "stream_type": "finished",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "BUT-COM",
+   "name": "Commercial Butane (C4)",
+   "stream_type": "finished",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "FG-FUEL",
+   "name": "Refinery Fuel Gas (Treated)",
+   "stream_type": "intermediate",
+   "section_code": "GAS_LPG"
+  },
+  {
+   "code": "WTR-SOUR",
+   "name": "Sour Water (SWS Feed)",
+   "stream_type": "water",
+   "section_code": "ENV_WATER"
+  },
+  {
+   "code": "WTR-BOIL",
+   "name": "Boiler Feed Water / HP Steam Drum Water",
+   "stream_type": "water",
+   "section_code": "ENV_WATER"
+  },
+  {
+   "code": "WTR-COOL",
+   "name": "Cooling Tower Circulating Water",
+   "stream_type": "water",
+   "section_code": "ENV_WATER"
+  },
+  {
+   "code": "WTR-EFFL",
+   "name": "Treated Effluent (API/CPI Outfall)",
+   "stream_type": "water",
+   "section_code": "ENV_WATER"
+  }
+ ],
+ "tests": [
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Research Octane Number (RON)",
+   "astm_method": "ASTM D2699",
+   "unit": "RON",
+   "spec_min": 91,
+   "spec_max": null,
+   "typical_mean": 91.6,
+   "typical_std": 0.35,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Motor Octane Number (MON)",
+   "astm_method": "ASTM D2700",
+   "unit": "MON",
+   "spec_min": 81,
+   "spec_max": null,
+   "typical_mean": 82.4,
+   "typical_std": 0.4,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Vapour Pressure (DVPE, RVP)",
+   "astm_method": "ASTM D5191",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 60,
+   "typical_mean": 54,
+   "typical_std": 2.2,
+   "instrument_type": "Grabner MINIVAP VPXpert (mini-method VPT)"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 720,
+   "spec_max": 775,
+   "typical_mean": 745,
+   "typical_std": 4,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Distillation IBP",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 36,
+   "typical_std": 2.5,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Distillation T50 (50% Evaporated)",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": 77,
+   "spec_max": 110,
+   "typical_mean": 96,
+   "typical_std": 3.5,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Distillation FBP",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": null,
+   "spec_max": 215,
+   "typical_mean": 198,
+   "typical_std": 4.5,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Total Sulfur (UV Fluorescence)",
+   "astm_method": "ASTM D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 5.5,
+   "typical_std": 1.8,
+   "instrument_type": "Thermo TS-3000 / Antek 9000NS UV Fluorescence Analyser"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Benzene Content",
+   "astm_method": "ASTM D3606",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 0.72,
+   "typical_std": 0.1,
+   "instrument_type": "Agilent 7890B GC-FID (TCEP column)"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Total Aromatics",
+   "astm_method": "ASTM D5769",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 35,
+   "typical_mean": 28.5,
+   "typical_std": 2.5,
+   "instrument_type": "Agilent 7890/5977 GC-MS Detailed Hydrocarbon Analyser"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Oxygenates (MTBE) / Oxygen Content",
+   "astm_method": "ASTM D4815",
+   "unit": "mass% O2",
+   "spec_min": null,
+   "spec_max": 2.7,
+   "typical_mean": 1.8,
+   "typical_std": 0.3,
+   "instrument_type": "Agilent 7890B GC-OFID (Oxygenate Analyser)"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Copper Strip Corrosion (3h at 50 C)",
+   "astm_method": "ASTM D130",
+   "unit": "class",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0,
+   "instrument_type": "Koehler Copper Corrosion Bath with ASTM Colour Standards"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Lead Content",
+   "astm_method": "ASTM D3237",
+   "unit": "g/L",
+   "spec_min": null,
+   "spec_max": 0.005,
+   "typical_mean": 0.002,
+   "typical_std": 0.001,
+   "instrument_type": "PerkinElmer PinAAcle 900 Atomic Absorption Spectrometer"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Existent Gum (washed)",
+   "astm_method": "ASTM D381",
+   "unit": "mg/100mL",
+   "spec_min": null,
+   "spec_max": 4,
+   "typical_mean": 1.6,
+   "typical_std": 0.7,
+   "instrument_type": "Koehler Existent Gum Air-Jet Evaporation Bath"
+  },
+  {
+   "product_code": "MOGAS-91",
+   "test_name": "Oxidation Stability (Induction Period)",
+   "astm_method": "ASTM D525",
+   "unit": "min",
+   "spec_min": 360,
+   "spec_max": null,
+   "typical_mean": 720,
+   "typical_std": 90,
+   "instrument_type": "Koehler / PetroOXY Induction Period Oxidation Bomb"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Research Octane Number (RON)",
+   "astm_method": "ASTM D2699",
+   "unit": "RON",
+   "spec_min": 95,
+   "spec_max": null,
+   "typical_mean": 95.6,
+   "typical_std": 0.35,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Motor Octane Number (MON)",
+   "astm_method": "ASTM D2700",
+   "unit": "MON",
+   "spec_min": 85,
+   "spec_max": null,
+   "typical_mean": 85.8,
+   "typical_std": 0.4,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Vapour Pressure (DVPE, RVP)",
+   "astm_method": "ASTM D5191",
+   "unit": "kPa",
+   "spec_min": 45,
+   "spec_max": 60,
+   "typical_mean": 53,
+   "typical_std": 2.3,
+   "instrument_type": "Grabner MINIVAP VPXpert (mini-method VPT)"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 720,
+   "spec_max": 775,
+   "typical_mean": 750,
+   "typical_std": 4,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Distillation T50 (50% Evaporated)",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": 77,
+   "spec_max": 110,
+   "typical_mean": 98,
+   "typical_std": 3.5,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Distillation FBP",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": null,
+   "spec_max": 210,
+   "typical_mean": 196,
+   "typical_std": 4.5,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Total Sulfur (UV Fluorescence)",
+   "astm_method": "ASTM D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 5,
+   "typical_std": 1.7,
+   "instrument_type": "Thermo TS-3000 / Antek 9000NS UV Fluorescence Analyser"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Benzene Content",
+   "astm_method": "ASTM D3606",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 0.68,
+   "typical_std": 0.1,
+   "instrument_type": "Agilent 7890B GC-FID (TCEP column)"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Total Aromatics",
+   "astm_method": "ASTM D5769",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 35,
+   "typical_mean": 30,
+   "typical_std": 2.5,
+   "instrument_type": "Agilent 7890/5977 GC-MS Detailed Hydrocarbon Analyser"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Olefins Content",
+   "astm_method": "ASTM D1319",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 18,
+   "typical_mean": 9.5,
+   "typical_std": 2,
+   "instrument_type": "FIA Fluorescent Indicator Adsorption Column Rack"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Oxygen Content (Oxygenates)",
+   "astm_method": "ASTM D4815",
+   "unit": "mass% O2",
+   "spec_min": null,
+   "spec_max": 2.7,
+   "typical_mean": 1.9,
+   "typical_std": 0.3,
+   "instrument_type": "Agilent 7890B GC-OFID (Oxygenate Analyser)"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Copper Strip Corrosion (3h at 50 C)",
+   "astm_method": "ASTM D130",
+   "unit": "class",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0,
+   "instrument_type": "Koehler Copper Corrosion Bath with ASTM Colour Standards"
+  },
+  {
+   "product_code": "MOGAS-95",
+   "test_name": "Lead Content",
+   "astm_method": "ASTM D3237",
+   "unit": "g/L",
+   "spec_min": null,
+   "spec_max": 0.005,
+   "typical_mean": 0.002,
+   "typical_std": 0.001,
+   "instrument_type": "PerkinElmer PinAAcle 900 Atomic Absorption Spectrometer"
+  },
+  {
+   "product_code": "REFORM",
+   "test_name": "Research Octane Number (RON)",
+   "astm_method": "ASTM D2699",
+   "unit": "RON",
+   "spec_min": 98,
+   "spec_max": null,
+   "typical_mean": 100.5,
+   "typical_std": 0.6,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "REFORM",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 770,
+   "spec_max": 820,
+   "typical_mean": 795,
+   "typical_std": 5,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "REFORM",
+   "test_name": "Benzene Content",
+   "astm_method": "ASTM D3606",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 2,
+   "typical_mean": 1.2,
+   "typical_std": 0.25,
+   "instrument_type": "Agilent 7890B GC-FID (TCEP column)"
+  },
+  {
+   "product_code": "REFORM",
+   "test_name": "Total Aromatics",
+   "astm_method": "ASTM D6730",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 62,
+   "typical_std": 3,
+   "instrument_type": "Agilent 7890B Detailed Hydrocarbon Analyser (DHA, 100m column)"
+  },
+  {
+   "product_code": "REFORM",
+   "test_name": "Reid Vapour Pressure (DVPE)",
+   "astm_method": "ASTM D5191",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 35,
+   "typical_mean": 24,
+   "typical_std": 2.5,
+   "instrument_type": "Grabner MINIVAP VPXpert (mini-method VPT)"
+  },
+  {
+   "product_code": "ISOM",
+   "test_name": "Research Octane Number (RON)",
+   "astm_method": "ASTM D2699",
+   "unit": "RON",
+   "spec_min": 83,
+   "spec_max": null,
+   "typical_mean": 86.5,
+   "typical_std": 0.8,
+   "instrument_type": "CFR F1/F2 Octane Rating Engine (Waukesha CFR)"
+  },
+  {
+   "product_code": "ISOM",
+   "test_name": "Reid Vapour Pressure (DVPE)",
+   "astm_method": "ASTM D5191",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 90,
+   "typical_mean": 78,
+   "typical_std": 3,
+   "instrument_type": "Grabner MINIVAP VPXpert (mini-method VPT)"
+  },
+  {
+   "product_code": "ISOM",
+   "test_name": "Benzene Content",
+   "astm_method": "ASTM D3606",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.15,
+   "typical_std": 0.08,
+   "instrument_type": "Agilent 7890B GC-FID (TCEP column)"
+  },
+  {
+   "product_code": "LNAP-STR",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 630,
+   "spec_max": 690,
+   "typical_mean": 662,
+   "typical_std": 5,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "LNAP-STR",
+   "test_name": "Distillation FBP",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": null,
+   "spec_max": 95,
+   "typical_mean": 82,
+   "typical_std": 4,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "LNAP-STR",
+   "test_name": "Total Sulfur (UV Fluorescence)",
+   "astm_method": "ASTM D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 5,
+   "typical_mean": 1.8,
+   "typical_std": 0.8,
+   "instrument_type": "Thermo TS-3000 / Antek 9000NS UV Fluorescence Analyser"
+  },
+  {
+   "product_code": "HNAP-STR",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 720,
+   "spec_max": 760,
+   "typical_mean": 740,
+   "typical_std": 4,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "HNAP-STR",
+   "test_name": "Distillation IBP",
+   "astm_method": "ASTM D86",
+   "unit": "deg C",
+   "spec_min": 80,
+   "spec_max": null,
+   "typical_mean": 92,
+   "typical_std": 3,
+   "instrument_type": "Herzog OptiDist Automatic Atmospheric Distillation"
+  },
+  {
+   "product_code": "HNAP-STR",
+   "test_name": "Total Sulfur (UV Fluorescence)",
+   "astm_method": "ASTM D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.2,
+   "typical_std": 0.08,
+   "instrument_type": "Thermo TS-3000 / Antek 9000NS UV Fluorescence Analyser"
+  },
+  {
+   "product_code": "HNAP-STR",
+   "test_name": "PNA Composition (Paraffins/Naphthenes/Aromatics)",
+   "astm_method": "ASTM D6730",
+   "unit": "wt% N+2A",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 58,
+   "typical_std": 3,
+   "instrument_type": "Agilent 7890B Detailed Hydrocarbon Analyser (DHA, 100m column)"
+  },
+  {
+   "product_code": "LPG-C3C4",
+   "test_name": "Vapour Pressure at 37.8 C (gauge)",
+   "astm_method": "ASTM D1267",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 1430,
+   "typical_mean": 1100,
+   "typical_std": 90,
+   "instrument_type": "LPG Stabilised Vapour Pressure Apparatus (Koehler)"
+  },
+  {
+   "product_code": "LPG-C3C4",
+   "test_name": "Total Sulfur",
+   "astm_method": "ASTM D6667",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 12,
+   "typical_std": 4,
+   "instrument_type": "Antek 9000S UV Fluorescence Analyser (gas inlet)"
+  },
+  {
+   "product_code": "LPG-C3C4",
+   "test_name": "Copper Strip Corrosion (1h at 37.8 C)",
+   "astm_method": "ASTM D1838",
+   "unit": "class",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0,
+   "instrument_type": "Koehler LPG Copper Corrosion Bomb"
+  },
+  {
+   "product_code": "LPG-C3C4",
+   "test_name": "Hydrocarbon Composition (C2-C5)",
+   "astm_method": "ASTM D2163",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 60,
+   "typical_std": 5,
+   "instrument_type": "Agilent 7890B Refinery Gas Analyser GC-TCD/FID"
+  },
+  {
+   "product_code": "LPG-C3C4",
+   "test_name": "Residual Matter / Volatile Residue",
+   "astm_method": "ASTM D2158",
+   "unit": "mL",
+   "spec_min": null,
+   "spec_max": 0.05,
+   "typical_mean": 0.01,
+   "typical_std": 0.008,
+   "instrument_type": "LPG Residue Evaporation Apparatus"
+  },
+  {
+   "product_code": "PROP-COM",
+   "test_name": "Vapour Pressure at 37.8 C (gauge)",
+   "astm_method": "ASTM D1267",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 1430,
+   "typical_mean": 1310,
+   "typical_std": 60,
+   "instrument_type": "LPG Stabilised Vapour Pressure Apparatus (Koehler)"
+  },
+  {
+   "product_code": "PROP-COM",
+   "test_name": "Total Sulfur",
+   "astm_method": "ASTM D6667",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 8,
+   "typical_std": 3,
+   "instrument_type": "Antek 9000S UV Fluorescence Analyser (gas inlet)"
+  },
+  {
+   "product_code": "BUT-COM",
+   "test_name": "Vapour Pressure at 37.8 C (gauge)",
+   "astm_method": "ASTM D1267",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 485,
+   "typical_mean": 380,
+   "typical_std": 30,
+   "instrument_type": "LPG Stabilised Vapour Pressure Apparatus (Koehler)"
+  },
+  {
+   "product_code": "BUT-COM",
+   "test_name": "Copper Strip Corrosion (1h at 37.8 C)",
+   "astm_method": "ASTM D1838",
+   "unit": "class",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0,
+   "instrument_type": "Koehler LPG Copper Corrosion Bomb"
+  },
+  {
+   "product_code": "BENZENE",
+   "test_name": "Purity by GC",
+   "astm_method": "ASTM D4492",
+   "unit": "wt%",
+   "spec_min": 99.9,
+   "spec_max": null,
+   "typical_mean": 99.96,
+   "typical_std": 0.02,
+   "instrument_type": "Agilent 7890B GC-FID (capillary, FFAP column)"
+  },
+  {
+   "product_code": "BENZENE",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 882,
+   "spec_max": 886,
+   "typical_mean": 884,
+   "typical_std": 0.6,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "BENZENE",
+   "test_name": "Total Sulfur",
+   "astm_method": "ASTM D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 0.3,
+   "typical_std": 0.12,
+   "instrument_type": "Thermo TS-3000 / Antek 9000NS UV Fluorescence Analyser"
+  },
+  {
+   "product_code": "BENZENE",
+   "test_name": "Colour (Pt-Co / APHA)",
+   "astm_method": "ASTM D1209",
+   "unit": "Pt-Co",
+   "spec_min": null,
+   "spec_max": 20,
+   "typical_mean": 6,
+   "typical_std": 3,
+   "instrument_type": "HunterLab / Lovibond APHA Colorimeter"
+  },
+  {
+   "product_code": "TOLUENE",
+   "test_name": "Purity by GC",
+   "astm_method": "ASTM D3797",
+   "unit": "wt%",
+   "spec_min": 99.8,
+   "spec_max": null,
+   "typical_mean": 99.92,
+   "typical_std": 0.04,
+   "instrument_type": "Agilent 7890B GC-FID (capillary, FFAP column)"
+  },
+  {
+   "product_code": "TOLUENE",
+   "test_name": "Colour (Pt-Co / APHA)",
+   "astm_method": "ASTM D1209",
+   "unit": "Pt-Co",
+   "spec_min": null,
+   "spec_max": 20,
+   "typical_mean": 5,
+   "typical_std": 2.5,
+   "instrument_type": "HunterLab / Lovibond APHA Colorimeter"
+  },
+  {
+   "product_code": "MX-XYL",
+   "test_name": "Xylene Isomer Composition by GC",
+   "astm_method": "ASTM D5917",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 98.5,
+   "typical_std": 0.5,
+   "instrument_type": "Agilent 7890B GC-FID (capillary, FFAP column)"
+  },
+  {
+   "product_code": "MX-XYL",
+   "test_name": "Density at 15 C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": 860,
+   "spec_max": 875,
+   "typical_mean": 868,
+   "typical_std": 1.5,
+   "instrument_type": "Anton Paar DMA 4500 Digital Density Meter"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": 775,
+   "spec_max": 840,
+   "typical_mean": 800.4,
+   "typical_std": 2.6,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Flash Point (Abel)",
+   "astm_method": "D3828",
+   "unit": "degC",
+   "spec_min": 38,
+   "spec_max": null,
+   "typical_mean": 43.6,
+   "typical_std": 1.8,
+   "instrument_type": "Stanhope-Seta Setaflash Series 3 closed-cup flash tester"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Freezing Point",
+   "astm_method": "D2386",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": -47,
+   "typical_mean": -51.8,
+   "typical_std": 1.4,
+   "instrument_type": "ISL FZP 5G2 automatic freezing point analyzer"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Kinematic Viscosity at -20 C",
+   "astm_method": "D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": 8,
+   "typical_mean": 4.9,
+   "typical_std": 0.42,
+   "instrument_type": "Anton Paar Stabinger SVM 3001 viscometer"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Smoke Point",
+   "astm_method": "D1322",
+   "unit": "mm",
+   "spec_min": 25,
+   "spec_max": null,
+   "typical_mean": 27.6,
+   "typical_std": 1.3,
+   "instrument_type": "Stanhope-Seta manual smoke point lamp"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Total Acidity",
+   "astm_method": "D3242",
+   "unit": "mg KOH/g",
+   "spec_min": null,
+   "spec_max": 0.015,
+   "typical_mean": 0.0042,
+   "typical_std": 0.0021,
+   "instrument_type": "Metrohm 905 Titrando potentiometric titrator"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Total Sulfur",
+   "astm_method": "D5453",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": 0.3,
+   "typical_mean": 0.041,
+   "typical_std": 0.018,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Mercaptan Sulfur",
+   "astm_method": "D3227",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": 0.003,
+   "typical_mean": 0.0008,
+   "typical_std": 0.0005,
+   "instrument_type": "Metrohm 888 Titrando potentiometric titrator"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Distillation IBP",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 152,
+   "typical_std": 3.5,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Distillation 10% Recovered",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 205,
+   "typical_mean": 174,
+   "typical_std": 3,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Distillation FBP",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 300,
+   "typical_mean": 252,
+   "typical_std": 6,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Aromatics by FIA",
+   "astm_method": "D1319",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 25,
+   "typical_mean": 17.8,
+   "typical_std": 1.6,
+   "instrument_type": "Fluorescent Indicator Adsorption glass column rack"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Existent Gum",
+   "astm_method": "D381",
+   "unit": "mg/100mL",
+   "spec_min": null,
+   "spec_max": 7,
+   "typical_mean": 2.1,
+   "typical_std": 0.9,
+   "instrument_type": "Koehler K15500 air-jet existent gum bath"
+  },
+  {
+   "product_code": "JETA1",
+   "test_name": "Water Reaction Interface Rating",
+   "astm_method": "D1094",
+   "unit": "rating",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0.2,
+   "instrument_type": "Manual graduated cylinder visual rating"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 799,
+   "typical_std": 3.4,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Flash Point (Abel)",
+   "astm_method": "D3828",
+   "unit": "degC",
+   "spec_min": 38,
+   "spec_max": null,
+   "typical_mean": 42,
+   "typical_std": 2.4,
+   "instrument_type": "Stanhope-Seta Setaflash Series 3 closed-cup flash tester"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Mercaptan Sulfur",
+   "astm_method": "D3227",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 0.012,
+   "typical_std": 0.004,
+   "instrument_type": "Metrohm 888 Titrando potentiometric titrator"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Total Sulfur",
+   "astm_method": "D5453",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 0.18,
+   "typical_std": 0.05,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Distillation 95% Recovered",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 248,
+   "typical_std": 5.5,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "KERO",
+   "test_name": "Smoke Point",
+   "astm_method": "D1322",
+   "unit": "mm",
+   "spec_min": 20,
+   "spec_max": null,
+   "typical_mean": 24,
+   "typical_std": 1.8,
+   "instrument_type": "Stanhope-Seta manual smoke point lamp"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": 820,
+   "spec_max": 845,
+   "typical_mean": 834,
+   "typical_std": 2.9,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Total Sulfur (ULSD)",
+   "astm_method": "D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 6.4,
+   "typical_std": 1.6,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Flash Point (PMCC)",
+   "astm_method": "D93",
+   "unit": "degC",
+   "spec_min": 55,
+   "spec_max": null,
+   "typical_mean": 68,
+   "typical_std": 3.2,
+   "instrument_type": "Herzog HFP 380 Pensky-Martens closed-cup flash tester"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Kinematic Viscosity at 40 C",
+   "astm_method": "D445",
+   "unit": "mm2/s",
+   "spec_min": 2,
+   "spec_max": 4.5,
+   "typical_mean": 3.1,
+   "typical_std": 0.24,
+   "instrument_type": "Anton Paar Stabinger SVM 3001 viscometer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Cetane Index (calculated)",
+   "astm_method": "D976",
+   "unit": "index",
+   "spec_min": 46,
+   "spec_max": null,
+   "typical_mean": 52.5,
+   "typical_std": 1.7,
+   "instrument_type": "Calculated from D86 distillation and D4052 density"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Derived Cetane Number",
+   "astm_method": "D613",
+   "unit": "number",
+   "spec_min": 51,
+   "spec_max": null,
+   "typical_mean": 54.8,
+   "typical_std": 1.5,
+   "instrument_type": "CFR F-5 cetane engine"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Cloud Point",
+   "astm_method": "D2500",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 8,
+   "typical_mean": 2,
+   "typical_std": 2.1,
+   "instrument_type": "ISL CPP 5Gs automatic cloud and pour point analyzer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Pour Point",
+   "astm_method": "D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 6,
+   "typical_mean": -3,
+   "typical_std": 2.4,
+   "instrument_type": "ISL CPP 5Gs automatic cloud and pour point analyzer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Cold Filter Plugging Point",
+   "astm_method": "D6371",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 5,
+   "typical_mean": -1.5,
+   "typical_std": 2,
+   "instrument_type": "ISL FPP 5Gs automatic CFPP analyzer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Water Content (Karl Fischer)",
+   "astm_method": "D6304",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 200,
+   "typical_mean": 78,
+   "typical_std": 22,
+   "instrument_type": "Metrohm 851 Titrando coulometric Karl Fischer titrator"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Distillation 95% Recovered",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 360,
+   "typical_mean": 348,
+   "typical_std": 4.5,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Total Acid Number",
+   "astm_method": "D664",
+   "unit": "mg KOH/g",
+   "spec_min": null,
+   "spec_max": 0.1,
+   "typical_mean": 0.03,
+   "typical_std": 0.015,
+   "instrument_type": "Metrohm 905 Titrando potentiometric titrator"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Lubricity (HFRR wear scar)",
+   "astm_method": "D6079",
+   "unit": "micron",
+   "spec_min": null,
+   "spec_max": 460,
+   "typical_mean": 380,
+   "typical_std": 28,
+   "instrument_type": "PCS Instruments HFRR high-frequency reciprocating rig"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Oxidation Stability",
+   "astm_method": "D2274",
+   "unit": "g/m3",
+   "spec_min": null,
+   "spec_max": 25,
+   "typical_mean": 9.5,
+   "typical_std": 3.4,
+   "instrument_type": "Koehler K49600 oxidation stability apparatus"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "FAME Content",
+   "astm_method": "D7371",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 7,
+   "typical_mean": 0.2,
+   "typical_std": 0.15,
+   "instrument_type": "Bruker MPA FTIR analyzer"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Color (ASTM)",
+   "astm_method": "D1500",
+   "unit": "color",
+   "spec_min": null,
+   "spec_max": 2,
+   "typical_mean": 0.5,
+   "typical_std": 0.3,
+   "instrument_type": "Lovibond PFXi-195 automatic colorimeter"
+  },
+  {
+   "product_code": "ULSD10",
+   "test_name": "Copper Strip Corrosion (3h @ 50 C)",
+   "astm_method": "D130",
+   "unit": "rating",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0.2,
+   "instrument_type": "Koehler K25339 copper corrosion bath"
+  },
+  {
+   "product_code": "AGO500",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": 820,
+   "spec_max": 860,
+   "typical_mean": 843,
+   "typical_std": 3.6,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "AGO500",
+   "test_name": "Total Sulfur",
+   "astm_method": "D5453",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 500,
+   "typical_mean": 320,
+   "typical_std": 65,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "AGO500",
+   "test_name": "Flash Point (PMCC)",
+   "astm_method": "D93",
+   "unit": "degC",
+   "spec_min": 52,
+   "spec_max": null,
+   "typical_mean": 64,
+   "typical_std": 3.5,
+   "instrument_type": "Herzog HFP 380 Pensky-Martens closed-cup flash tester"
+  },
+  {
+   "product_code": "AGO500",
+   "test_name": "Cetane Number",
+   "astm_method": "D613",
+   "unit": "number",
+   "spec_min": 48,
+   "spec_max": null,
+   "typical_mean": 51.5,
+   "typical_std": 1.8,
+   "instrument_type": "CFR F-5 cetane engine"
+  },
+  {
+   "product_code": "AGO500",
+   "test_name": "Pour Point",
+   "astm_method": "D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 9,
+   "typical_mean": 0,
+   "typical_std": 2.8,
+   "instrument_type": "ISL CPP 5Gs automatic cloud and pour point analyzer"
+  },
+  {
+   "product_code": "LGO",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 845,
+   "typical_std": 4.1,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "LGO",
+   "test_name": "Total Sulfur",
+   "astm_method": "D5453",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 1.05,
+   "typical_std": 0.22,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "LGO",
+   "test_name": "Kinematic Viscosity at 40 C",
+   "astm_method": "D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 3.6,
+   "typical_std": 0.35,
+   "instrument_type": "Anton Paar Stabinger SVM 3001 viscometer"
+  },
+  {
+   "product_code": "LGO",
+   "test_name": "Distillation 90% Recovered",
+   "astm_method": "D86",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 342,
+   "typical_std": 6.5,
+   "instrument_type": "Herzog OptiDist automatic atmospheric distillation"
+  },
+  {
+   "product_code": "LGO",
+   "test_name": "Cloud Point",
+   "astm_method": "D2500",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 4,
+   "typical_std": 2.5,
+   "instrument_type": "ISL CPP 5Gs automatic cloud and pour point analyzer"
+  },
+  {
+   "product_code": "HGO",
+   "test_name": "Density at 15 C",
+   "astm_method": "D4052",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 872,
+   "typical_std": 4.8,
+   "instrument_type": "Anton Paar DMA 4500 oscillating U-tube densitometer"
+  },
+  {
+   "product_code": "HGO",
+   "test_name": "Total Sulfur",
+   "astm_method": "D5453",
+   "unit": "mass%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 1.45,
+   "typical_std": 0.28,
+   "instrument_type": "Thermo TS-UV ultraviolet fluorescence sulfur analyzer"
+  },
+  {
+   "product_code": "HGO",
+   "test_name": "Kinematic Viscosity at 40 C",
+   "astm_method": "D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 6.2,
+   "typical_std": 0.55,
+   "instrument_type": "Anton Paar Stabinger SVM 3001 viscometer"
+  },
+  {
+   "product_code": "HGO",
+   "test_name": "Pour Point",
+   "astm_method": "D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 12,
+   "typical_std": 3,
+   "instrument_type": "ISL CPP 5Gs automatic cloud and pour point analyzer"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Density at 15 deg C",
+   "astm_method": "ASTM D5002",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 889.5,
+   "typical_std": 2.4,
+   "instrument_type": "Anton Paar DMA 4500 density meter"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "API Gravity",
+   "astm_method": "ASTM D287",
+   "unit": "degAPI",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 27.6,
+   "typical_std": 0.5,
+   "instrument_type": "Anton Paar DMA 4500 density meter"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 2.83,
+   "typical_std": 0.07,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Water by Distillation",
+   "astm_method": "ASTM D4006",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.18,
+   "typical_std": 0.06,
+   "instrument_type": "Dean-Stark distillation apparatus"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Salt Content (as NaCl)",
+   "astm_method": "ASTM D3230",
+   "unit": "PTB",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 4.2,
+   "typical_std": 1.3,
+   "instrument_type": "Koehler salt-in-crude conductivity meter"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Kinematic Viscosity at 40 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 28.5,
+   "typical_std": 2.1,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Conradson Carbon Residue (MCR)",
+   "astm_method": "ASTM D4530",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 8.6,
+   "typical_std": 0.4,
+   "instrument_type": "Alcor MCRT-160 micro carbon residue tester"
+  },
+  {
+   "product_code": "CRUDE-AH",
+   "test_name": "Reid Vapour Pressure",
+   "astm_method": "ASTM D323",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 41,
+   "typical_std": 4.5,
+   "instrument_type": "Grabner Minivap VPS RVP tester"
+  },
+  {
+   "product_code": "CRUDE-AM",
+   "test_name": "Density at 15 deg C",
+   "astm_method": "ASTM D5002",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 871,
+   "typical_std": 2,
+   "instrument_type": "Anton Paar DMA 4500 density meter"
+  },
+  {
+   "product_code": "CRUDE-AM",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 2.44,
+   "typical_std": 0.06,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "ATM-RES",
+   "test_name": "Density at 15 deg C",
+   "astm_method": "ASTM D70",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 968,
+   "typical_std": 3.5,
+   "instrument_type": "Pycnometer (capillary-stoppered)"
+  },
+  {
+   "product_code": "ATM-RES",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D2622",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 3.95,
+   "typical_std": 0.09,
+   "instrument_type": "PANalytical Epsilon WDXRF analyzer"
+  },
+  {
+   "product_code": "ATM-RES",
+   "test_name": "Conradson Carbon Residue (MCR)",
+   "astm_method": "ASTM D4530",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 12.4,
+   "typical_std": 0.6,
+   "instrument_type": "Alcor MCRT-160 micro carbon residue tester"
+  },
+  {
+   "product_code": "ATM-RES",
+   "test_name": "Kinematic Viscosity at 100 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 58,
+   "typical_std": 4,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "ATM-RES",
+   "test_name": "Asphaltenes (n-Heptane Insolubles)",
+   "astm_method": "ASTM D6560",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 7.8,
+   "typical_std": 0.5,
+   "instrument_type": "Soxhlet reflux extraction apparatus"
+  },
+  {
+   "product_code": "VAC-RES",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D2622",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 4.75,
+   "typical_std": 0.11,
+   "instrument_type": "PANalytical Epsilon WDXRF analyzer"
+  },
+  {
+   "product_code": "VAC-RES",
+   "test_name": "Conradson Carbon Residue (MCR)",
+   "astm_method": "ASTM D4530",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 21.5,
+   "typical_std": 0.9,
+   "instrument_type": "Alcor MCRT-160 micro carbon residue tester"
+  },
+  {
+   "product_code": "VAC-RES",
+   "test_name": "Softening Point (Ring and Ball)",
+   "astm_method": "ASTM D36",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 44,
+   "typical_std": 2.5,
+   "instrument_type": "Koehler automatic ring-and-ball softening point apparatus"
+  },
+  {
+   "product_code": "VAC-RES",
+   "test_name": "Penetration at 25 deg C",
+   "astm_method": "ASTM D5",
+   "unit": "0.1mm",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 95,
+   "typical_std": 12,
+   "instrument_type": "Anton Paar PNR 12 automatic penetrometer"
+  },
+  {
+   "product_code": "VAC-RES",
+   "test_name": "Nickel + Vanadium Content",
+   "astm_method": "ASTM D5708",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 165,
+   "typical_std": 18,
+   "instrument_type": "Agilent 5110 ICP-OES"
+  },
+  {
+   "product_code": "VGO-HVY",
+   "test_name": "Simulated Distillation (Boiling Range)",
+   "astm_method": "ASTM D2887",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 520,
+   "typical_std": 8,
+   "instrument_type": "Agilent 8890 GC simdist FID"
+  },
+  {
+   "product_code": "VGO-HVY",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 2.95,
+   "typical_std": 0.08,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "VGO-HVY",
+   "test_name": "Conradson Carbon Residue (MCR)",
+   "astm_method": "ASTM D4530",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.22,
+   "typical_std": 0.06,
+   "instrument_type": "Alcor MCRT-160 micro carbon residue tester"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Kinematic Viscosity at 50 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": 380,
+   "typical_mean": 352,
+   "typical_std": 14,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Density at 15 deg C",
+   "astm_method": "ASTM D4052",
+   "unit": "kg/m3",
+   "spec_min": null,
+   "spec_max": 991,
+   "typical_mean": 985,
+   "typical_std": 2.5,
+   "instrument_type": "Anton Paar DMA 4500 density meter"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 3.5,
+   "typical_mean": 3.18,
+   "typical_std": 0.12,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Water Content",
+   "astm_method": "ASTM D6304",
+   "unit": "vol%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.18,
+   "typical_std": 0.07,
+   "instrument_type": "Metrohm 851 coulometric Karl Fischer titrator"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Sediment by Extraction (Total Sediment Potential)",
+   "astm_method": "ASTM D4870",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.1,
+   "typical_mean": 0.035,
+   "typical_std": 0.012,
+   "instrument_type": "Heated membrane filtration sediment apparatus"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Ash Content",
+   "astm_method": "ASTM D482",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.1,
+   "typical_mean": 0.045,
+   "typical_std": 0.011,
+   "instrument_type": "Nabertherm L9/11 muffle furnace"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Conradson Carbon Residue (MCR)",
+   "astm_method": "ASTM D4530",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 18,
+   "typical_mean": 13.5,
+   "typical_std": 0.8,
+   "instrument_type": "Alcor MCRT-160 micro carbon residue tester"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Pour Point",
+   "astm_method": "ASTM D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 21,
+   "typical_std": 3,
+   "instrument_type": "ISL CPP 5Gs automatic pour point analyzer"
+  },
+  {
+   "product_code": "RFO-380",
+   "test_name": "Flash Point (Pensky-Martens)",
+   "astm_method": "ASTM D93",
+   "unit": "degC",
+   "spec_min": 60,
+   "spec_max": null,
+   "typical_mean": 98,
+   "typical_std": 6,
+   "instrument_type": "Pensky-Martens closed cup flash point tester"
+  },
+  {
+   "product_code": "RFO-180",
+   "test_name": "Kinematic Viscosity at 50 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": 180,
+   "typical_mean": 168,
+   "typical_std": 8,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "RFO-180",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 3.5,
+   "typical_mean": 2.95,
+   "typical_std": 0.13,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "LSFO-05",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D2622",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.42,
+   "typical_std": 0.03,
+   "instrument_type": "PANalytical Epsilon WDXRF analyzer"
+  },
+  {
+   "product_code": "LSFO-05",
+   "test_name": "Kinematic Viscosity at 50 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": null,
+   "spec_max": 380,
+   "typical_mean": 195,
+   "typical_std": 22,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "LSFO-05",
+   "test_name": "Pour Point",
+   "astm_method": "ASTM D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 18,
+   "typical_std": 4,
+   "instrument_type": "ISL CPP 5Gs automatic pour point analyzer"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Penetration at 25 deg C",
+   "astm_method": "ASTM D5",
+   "unit": "0.1mm",
+   "spec_min": 60,
+   "spec_max": 70,
+   "typical_mean": 65,
+   "typical_std": 2.5,
+   "instrument_type": "Anton Paar PNR 12 automatic penetrometer"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Softening Point (Ring and Ball)",
+   "astm_method": "ASTM D36",
+   "unit": "degC",
+   "spec_min": 49,
+   "spec_max": 56,
+   "typical_mean": 51.5,
+   "typical_std": 1.2,
+   "instrument_type": "Koehler automatic ring-and-ball softening point apparatus"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Ductility at 25 deg C",
+   "astm_method": "ASTM D113",
+   "unit": "cm",
+   "spec_min": 100,
+   "spec_max": null,
+   "typical_mean": 140,
+   "typical_std": 12,
+   "instrument_type": "Koehler K95500 ductility bath"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Flash Point (Cleveland Open Cup)",
+   "astm_method": "ASTM D92",
+   "unit": "degC",
+   "spec_min": 232,
+   "spec_max": null,
+   "typical_mean": 298,
+   "typical_std": 9,
+   "instrument_type": "Cleveland open cup flash point tester"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Loss on Heating (Thin Film Oven Test)",
+   "astm_method": "ASTM D1754",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.18,
+   "typical_std": 0.06,
+   "instrument_type": "Thin film oven (rotating shelf)"
+  },
+  {
+   "product_code": "BIT-6070",
+   "test_name": "Solubility in Trichloroethylene",
+   "astm_method": "ASTM D2042",
+   "unit": "wt%",
+   "spec_min": 99,
+   "spec_max": null,
+   "typical_mean": 99.7,
+   "typical_std": 0.15,
+   "instrument_type": "Gooch crucible solvent extraction apparatus"
+  },
+  {
+   "product_code": "BIT-8010",
+   "test_name": "Penetration at 25 deg C",
+   "astm_method": "ASTM D5",
+   "unit": "0.1mm",
+   "spec_min": 80,
+   "spec_max": 100,
+   "typical_mean": 89,
+   "typical_std": 3.5,
+   "instrument_type": "Anton Paar PNR 12 automatic penetrometer"
+  },
+  {
+   "product_code": "BIT-8010",
+   "test_name": "Softening Point (Ring and Ball)",
+   "astm_method": "ASTM D36",
+   "unit": "degC",
+   "spec_min": 45,
+   "spec_max": 52,
+   "typical_mean": 47.5,
+   "typical_std": 1.1,
+   "instrument_type": "Koehler automatic ring-and-ball softening point apparatus"
+  },
+  {
+   "product_code": "LBO-150N",
+   "test_name": "Kinematic Viscosity at 40 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": 28.8,
+   "spec_max": 35.2,
+   "typical_mean": 31.5,
+   "typical_std": 0.8,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "LBO-150N",
+   "test_name": "Viscosity Index",
+   "astm_method": "ASTM D2270",
+   "unit": "index",
+   "spec_min": 95,
+   "spec_max": null,
+   "typical_mean": 104,
+   "typical_std": 2,
+   "instrument_type": "Calculated from D445 (40/100 deg C)"
+  },
+  {
+   "product_code": "LBO-150N",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D4294",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.03,
+   "typical_mean": 0.004,
+   "typical_std": 0.002,
+   "instrument_type": "Rigaku NEX QC EDXRF analyzer"
+  },
+  {
+   "product_code": "LBO-150N",
+   "test_name": "Colour (ASTM)",
+   "astm_method": "ASTM D1500",
+   "unit": "ASTM colour",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 0.5,
+   "typical_std": 0.2,
+   "instrument_type": "Lovibond PFXi-195 automatic colorimeter"
+  },
+  {
+   "product_code": "LBO-150N",
+   "test_name": "Flash Point (Cleveland Open Cup)",
+   "astm_method": "ASTM D92",
+   "unit": "degC",
+   "spec_min": 200,
+   "spec_max": null,
+   "typical_mean": 216,
+   "typical_std": 5,
+   "instrument_type": "Cleveland open cup flash point tester"
+  },
+  {
+   "product_code": "LBO-500N",
+   "test_name": "Kinematic Viscosity at 40 deg C",
+   "astm_method": "ASTM D445",
+   "unit": "mm2/s",
+   "spec_min": 90,
+   "spec_max": 110,
+   "typical_mean": 99.5,
+   "typical_std": 2.2,
+   "instrument_type": "Cannon CAV-2200 kinematic viscometer"
+  },
+  {
+   "product_code": "LBO-500N",
+   "test_name": "Viscosity Index",
+   "astm_method": "ASTM D2270",
+   "unit": "index",
+   "spec_min": 95,
+   "spec_max": null,
+   "typical_mean": 102,
+   "typical_std": 1.8,
+   "instrument_type": "Calculated from D445 (40/100 deg C)"
+  },
+  {
+   "product_code": "LBO-500N",
+   "test_name": "Pour Point",
+   "astm_method": "ASTM D97",
+   "unit": "degC",
+   "spec_min": null,
+   "spec_max": -9,
+   "typical_mean": -12,
+   "typical_std": 2,
+   "instrument_type": "ISL CPP 5Gs automatic pour point analyzer"
+  },
+  {
+   "product_code": "SUL-SLD",
+   "test_name": "Sulphur Purity (Assay)",
+   "astm_method": "ASTM D4239",
+   "unit": "wt%",
+   "spec_min": 99.5,
+   "spec_max": null,
+   "typical_mean": 99.92,
+   "typical_std": 0.04,
+   "instrument_type": "LECO S832 high-frequency combustion IR analyzer"
+  },
+  {
+   "product_code": "SUL-SLD",
+   "test_name": "Ash Content",
+   "astm_method": "ASTM D482",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 0.05,
+   "typical_mean": 0.012,
+   "typical_std": 0.005,
+   "instrument_type": "Nabertherm L9/11 muffle furnace"
+  },
+  {
+   "product_code": "SUL-SLD",
+   "test_name": "Moisture Content",
+   "astm_method": "ASTM D2216",
+   "unit": "wt%",
+   "spec_min": null,
+   "spec_max": 2,
+   "typical_mean": 0.45,
+   "typical_std": 0.18,
+   "instrument_type": "Gravimetric oven (105 deg C)"
+  },
+  {
+   "product_code": "SUL-SLD",
+   "test_name": "Acidity (as H2SO4)",
+   "astm_method": "ASTM D1093",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 50,
+   "typical_mean": 18,
+   "typical_std": 6,
+   "instrument_type": "Metrohm 916 potentiometric titrator"
+  },
+  {
+   "product_code": "LPG-MIX",
+   "test_name": "Vapour Pressure at 37.8 deg C",
+   "astm_method": "ASTM D6897",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 1430,
+   "typical_mean": 1150,
+   "typical_std": 60,
+   "instrument_type": "Grabner Minivap LPG vapour pressure tester"
+  },
+  {
+   "product_code": "LPG-MIX",
+   "test_name": "Total Sulphur",
+   "astm_method": "ASTM D6667",
+   "unit": "mg/kg",
+   "spec_min": null,
+   "spec_max": 140,
+   "typical_mean": 28,
+   "typical_std": 9,
+   "instrument_type": "Thermo TS-3000 UV fluorescence sulphur analyzer"
+  },
+  {
+   "product_code": "LPG-MIX",
+   "test_name": "Hydrocarbon Composition (C2-C5)",
+   "astm_method": "ASTM D2163",
+   "unit": "mol%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 60,
+   "typical_std": 4,
+   "instrument_type": "Agilent 7890 refinery gas GC FID"
+  },
+  {
+   "product_code": "LPG-MIX",
+   "test_name": "Residual Matter (Evaporation Residue)",
+   "astm_method": "ASTM D2158",
+   "unit": "mL/100mL",
+   "spec_min": null,
+   "spec_max": 0.05,
+   "typical_mean": 0.018,
+   "typical_std": 0.008,
+   "instrument_type": "LPG residue evaporation apparatus"
+  },
+  {
+   "product_code": "LPG-MIX",
+   "test_name": "Copper Strip Corrosion (1 h at 37.8 deg C)",
+   "astm_method": "ASTM D1838",
+   "unit": "rating",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 1,
+   "typical_std": 0,
+   "instrument_type": "Koehler copper strip corrosion bath"
+  },
+  {
+   "product_code": "PROP-COM",
+   "test_name": "Vapour Pressure at 37.8 deg C",
+   "astm_method": "ASTM D6897",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 1430,
+   "typical_mean": 1310,
+   "typical_std": 45,
+   "instrument_type": "Grabner Minivap LPG vapour pressure tester"
+  },
+  {
+   "product_code": "PROP-COM",
+   "test_name": "Propane Purity (C3)",
+   "astm_method": "ASTM D2163",
+   "unit": "mol%",
+   "spec_min": 90,
+   "spec_max": null,
+   "typical_mean": 96.5,
+   "typical_std": 1.2,
+   "instrument_type": "Agilent 7890 refinery gas GC FID"
+  },
+  {
+   "product_code": "BUT-COM",
+   "test_name": "Vapour Pressure at 37.8 deg C",
+   "astm_method": "ASTM D6897",
+   "unit": "kPa",
+   "spec_min": null,
+   "spec_max": 485,
+   "typical_mean": 410,
+   "typical_std": 22,
+   "instrument_type": "Grabner Minivap LPG vapour pressure tester"
+  },
+  {
+   "product_code": "BUT-COM",
+   "test_name": "Butane Purity (C4)",
+   "astm_method": "ASTM D2163",
+   "unit": "mol%",
+   "spec_min": 90,
+   "spec_max": null,
+   "typical_mean": 95,
+   "typical_std": 1.5,
+   "instrument_type": "Agilent 7890 refinery gas GC FID"
+  },
+  {
+   "product_code": "FG-FUEL",
+   "test_name": "Gas Composition (Permanent + Hydrocarbon)",
+   "astm_method": "ASTM D1945",
+   "unit": "mol%",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 100,
+   "typical_std": 0,
+   "instrument_type": "Agilent 7890 refinery gas GC TCD/FID"
+  },
+  {
+   "product_code": "FG-FUEL",
+   "test_name": "Total Sulphur in Gaseous Fuels",
+   "astm_method": "ASTM D3246",
+   "unit": "mg/m3",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 8.5,
+   "typical_std": 2.6,
+   "instrument_type": "Oxidative microcoulometry sulphur analyzer"
+  },
+  {
+   "product_code": "FG-FUEL",
+   "test_name": "Hydrogen Sulphide (H2S)",
+   "astm_method": "ASTM D4810",
+   "unit": "mg/m3",
+   "spec_min": null,
+   "spec_max": 5,
+   "typical_mean": 1.2,
+   "typical_std": 0.5,
+   "instrument_type": "Length-of-stain detector tube (stain length)"
+  },
+  {
+   "product_code": "FG-FUEL",
+   "test_name": "Calorific Value (Heating Value)",
+   "astm_method": "ASTM D3588",
+   "unit": "MJ/m3",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 45.5,
+   "typical_std": 1.4,
+   "instrument_type": "Calculated from D1945 composition"
+  },
+  {
+   "product_code": "WTR-SOUR",
+   "test_name": "Hydrogen Sulphide (Sulphide as S2-)",
+   "astm_method": "ASTM D4658",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 1850,
+   "typical_std": 320,
+   "instrument_type": "Metrohm ion-selective electrode (sulphide ISE)"
+  },
+  {
+   "product_code": "WTR-SOUR",
+   "test_name": "Ammoniacal Nitrogen (NH3-N)",
+   "astm_method": "ASTM D1426",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 2400,
+   "typical_std": 410,
+   "instrument_type": "Metrohm ammonia ISE / distillation titration"
+  },
+  {
+   "product_code": "WTR-SOUR",
+   "test_name": "pH",
+   "astm_method": "ASTM D1293",
+   "unit": "pH",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 8.6,
+   "typical_std": 0.4,
+   "instrument_type": "Mettler Toledo S220 pH meter"
+  },
+  {
+   "product_code": "WTR-SOUR",
+   "test_name": "Phenol Content",
+   "astm_method": "ASTM D5530",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": null,
+   "typical_mean": 95,
+   "typical_std": 22,
+   "instrument_type": "UV-Vis spectrophotometer (4-aminoantipyrine)"
+  },
+  {
+   "product_code": "WTR-BOIL",
+   "test_name": "pH",
+   "astm_method": "ASTM D1293",
+   "unit": "pH",
+   "spec_min": 8.5,
+   "spec_max": 9.5,
+   "typical_mean": 9.1,
+   "typical_std": 0.2,
+   "instrument_type": "Mettler Toledo S220 pH meter"
+  },
+  {
+   "product_code": "WTR-BOIL",
+   "test_name": "Conductivity (Specific)",
+   "astm_method": "ASTM D1125",
+   "unit": "uS/cm",
+   "spec_min": null,
+   "spec_max": 5,
+   "typical_mean": 1.8,
+   "typical_std": 0.6,
+   "instrument_type": "Mettler Toledo conductivity meter"
+  },
+  {
+   "product_code": "WTR-BOIL",
+   "test_name": "Dissolved Silica (as SiO2)",
+   "astm_method": "ASTM D859",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 0.02,
+   "typical_mean": 0.008,
+   "typical_std": 0.004,
+   "instrument_type": "UV-Vis spectrophotometer (molybdate-blue)"
+  },
+  {
+   "product_code": "WTR-BOIL",
+   "test_name": "Dissolved Oxygen",
+   "astm_method": "ASTM D888",
+   "unit": "ug/L",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 4.5,
+   "typical_std": 1.8,
+   "instrument_type": "Orbisphere membrane DO analyzer"
+  },
+  {
+   "product_code": "WTR-BOIL",
+   "test_name": "Total Hardness (as CaCO3)",
+   "astm_method": "ASTM D1126",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 0.1,
+   "typical_mean": 0.03,
+   "typical_std": 0.02,
+   "instrument_type": "EDTA complexometric titration"
+  },
+  {
+   "product_code": "WTR-COOL",
+   "test_name": "pH",
+   "astm_method": "ASTM D1293",
+   "unit": "pH",
+   "spec_min": 6.8,
+   "spec_max": 8.5,
+   "typical_mean": 7.8,
+   "typical_std": 0.3,
+   "instrument_type": "Mettler Toledo S220 pH meter"
+  },
+  {
+   "product_code": "WTR-COOL",
+   "test_name": "Conductivity",
+   "astm_method": "ASTM D1125",
+   "unit": "uS/cm",
+   "spec_min": null,
+   "spec_max": 3500,
+   "typical_mean": 2200,
+   "typical_std": 380,
+   "instrument_type": "Mettler Toledo conductivity meter"
+  },
+  {
+   "product_code": "WTR-COOL",
+   "test_name": "Total Dissolved Solids",
+   "astm_method": "ASTM D5907",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 2500,
+   "typical_mean": 1500,
+   "typical_std": 260,
+   "instrument_type": "Gravimetric filtration / oven (180 deg C)"
+  },
+  {
+   "product_code": "WTR-COOL",
+   "test_name": "Total Hardness (as CaCO3)",
+   "astm_method": "ASTM D1126",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 600,
+   "typical_mean": 420,
+   "typical_std": 70,
+   "instrument_type": "EDTA complexometric titration"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "Oil and Grease (Oil-in-Water)",
+   "astm_method": "ASTM D7066",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 10,
+   "typical_mean": 3.8,
+   "typical_std": 1.6,
+   "instrument_type": "Wilks InfraCal 2 IR oil-in-water analyzer"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "Chemical Oxygen Demand (COD)",
+   "astm_method": "ASTM D1252",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 150,
+   "typical_mean": 78,
+   "typical_std": 22,
+   "instrument_type": "Hach DRB200 reactor + DR3900 spectrophotometer"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "pH",
+   "astm_method": "ASTM D1293",
+   "unit": "pH",
+   "spec_min": 6,
+   "spec_max": 9,
+   "typical_mean": 7.4,
+   "typical_std": 0.4,
+   "instrument_type": "Mettler Toledo S220 pH meter"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "Total Suspended Solids",
+   "astm_method": "ASTM D5907",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 30,
+   "typical_mean": 14,
+   "typical_std": 5.5,
+   "instrument_type": "Gravimetric glass-fibre filtration"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "Total Sulphide",
+   "astm_method": "ASTM D4658",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 1,
+   "typical_mean": 0.32,
+   "typical_std": 0.14,
+   "instrument_type": "Metrohm ion-selective electrode (sulphide ISE)"
+  },
+  {
+   "product_code": "WTR-EFFL",
+   "test_name": "Phenol Content",
+   "astm_method": "ASTM D5530",
+   "unit": "mg/L",
+   "spec_min": null,
+   "spec_max": 0.5,
+   "typical_mean": 0.18,
+   "typical_std": 0.08,
+   "instrument_type": "UV-Vis spectrophotometer (4-aminoantipyrine)"
+  }
+ ],
+ "instruments": [
+  {
+   "asset_code": "ADU-05",
+   "name": "Automatic Atmospheric Distillation Unit (D86)",
+   "type": "Atmospheric Distillation Analyzer",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "PAC",
+   "model": "OptiDist",
+   "typical_uptime_pct": 95.5,
+   "mtbf_days": 145,
+   "calibration_interval_days": 180,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "SIMDIST-02",
+   "name": "Simulated Distillation GC (ASTM D2887 / D7169)",
+   "type": "Gas Chromatograph - SimDist",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "Agilent",
+   "model": "8890 GC with AC Analytical SimDis",
+   "typical_uptime_pct": 93,
+   "mtbf_days": 110,
+   "calibration_interval_days": 90,
+   "install_year": 2020
+  },
+  {
+   "asset_code": "VACDIST-01",
+   "name": "Automatic Vacuum Distillation Unit (ASTM D1160)",
+   "type": "Vacuum Distillation Analyzer",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "PAC",
+   "model": "OptiPMD",
+   "typical_uptime_pct": 92.5,
+   "mtbf_days": 100,
+   "calibration_interval_days": 180,
+   "install_year": 2019
+  },
+  {
+   "asset_code": "DENS-DMA-03",
+   "name": "Digital Density / API Gravity Meter (ASTM D4052)",
+   "type": "Oscillating U-Tube Density Meter",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "Anton Paar",
+   "model": "DMA 4500 M",
+   "typical_uptime_pct": 98.5,
+   "mtbf_days": 365,
+   "calibration_interval_days": 90,
+   "install_year": 2017
+  },
+  {
+   "asset_code": "KF-04",
+   "name": "Karl Fischer Coulometric Water Titrator (ASTM D6304)",
+   "type": "Coulometric Karl Fischer Titrator",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "Metrohm",
+   "model": "851 Titrando / 831 KF Coulometer",
+   "typical_uptime_pct": 96,
+   "mtbf_days": 200,
+   "calibration_interval_days": 365,
+   "install_year": 2016
+  },
+  {
+   "asset_code": "AUTOTITR-01",
+   "name": "Potentiometric Titrator - TAN/TBN (ASTM D664 / D2896)",
+   "type": "Automatic Potentiometric Titrator",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "Metrohm",
+   "model": "905 Titrando",
+   "typical_uptime_pct": 96.5,
+   "mtbf_days": 210,
+   "calibration_interval_days": 365,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "XRF-S-03",
+   "name": "Energy-Dispersive XRF Total Sulfur Analyzer (ASTM D4294)",
+   "type": "EDXRF Sulfur Analyzer",
+   "section_code": "CRUDE_DIST",
+   "manufacturer": "PAC",
+   "model": "Antek SINDIE 7039",
+   "typical_uptime_pct": 94.5,
+   "mtbf_days": 150,
+   "calibration_interval_days": 90,
+   "install_year": 2019
+  },
+  {
+   "asset_code": "GC-401",
+   "name": "Detailed Hydrocarbon Analysis GC - PIANO (ASTM D6730)",
+   "type": "Gas Chromatograph - DHA",
+   "section_code": "MOGAS_CHEM",
+   "manufacturer": "Agilent",
+   "model": "7890B GC with DHA column",
+   "typical_uptime_pct": 91,
+   "mtbf_days": 95,
+   "calibration_interval_days": 90,
+   "install_year": 2017
+  },
+  {
+   "asset_code": "CFR-OCTANE-01",
+   "name": "CFR Octane Rating Engine - RON/MON (ASTM D2699 / D2700)",
+   "type": "CFR Knock Engine",
+   "section_code": "MOGAS_CHEM",
+   "manufacturer": "PAC",
+   "model": "CFR F1/F2 Octane Engine",
+   "typical_uptime_pct": 88.5,
+   "mtbf_days": 70,
+   "calibration_interval_days": 30,
+   "install_year": 2015
+  },
+  {
+   "asset_code": "RVP-01",
+   "name": "Automatic Vapour Pressure Analyzer - RVP (ASTM D5191)",
+   "type": "Mini-Method Vapour Pressure Tester",
+   "section_code": "MOGAS_CHEM",
+   "manufacturer": "Stanhope-Seta",
+   "model": "Setavap 3",
+   "typical_uptime_pct": 95,
+   "mtbf_days": 160,
+   "calibration_interval_days": 180,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "SULF-UV-02",
+   "name": "UV Fluorescence Trace Sulfur Analyzer (ASTM D5453)",
+   "type": "UV Fluorescence Sulfur Analyzer",
+   "section_code": "MOGAS_CHEM",
+   "manufacturer": "PAC",
+   "model": "Antek MultiTek",
+   "typical_uptime_pct": 93.5,
+   "mtbf_days": 130,
+   "calibration_interval_days": 90,
+   "install_year": 2020
+  },
+  {
+   "asset_code": "EXISTGUM-01",
+   "name": "Existent Gum Jet Evaporation Bath (ASTM D381)",
+   "type": "Existent Gum Apparatus",
+   "section_code": "MOGAS_CHEM",
+   "manufacturer": "Koehler",
+   "model": "K20290 Existent Gum Bath",
+   "typical_uptime_pct": 97,
+   "mtbf_days": 280,
+   "calibration_interval_days": 365,
+   "install_year": 2016
+  },
+  {
+   "asset_code": "FLASH-PMCC-02",
+   "name": "Pensky-Martens Closed Cup Flash Point Tester (ASTM D93)",
+   "type": "Closed Cup Flash Point Tester",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "Stanhope-Seta",
+   "model": "Setaflash Series 8 (PMCC)",
+   "typical_uptime_pct": 96.5,
+   "mtbf_days": 220,
+   "calibration_interval_days": 180,
+   "install_year": 2017
+  },
+  {
+   "asset_code": "VISC-BATH-02",
+   "name": "Kinematic Viscosity Bath @40/100C (ASTM D445)",
+   "type": "Kinematic Viscometer Bath",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "Koehler",
+   "model": "KV3000 Automatic Viscometer",
+   "typical_uptime_pct": 96,
+   "mtbf_days": 190,
+   "calibration_interval_days": 180,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "CFPP-01",
+   "name": "Cold Filter Plugging Point / Cloud / Pour Analyzer (IP 309 / D5773 / D5949)",
+   "type": "Cold Properties Analyzer",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "PAC",
+   "model": "ISL CPP 5Gs",
+   "typical_uptime_pct": 92,
+   "mtbf_days": 105,
+   "calibration_interval_days": 180,
+   "install_year": 2019
+  },
+  {
+   "asset_code": "CETANE-CFR-01",
+   "name": "CFR Cetane Rating Engine (ASTM D613)",
+   "type": "CFR Cetane Engine",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "PAC",
+   "model": "CFR F5 Cetane Engine",
+   "typical_uptime_pct": 88,
+   "mtbf_days": 65,
+   "calibration_interval_days": 30,
+   "install_year": 2015
+  },
+  {
+   "asset_code": "BOMB-CAL-01",
+   "name": "Automatic Bomb Calorimeter - Calorific Value (ASTM D240 / D4809)",
+   "type": "Oxygen Bomb Calorimeter",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "Stanhope-Seta",
+   "model": "Seta C2000 / IKA C6000",
+   "typical_uptime_pct": 95,
+   "mtbf_days": 175,
+   "calibration_interval_days": 90,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "COLOR-SAYBOLT-01",
+   "name": "Automatic Saybolt / ASTM Colour Analyzer (D156 / D1500)",
+   "type": "Petroleum Colorimeter",
+   "section_code": "DIESEL_PHYS",
+   "manufacturer": "PAC",
+   "model": "Lovibond / PAC Colour Analyzer",
+   "typical_uptime_pct": 97.5,
+   "mtbf_days": 300,
+   "calibration_interval_days": 180,
+   "install_year": 2021
+  },
+  {
+   "asset_code": "GC-RGA-01",
+   "name": "Refinery Gas Analyzer GC - C1-C6+ (ASTM D1945 / UOP 539)",
+   "type": "Refinery Gas Analyzer GC",
+   "section_code": "GAS_LPG",
+   "manufacturer": "Agilent",
+   "model": "990 Micro GC / 8890 RGA",
+   "typical_uptime_pct": 92.5,
+   "mtbf_days": 115,
+   "calibration_interval_days": 90,
+   "install_year": 2020
+  },
+  {
+   "asset_code": "GC-SCD-01",
+   "name": "Sulfur Chemiluminescence GC - Trace S Speciation (ASTM D5504)",
+   "type": "GC-SCD Sulfur Analyzer",
+   "section_code": "GAS_LPG",
+   "manufacturer": "Agilent",
+   "model": "8890 GC with 8355 SCD",
+   "typical_uptime_pct": 90,
+   "mtbf_days": 85,
+   "calibration_interval_days": 60,
+   "install_year": 2021
+  },
+  {
+   "asset_code": "LPG-VP-01",
+   "name": "LPG Vapour Pressure Analyzer (ASTM D6897 / D1267)",
+   "type": "LPG Vapour Pressure Tester",
+   "section_code": "GAS_LPG",
+   "manufacturer": "Stanhope-Seta",
+   "model": "Setavap LPG",
+   "typical_uptime_pct": 94,
+   "mtbf_days": 140,
+   "calibration_interval_days": 180,
+   "install_year": 2019
+  },
+  {
+   "asset_code": "H2S-COPPER-01",
+   "name": "Copper Strip Corrosion / H2S Bath - LPG (ASTM D1838)",
+   "type": "Copper Corrosion Test Bath",
+   "section_code": "GAS_LPG",
+   "manufacturer": "Koehler",
+   "model": "K25339 Copper Corrosion Bath",
+   "typical_uptime_pct": 97.5,
+   "mtbf_days": 320,
+   "calibration_interval_days": 365,
+   "install_year": 2017
+  },
+  {
+   "asset_code": "ICP-OES-01",
+   "name": "ICP-OES Metals Analyzer - Wear/Trace Metals (ASTM D5185 / D7111)",
+   "type": "ICP Optical Emission Spectrometer",
+   "section_code": "ENV_WATER",
+   "manufacturer": "Thermo",
+   "model": "iCAP PRO XP",
+   "typical_uptime_pct": 92,
+   "mtbf_days": 120,
+   "calibration_interval_days": 30,
+   "install_year": 2020
+  },
+  {
+   "asset_code": "ICP-MS-01",
+   "name": "ICP-MS Trace Metals in Water Analyzer (EPA 200.8 / ASTM D5673)",
+   "type": "ICP Mass Spectrometer",
+   "section_code": "ENV_WATER",
+   "manufacturer": "Thermo",
+   "model": "iCAP RQ ICP-MS",
+   "typical_uptime_pct": 90.5,
+   "mtbf_days": 90,
+   "calibration_interval_days": 30,
+   "install_year": 2022
+  },
+  {
+   "asset_code": "TOC-01",
+   "name": "Total Organic Carbon Analyzer - Effluent Water (ASTM D5310 / EPA 415.1)",
+   "type": "TOC Analyzer",
+   "section_code": "ENV_WATER",
+   "manufacturer": "Metrohm",
+   "model": "Hach BioTector B7000 / Shimadzu TOC-L",
+   "typical_uptime_pct": 91.5,
+   "mtbf_days": 110,
+   "calibration_interval_days": 90,
+   "install_year": 2019
+  },
+  {
+   "asset_code": "IC-ANION-01",
+   "name": "Ion Chromatograph - Anions in Water (ASTM D4327 / EPA 300.0)",
+   "type": "Ion Chromatograph",
+   "section_code": "ENV_WATER",
+   "manufacturer": "Metrohm",
+   "model": "930 Compact IC Flex",
+   "typical_uptime_pct": 93.5,
+   "mtbf_days": 135,
+   "calibration_interval_days": 90,
+   "install_year": 2021
+  },
+  {
+   "asset_code": "CHN-01",
+   "name": "CHNS Elemental Analyzer - C/H/N/S (ASTM D5291)",
+   "type": "Elemental Analyzer",
+   "section_code": "LUBE_ASPHALT",
+   "manufacturer": "Thermo",
+   "model": "FLASH 2000 CHNS/O",
+   "typical_uptime_pct": 91,
+   "mtbf_days": 100,
+   "calibration_interval_days": 60,
+   "install_year": 2018
+  },
+  {
+   "asset_code": "PENETROM-01",
+   "name": "Automatic Bitumen Penetrometer (ASTM D5 / IP 49)",
+   "type": "Needle Penetrometer",
+   "section_code": "LUBE_ASPHALT",
+   "manufacturer": "Koehler",
+   "model": "K95500 Automatic Penetrometer",
+   "typical_uptime_pct": 97,
+   "mtbf_days": 260,
+   "calibration_interval_days": 365,
+   "install_year": 2016
+  },
+  {
+   "asset_code": "RING-BALL-01",
+   "name": "Automatic Softening Point Ring & Ball Apparatus (ASTM D36 / IP 58)",
+   "type": "Softening Point Tester",
+   "section_code": "LUBE_ASPHALT",
+   "manufacturer": "Koehler",
+   "model": "K28000 Automated Ring-and-Ball",
+   "typical_uptime_pct": 97.5,
+   "mtbf_days": 290,
+   "calibration_interval_days": 365,
+   "install_year": 2017
+  },
+  {
+   "asset_code": "RHEOMETER-DSR-01",
+   "name": "Dynamic Shear Rheometer - PG Grading (AASHTO T315 / ASTM D7175)",
+   "type": "Dynamic Shear Rheometer",
+   "section_code": "LUBE_ASPHALT",
+   "manufacturer": "Anton Paar",
+   "model": "SmartPave 102 DSR",
+   "typical_uptime_pct": 93,
+   "mtbf_days": 125,
+   "calibration_interval_days": 180,
+   "install_year": 2022
+  }
+ ],
+ "inventory": [
+  {
+   "item_code": "SOL-HEPT-001",
+   "name": "n-Heptane, ≥99% (ASTM knock reference / detector solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 40,
+   "typical_monthly_consumption": 60,
+   "unit_cost": 38.5,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS02 Flammable liquid Cat 2 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "SOL-ISOC-002",
+   "name": "Isooctane (2,2,4-Trimethylpentane), ≥99.5% knock reference",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 40,
+   "typical_monthly_consumption": 55,
+   "unit_cost": 46,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS02 Flammable liquid Cat 2 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "SOL-TOLU-003",
+   "name": "Toluene, anhydrous ≥99.8% (existent gum / aromatics solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 50,
+   "typical_monthly_consumption": 70,
+   "unit_cost": 28,
+   "supplier": "Merck",
+   "hazard_class": "GHS02 Flammable / GHS08 Reproductive Tox / GHS07"
+  },
+  {
+   "item_code": "SOL-MEOH-004",
+   "name": "Methanol, HPLC grade ≥99.9% (Karl Fischer / wash solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 120,
+   "typical_monthly_consumption": 180,
+   "unit_cost": 22.5,
+   "supplier": "Merck",
+   "hazard_class": "GHS02 Flammable / GHS06 Toxic / GHS08 STOT"
+  },
+  {
+   "item_code": "SOL-ETOH-005",
+   "name": "Ethanol, absolute ≥99.8% denatured (cleaning / titration solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 100,
+   "typical_monthly_consumption": 140,
+   "unit_cost": 19,
+   "supplier": "VWR",
+   "hazard_class": "GHS02 Flammable liquid Cat 2"
+  },
+  {
+   "item_code": "SOL-PENT-006",
+   "name": "n-Pentane, ≥99% (n-heptane insolubles / SARA solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 30,
+   "typical_monthly_consumption": 35,
+   "unit_cost": 41,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS02 Flammable Cat 1 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "SOL-CYHX-007",
+   "name": "Cyclohexane, ≥99.5% (RVP / UV cell solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 25,
+   "typical_monthly_consumption": 30,
+   "unit_cost": 33,
+   "supplier": "VWR",
+   "hazard_class": "GHS02 Flammable / GHS07 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "SOL-XYL-008",
+   "name": "Xylene, mixed isomers ≥98.5% (asphaltene / wax solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 30,
+   "typical_monthly_consumption": 40,
+   "unit_cost": 26,
+   "supplier": "Merck",
+   "hazard_class": "GHS02 Flammable / GHS07 Harmful"
+  },
+  {
+   "item_code": "SOL-IPA-009",
+   "name": "2-Propanol (Isopropanol), ≥99.8% (cleaning / rinse solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 40,
+   "typical_monthly_consumption": 50,
+   "unit_cost": 21,
+   "supplier": "VWR",
+   "hazard_class": "GHS02 Flammable / GHS07 Eye irritant"
+  },
+  {
+   "item_code": "SOL-DCM-010",
+   "name": "Dichloromethane, ≥99.9% (extraction / oil-grease solvent)",
+   "category": "Solvent",
+   "unit": "L",
+   "reorder_level": 30,
+   "typical_monthly_consumption": 38,
+   "unit_cost": 30,
+   "supplier": "Merck",
+   "hazard_class": "GHS08 Carcinogen Cat 2 / GHS07"
+  },
+  {
+   "item_code": "REA-KF-101",
+   "name": "Karl Fischer Reagent, Hydranal Composite 5 (volumetric water det.)",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 12,
+   "typical_monthly_consumption": 18,
+   "unit_cost": 96,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS02 Flammable / GHS06 Toxic (methanol/SO2)"
+  },
+  {
+   "item_code": "REA-KFM-102",
+   "name": "Karl Fischer Methanol Dry Solvent, Hydranal",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 15,
+   "typical_monthly_consumption": 22,
+   "unit_cost": 58,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS02 Flammable / GHS06 Toxic"
+  },
+  {
+   "item_code": "REA-DOC-103",
+   "name": "Doctor Solution (Sodium Plumbite) for corrosive sulfur D4952",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 8,
+   "typical_monthly_consumption": 6,
+   "unit_cost": 64,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS08 Reproductive Tox (lead) / GHS09 Aquatic"
+  },
+  {
+   "item_code": "REA-CUCL-104",
+   "name": "Cupric Chloride dihydrate, ACS ≥99% (copper strip / Doctor test)",
+   "category": "Reagent",
+   "unit": "kg",
+   "reorder_level": 2,
+   "typical_monthly_consumption": 1,
+   "unit_cost": 72,
+   "supplier": "Merck",
+   "hazard_class": "GHS07 Harmful / GHS09 Aquatic"
+  },
+  {
+   "item_code": "REA-NATS-105",
+   "name": "Sodium Thiosulfate 0.1 N volumetric (mercaptan / iodine titration)",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 20,
+   "typical_monthly_consumption": 28,
+   "unit_cost": 18,
+   "supplier": "VWR",
+   "hazard_class": "GHS07 Mild irritant (low hazard)"
+  },
+  {
+   "item_code": "REA-AGNO3-106",
+   "name": "Silver Nitrate 0.01 N (mercaptan sulfur potentiometric D3227)",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 10,
+   "typical_monthly_consumption": 12,
+   "unit_cost": 44,
+   "supplier": "Merck",
+   "hazard_class": "GHS05 Corrosive / GHS09 Aquatic"
+  },
+  {
+   "item_code": "REA-KOH-107",
+   "name": "Potassium Hydroxide 0.1 N alcoholic (TAN / acid number D664)",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 18,
+   "typical_monthly_consumption": 24,
+   "unit_cost": 26,
+   "supplier": "VWR",
+   "hazard_class": "GHS02 Flammable / GHS05 Corrosive"
+  },
+  {
+   "item_code": "REA-HCL-108",
+   "name": "Hydrochloric Acid 0.1 N (TBN / base number titration D2896)",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 15,
+   "typical_monthly_consumption": 20,
+   "unit_cost": 17.5,
+   "supplier": "Merck",
+   "hazard_class": "GHS05 Corrosive / GHS07"
+  },
+  {
+   "item_code": "REA-WIJS-109",
+   "name": "Wijs Solution (Iodine Monochloride) for bromine/iodine number",
+   "category": "Reagent",
+   "unit": "L",
+   "reorder_level": 6,
+   "typical_monthly_consumption": 5,
+   "unit_cost": 88,
+   "supplier": "Sigma-Aldrich",
+   "hazard_class": "GHS05 Corrosive / GHS06 Toxic"
+  },
+  {
+   "item_code": "REA-KI-110",
+   "name": "Potassium Iodide, ACS ≥99% (peroxide / iodometric reagent)",
+   "category": "Reagent",
+   "unit": "kg",
+   "reorder_level": 1,
+   "typical_monthly_consumption": 0.5,
+   "unit_cost": 110,
+   "supplier": "Merck",
+   "hazard_class": "GHS07 Harmful / GHS08 Repro (overexposure)"
+  },
+  {
+   "item_code": "CRM-OCT-201",
+   "name": "Octane Number CRM, PRF blend RON 95.0 (engine validation D2699)",
+   "category": "Reference Standard",
+   "unit": "L",
+   "reorder_level": 4,
+   "typical_monthly_consumption": 3,
+   "unit_cost": 340,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS02 Flammable / GHS08 Aspiration"
+  },
+  {
+   "item_code": "CRM-SUL-202",
+   "name": "Sulfur-in-Oil CRM 10 mg/kg (low-S diesel XRF/UVF D5453/D2622)",
+   "category": "Reference Standard",
+   "unit": "set",
+   "reorder_level": 3,
+   "typical_monthly_consumption": 2,
+   "unit_cost": 285,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS07 Harmful / GHS08 Aspiration"
+  },
+  {
+   "item_code": "CRM-SUL-203",
+   "name": "Sulfur-in-Oil CRM 500 mg/kg (mid-range XRF/WDXRF calibration)",
+   "category": "Reference Standard",
+   "unit": "set",
+   "reorder_level": 3,
+   "typical_monthly_consumption": 2,
+   "unit_cost": 285,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS07 Harmful / GHS08 Aspiration"
+  },
+  {
+   "item_code": "CRM-DEN-204",
+   "name": "Density Standard 0.8000 g/mL @15°C (DMA densitometer D4052)",
+   "category": "Reference Standard",
+   "unit": "btl",
+   "reorder_level": 4,
+   "typical_monthly_consumption": 2,
+   "unit_cost": 165,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS02 Flammable Cat 3 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "CRM-VIS-205",
+   "name": "Viscosity Standard S20 (~33 cSt @40°C) certified (D445/D7042)",
+   "category": "Reference Standard",
+   "unit": "btl",
+   "reorder_level": 5,
+   "typical_monthly_consumption": 3,
+   "unit_cost": 145,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS08 Aspiration (mineral oil)"
+  },
+  {
+   "item_code": "CRM-VIS-206",
+   "name": "Viscosity Standard N1000 (~1800 cSt @40°C) for residual fuels",
+   "category": "Reference Standard",
+   "unit": "btl",
+   "reorder_level": 4,
+   "typical_monthly_consumption": 2,
+   "unit_cost": 158,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS08 Aspiration (mineral oil)"
+  },
+  {
+   "item_code": "CRM-COL-207",
+   "name": "ASTM Color Standard Kit (D1500 glass disc set 0.5–8.0)",
+   "category": "Reference Standard",
+   "unit": "kit",
+   "reorder_level": 1,
+   "typical_monthly_consumption": 0.2,
+   "unit_cost": 920,
+   "supplier": "AccuStandard",
+   "hazard_class": "Non-hazardous (glass color standards)"
+  },
+  {
+   "item_code": "CRM-RVP-208",
+   "name": "RVP Verification Standard (toluene/n-pentane, Reid vapor D5191)",
+   "category": "Reference Standard",
+   "unit": "btl",
+   "reorder_level": 3,
+   "typical_monthly_consumption": 2,
+   "unit_cost": 210,
+   "supplier": "AccuStandard",
+   "hazard_class": "GHS02 Flammable Cat 1 / GHS08 Aspiration"
+  },
+  {
+   "item_code": "GAS-HE-301",
+   "name": "Helium 6.0 UHP, 50 L cylinder 200 bar (GC carrier gas)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 6,
+   "typical_monthly_consumption": 8,
+   "unit_cost": 420,
+   "supplier": "Air Products",
+   "hazard_class": "GHS04 Compressed gas (asphyxiant)"
+  },
+  {
+   "item_code": "GAS-H2-302",
+   "name": "Hydrogen 5.0, 50 L cylinder 200 bar (FID fuel / carrier)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 5,
+   "typical_monthly_consumption": 6,
+   "unit_cost": 180,
+   "supplier": "Linde",
+   "hazard_class": "GHS02 Flammable gas Cat 1 / GHS04 Compressed"
+  },
+  {
+   "item_code": "GAS-N2-303",
+   "name": "Nitrogen 5.0 UHP, 50 L cylinder 200 bar (make-up / purge gas)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 10,
+   "typical_monthly_consumption": 14,
+   "unit_cost": 95,
+   "supplier": "Air Products",
+   "hazard_class": "GHS04 Compressed gas (asphyxiant)"
+  },
+  {
+   "item_code": "GAS-ZA-304",
+   "name": "Zero Air, hydrocarbon-free 50 L cylinder (FID combustion air)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 6,
+   "typical_monthly_consumption": 9,
+   "unit_cost": 110,
+   "supplier": "Linde",
+   "hazard_class": "GHS04 Compressed gas (oxidizing support)"
+  },
+  {
+   "item_code": "GAS-AR-305",
+   "name": "Argon 5.0, 50 L cylinder 200 bar (ICP-OES plasma / GC carrier)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 8,
+   "typical_monthly_consumption": 12,
+   "unit_cost": 130,
+   "supplier": "Air Products",
+   "hazard_class": "GHS04 Compressed gas (asphyxiant)"
+  },
+  {
+   "item_code": "GAS-P5-306",
+   "name": "P5 Argon-Methane 95/5, 50 L cylinder (ECD detector gas)",
+   "category": "Gas",
+   "unit": "cyl",
+   "reorder_level": 4,
+   "typical_monthly_consumption": 3,
+   "unit_cost": 220,
+   "supplier": "Linde",
+   "hazard_class": "GHS02 Flammable component / GHS04 Compressed"
+  },
+  {
+   "item_code": "CON-GCCOL-401",
+   "name": "GC Capillary Column Rtx-1 100m x 0.25mm (DHA / PIONA ASTM D6730)",
+   "category": "Consumable",
+   "unit": "ea",
+   "reorder_level": 2,
+   "typical_monthly_consumption": 1,
+   "unit_cost": 1250,
+   "supplier": "Restek",
+   "hazard_class": "Non-hazardous (fused silica column)"
+  },
+  {
+   "item_code": "CON-GCCOL-402",
+   "name": "GC Column DB-2887 10m x 0.53mm (SimDist boiling range D2887)",
+   "category": "Consumable",
+   "unit": "ea",
+   "reorder_level": 2,
+   "typical_monthly_consumption": 1,
+   "unit_cost": 680,
+   "supplier": "Agilent",
+   "hazard_class": "Non-hazardous (fused silica column)"
+  },
+  {
+   "item_code": "CON-SYR-403",
+   "name": "GC Autosampler Syringe 10 µL fixed needle (Agilent 7693)",
+   "category": "Consumable",
+   "unit": "ea",
+   "reorder_level": 12,
+   "typical_monthly_consumption": 15,
+   "unit_cost": 48,
+   "supplier": "Agilent",
+   "hazard_class": "Sharps - physical hazard"
+  },
+  {
+   "item_code": "CON-FILT-404",
+   "name": "Filter Paper, Whatman No.42 ashless 110mm (ash / gravimetric)",
+   "category": "Consumable",
+   "unit": "box",
+   "reorder_level": 8,
+   "typical_monthly_consumption": 10,
+   "unit_cost": 42,
+   "supplier": "VWR",
+   "hazard_class": "Non-hazardous (cellulose)"
+  },
+  {
+   "item_code": "CON-BTL-405",
+   "name": "Sample Bottle, amber glass 1 L w/ PTFE-lined cap (product sampling)",
+   "category": "Consumable",
+   "unit": "case",
+   "reorder_level": 15,
+   "typical_monthly_consumption": 24,
+   "unit_cost": 36,
+   "supplier": "VWR",
+   "hazard_class": "Non-hazardous (glassware)"
+  },
+  {
+   "item_code": "CON-CRUC-406",
+   "name": "Porcelain/Silica Crucible 30 mL (sulfated ash / carbon residue)",
+   "category": "Consumable",
+   "unit": "ea",
+   "reorder_level": 20,
+   "typical_monthly_consumption": 12,
+   "unit_cost": 14,
+   "supplier": "VWR",
+   "hazard_class": "Non-hazardous (ceramic)"
+  },
+  {
+   "item_code": "CON-PMCC-407",
+   "name": "PMCC Flash Cup, brass test cup assy (Pensky-Martens D93)",
+   "category": "Consumable",
+   "unit": "ea",
+   "reorder_level": 3,
+   "typical_monthly_consumption": 1,
+   "unit_cost": 195,
+   "supplier": "Restek",
+   "hazard_class": "Non-hazardous (metal cup)"
+  }
+ ],
+ "documents": [
+  {
+   "doc_code": "MTH-D86-CRUDE",
+   "title": "Test Method for Distillation of Crude Oil and Petroleum Fractions at Atmospheric Pressure",
+   "doc_type": "Method",
+   "section_code": "CRUDE_DIST",
+   "standard_ref": "ASTM D86",
+   "version": "Rev 7.2",
+   "summary": "Atmospheric distillation procedure for IBP, T5-T95 cut points and FBP on crude and light/middle distillates using automated apparatus.",
+   "keywords": [
+    "distillation",
+    "boiling range",
+    "IBP",
+    "FBP",
+    "cut point",
+    "atmospheric",
+    "crude",
+    "recovery"
+   ]
+  },
+  {
+   "doc_code": "MTH-D2887-SIMDIS",
+   "title": "Test Method for Boiling Range Distribution of Petroleum Fractions by Gas Chromatography (Simulated Distillation)",
+   "doc_type": "Method",
+   "section_code": "CRUDE_DIST",
+   "standard_ref": "ASTM D2887",
+   "version": "Rev 4.0",
+   "summary": "GC simulated distillation determining boiling range distribution from initial to final boiling point for crude assay and distillate streams.",
+   "keywords": [
+    "simdis",
+    "gas chromatography",
+    "boiling range",
+    "ASTM D2887",
+    "crude assay",
+    "SimDis",
+    "FID",
+    "calibration mix"
+   ]
+  },
+  {
+   "doc_code": "MTH-D5191-RVP",
+   "title": "Test Method for Vapor Pressure of Petroleum Products (Mini Method) - Gasoline RVP",
+   "doc_type": "Method",
+   "section_code": "MOGAS_CHEM",
+   "standard_ref": "ASTM D5191",
+   "version": "Rev 3.1",
+   "summary": "Determination of Reid Vapor Pressure Equivalent (RVPE) of mogas and blendstocks using automated expansion vapor pressure analyser.",
+   "keywords": [
+    "RVP",
+    "vapor pressure",
+    "gasoline",
+    "mogas",
+    "volatility",
+    "DVPE",
+    "ASTM D5191",
+    "Grabner"
+   ]
+  },
+  {
+   "doc_code": "MTH-D2699-RON",
+   "title": "Test Method for Research Octane Number of Spark-Ignition Engine Fuel",
+   "doc_type": "Method",
+   "section_code": "MOGAS_CHEM",
+   "standard_ref": "ASTM D2699",
+   "version": "Rev 5.0",
+   "summary": "CFR F1/F2 knock engine determination of Research Octane Number for finished gasoline grades 91 and 95 RON.",
+   "keywords": [
+    "RON",
+    "octane",
+    "CFR engine",
+    "knock",
+    "gasoline",
+    "ASTM D2699",
+    "anti-knock",
+    "MOGAS 91 95"
+   ]
+  },
+  {
+   "doc_code": "MTH-D5453-SULFUR",
+   "title": "Test Method for Total Sulfur in Light Hydrocarbons, Spark-Ignition and Diesel Fuels by UV Fluorescence",
+   "doc_type": "Method",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D5453",
+   "version": "Rev 6.3",
+   "summary": "Ultraviolet fluorescence determination of total sulfur from sub-ppm to 10000 mg/kg in gasoline, jet, diesel and gas oils for ULSD compliance.",
+   "keywords": [
+    "total sulfur",
+    "UV fluorescence",
+    "ULSD",
+    "ASTM D5453",
+    "10 ppm",
+    "Antek",
+    "combustion",
+    "sulfur spec"
+   ]
+  },
+  {
+   "doc_code": "MTH-D445-VISC",
+   "title": "Test Method for Kinematic Viscosity of Transparent and Opaque Liquids",
+   "doc_type": "Method",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D445 / IP 71",
+   "version": "Rev 4.4",
+   "summary": "Kinematic viscosity by calibrated glass capillary viscometer at 40C and 100C for diesel, gas oil, fuel oil and lube base stocks.",
+   "keywords": [
+    "kinematic viscosity",
+    "capillary",
+    "40C",
+    "100C",
+    "ASTM D445",
+    "IP 71",
+    "cSt",
+    "Cannon-Fenske"
+   ]
+  },
+  {
+   "doc_code": "MTH-D93-FLASH",
+   "title": "Test Method for Flash Point by Pensky-Martens Closed Cup Tester",
+   "doc_type": "Method",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D93 / IP 34",
+   "version": "Rev 3.0",
+   "summary": "Pensky-Martens closed cup flash point determination for diesel, kerosene, fuel oil and intermediate streams for safety classification.",
+   "keywords": [
+    "flash point",
+    "Pensky-Martens",
+    "closed cup",
+    "ASTM D93",
+    "IP 34",
+    "diesel",
+    "safety",
+    "PMCC"
+   ]
+  },
+  {
+   "doc_code": "MTH-D1655-JETA1",
+   "title": "Specification and Test Methods for Aviation Turbine Fuel Jet A-1",
+   "doc_type": "Method",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D1655 / DEF STAN 91-091",
+   "version": "Rev 2.5",
+   "summary": "Full property slate and acceptance limits for Jet A-1 including freeze point, smoke point, JFTOT thermal stability and WSIM.",
+   "keywords": [
+    "Jet A-1",
+    "aviation turbine fuel",
+    "freeze point",
+    "smoke point",
+    "JFTOT",
+    "ASTM D1655",
+    "DEF STAN",
+    "WSIM"
+   ]
+  },
+  {
+   "doc_code": "MTH-D323-LPG-VP",
+   "title": "Test Method for Vapor Pressure of Liquefied Petroleum Gases (LPG Method)",
+   "doc_type": "Method",
+   "section_code": "GAS_LPG",
+   "standard_ref": "ASTM D1267 / IP 161",
+   "version": "Rev 2.2",
+   "summary": "Gauge vapor pressure of propane, butane and commercial LPG mixes at 37.8C for storage and transport specification.",
+   "keywords": [
+    "LPG",
+    "vapor pressure",
+    "propane",
+    "butane",
+    "ASTM D1267",
+    "IP 161",
+    "gauge",
+    "37.8C"
+   ]
+  },
+  {
+   "doc_code": "MTH-D2163-LPGCOMP",
+   "title": "Test Method for Determination of Hydrocarbons in Liquefied Petroleum Gases by Gas Chromatography",
+   "doc_type": "Method",
+   "section_code": "GAS_LPG",
+   "standard_ref": "ASTM D2163",
+   "version": "Rev 1.8",
+   "summary": "GC compositional analysis of C1-C5 hydrocarbons and olefins in LPG and refinery gas streams for product release.",
+   "keywords": [
+    "LPG composition",
+    "gas chromatography",
+    "C1-C5",
+    "ASTM D2163",
+    "propane purity",
+    "butane",
+    "olefins",
+    "refinery gas"
+   ]
+  },
+  {
+   "doc_code": "MTH-D4294-XRF-S",
+   "title": "Test Method for Sulfur in Petroleum and Petroleum Products by Energy-Dispersive X-Ray Fluorescence",
+   "doc_type": "Method",
+   "section_code": "LUBE_ASPHALT",
+   "standard_ref": "ASTM D4294 / ISO 8754",
+   "version": "Rev 3.4",
+   "summary": "EDXRF determination of sulfur from 0.0150 to 5.00 mass% in crude, fuel oil, asphalt and high-sulfur intermediates.",
+   "keywords": [
+    "sulfur",
+    "XRF",
+    "EDXRF",
+    "ASTM D4294",
+    "ISO 8754",
+    "fuel oil",
+    "asphalt",
+    "high sulfur"
+   ]
+  },
+  {
+   "doc_code": "MTH-D70-ASPH-SG",
+   "title": "Test Method for Density (Relative Density) of Semi-Solid Asphalt Binder (Pycnometer Method)",
+   "doc_type": "Method",
+   "section_code": "LUBE_ASPHALT",
+   "standard_ref": "ASTM D70 / IP 190",
+   "version": "Rev 1.5",
+   "summary": "Pycnometer relative density and specific gravity of semi-solid bitumen and asphalt binder at 25C for volume correction.",
+   "keywords": [
+    "asphalt",
+    "bitumen",
+    "density",
+    "pycnometer",
+    "ASTM D70",
+    "IP 190",
+    "specific gravity",
+    "binder"
+   ]
+  },
+  {
+   "doc_code": "MTH-D1298-API",
+   "title": "Test Method for Density, Relative Density and API Gravity by Hydrometer",
+   "doc_type": "Method",
+   "section_code": "CRUDE_DIST",
+   "standard_ref": "ASTM D1298 / IP 160",
+   "version": "Rev 4.1",
+   "summary": "Hydrometer determination of density and API gravity of crude and petroleum products with temperature correction to 15C.",
+   "keywords": [
+    "API gravity",
+    "density",
+    "hydrometer",
+    "ASTM D1298",
+    "IP 160",
+    "15C",
+    "relative density",
+    "crude"
+   ]
+  },
+  {
+   "doc_code": "MTH-D6304-KF-H2O",
+   "title": "Test Method for Determination of Water in Petroleum Products by Coulometric Karl Fischer Titration",
+   "doc_type": "Method",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D6304 / IP 438",
+   "version": "Rev 2.0",
+   "summary": "Coulometric Karl Fischer titration of trace water in distillates, jet fuel and lube oils to verify dryness specifications.",
+   "keywords": [
+    "water content",
+    "Karl Fischer",
+    "coulometric",
+    "ASTM D6304",
+    "IP 438",
+    "moisture",
+    "trace water",
+    "titration"
+   ]
+  },
+  {
+   "doc_code": "SOP-LAB-001-SAMPLE",
+   "title": "Standard Operating Procedure for Sampling, Receipt and Login of Refinery Process and Product Samples",
+   "doc_type": "SOP",
+   "section_code": "CRUDE_DIST",
+   "standard_ref": "ASTM D4057 / ISO/IEC 17025",
+   "version": "Rev 5.0",
+   "summary": "End-to-end manual and automatic sampling, chain-of-custody, LIMS login and retention for crude, intermediate and finished products.",
+   "keywords": [
+    "sampling",
+    "ASTM D4057",
+    "chain of custody",
+    "LIMS login",
+    "sample receipt",
+    "retention",
+    "labeling",
+    "SOP"
+   ]
+  },
+  {
+   "doc_code": "SOP-QC-014-CONTROL",
+   "title": "Standard Operating Procedure for Analytical Quality Control Charts and Check-Standard Monitoring",
+   "doc_type": "SOP",
+   "section_code": "MOGAS_CHEM",
+   "standard_ref": "ASTM D6299 / ISO/IEC 17025",
+   "version": "Rev 3.2",
+   "summary": "Use of QC check standards, Shewhart and EWMA control charts and out-of-control response per ASTM D6299 for all benches.",
+   "keywords": [
+    "quality control",
+    "control chart",
+    "ASTM D6299",
+    "check standard",
+    "Shewhart",
+    "EWMA",
+    "out-of-control",
+    "precision"
+   ]
+  },
+  {
+   "doc_code": "WI-GC-022-COLUMN",
+   "title": "Work Instruction for GC Column Installation, Conditioning and Performance Verification",
+   "doc_type": "Work Instruction",
+   "section_code": "GAS_LPG",
+   "standard_ref": "ASTM D2163 / ASTM D2887",
+   "version": "Rev 2.1",
+   "summary": "Step-by-step capillary column fitting, leak check, conditioning ramp and resolution test for refinery gas and SimDis GCs.",
+   "keywords": [
+    "GC column",
+    "conditioning",
+    "work instruction",
+    "leak check",
+    "resolution",
+    "Agilent",
+    "capillary",
+    "performance check"
+   ]
+  },
+  {
+   "doc_code": "WI-BAL-009-WEIGH",
+   "title": "Work Instruction for Daily Balance Verification and Routine Operation",
+   "doc_type": "Work Instruction",
+   "section_code": "LUBE_ASPHALT",
+   "standard_ref": "ISO/IEC 17025 / OIML R76",
+   "version": "Rev 1.4",
+   "summary": "Daily and as-needed verification of analytical balances using certified E2 weights with acceptance tolerances and logging.",
+   "keywords": [
+    "balance",
+    "weighing",
+    "E2 weights",
+    "verification",
+    "OIML R76",
+    "calibration check",
+    "Mettler",
+    "work instruction"
+   ]
+  },
+  {
+   "doc_code": "COA-MOGAS95-TMPL",
+   "title": "Certificate of Analysis Template - Premium Unleaded Gasoline 95 RON (Export Grade)",
+   "doc_type": "COA",
+   "section_code": "MOGAS_CHEM",
+   "standard_ref": "ASTM D4814 / SASO 4001",
+   "version": "Rev 4.0",
+   "summary": "Release COA layout with spec limits for RON, RVP, sulfur, benzene, density and distillation for 95 RON export gasoline.",
+   "keywords": [
+    "COA",
+    "gasoline 95 RON",
+    "ASTM D4814",
+    "SASO 4001",
+    "certificate of analysis",
+    "benzene",
+    "RVP",
+    "export"
+   ]
+  },
+  {
+   "doc_code": "COA-ULSD-TMPL",
+   "title": "Certificate of Analysis Template - Ultra Low Sulfur Diesel 10 ppm (EN 590 / Refinery Spec)",
+   "doc_type": "COA",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "EN 590 / ASTM D975",
+   "version": "Rev 3.3",
+   "summary": "ULSD release certificate template covering sulfur, cetane index, cloud point, flash, viscosity and lubricity acceptance limits.",
+   "keywords": [
+    "COA",
+    "ULSD",
+    "diesel",
+    "EN 590",
+    "ASTM D975",
+    "cetane",
+    "cloud point",
+    "lubricity"
+   ]
+  },
+  {
+   "doc_code": "MSDS-MOGAS-2024",
+   "title": "Safety Data Sheet - Unleaded Motor Gasoline (Mogas 91/95)",
+   "doc_type": "MSDS",
+   "section_code": "MOGAS_CHEM",
+   "standard_ref": "GHS Rev 9 / OSHA HCS 29 CFR 1910.1200",
+   "version": "Rev 6.0",
+   "summary": "16-section GHS safety data sheet for finished gasoline covering flammability, benzene carcinogen hazard, handling and first aid.",
+   "keywords": [
+    "SDS",
+    "MSDS",
+    "gasoline",
+    "GHS",
+    "benzene",
+    "flammable",
+    "carcinogen",
+    "first aid"
+   ]
+  },
+  {
+   "doc_code": "MSDS-H2S-LAB-2024",
+   "title": "Safety Data Sheet - Hydrogen Sulfide (Sour Sample Exposure in Crude and LPG Testing)",
+   "doc_type": "MSDS",
+   "section_code": "GAS_LPG",
+   "standard_ref": "GHS Rev 9 / OSHA 29 CFR 1910.1000",
+   "version": "Rev 2.0",
+   "summary": "GHS SDS for H2S exposure during sour crude and LPG handling, with PEL/TLV limits, detection and respiratory protection.",
+   "keywords": [
+    "SDS",
+    "hydrogen sulfide",
+    "H2S",
+    "sour crude",
+    "GHS",
+    "toxic gas",
+    "PEL TLV",
+    "respiratory protection"
+   ]
+  },
+  {
+   "doc_code": "CAL-CERT-S2-D5453",
+   "title": "Calibration Certificate - Sulfur Reference Standard Set for UV Fluorescence Analyser (1-50 mg/kg)",
+   "doc_type": "Calibration Cert",
+   "section_code": "DIESEL_PHYS",
+   "standard_ref": "ASTM D5453 / ISO 17034",
+   "version": "Rev 1.0",
+   "summary": "Certified value and expanded uncertainty for dibenzothiophene-in-isooctane sulfur standards traceable to NIST/ISO 17034 CRM.",
+   "keywords": [
+    "calibration certificate",
+    "sulfur standard",
+    "CRM",
+    "ISO 17034",
+    "traceability",
+    "uncertainty",
+    "dibenzothiophene",
+    "ASTM D5453"
+   ]
+  },
+  {
+   "doc_code": "CAL-CERT-DENS-DMA",
+   "title": "Calibration Certificate - Digital Density Meter (Anton Paar DMA 4500 M)",
+   "doc_type": "Calibration Cert",
+   "section_code": "CRUDE_DIST",
+   "standard_ref": "ASTM D4052 / ISO/IEC 17025",
+   "version": "Rev 1.0",
+   "summary": "Air and certified density standard calibration of oscillating U-tube density meter at 15C and 20C with traceable uncertainty.",
+   "keywords": [
+    "calibration certificate",
+    "density meter",
+    "Anton Paar",
+    "DMA 4500",
+    "ASTM D4052",
+    "U-tube",
+    "traceability",
+    "17025"
+   ]
+  },
+  {
+   "doc_code": "QM-SEC-04-COMPETENCE",
+   "title": "Quality Manual Section 4 - Personnel Competence, Training and Method Authorisation",
+   "doc_type": "Quality Manual",
+   "section_code": "ENV_WATER",
+   "standard_ref": "ISO/IEC 17025:2017 Clause 6.2",
+   "version": "Rev 2.0",
+   "summary": "Laboratory policy on analyst training records, competence assessment, method authorisation and ongoing proficiency.",
+   "keywords": [
+    "quality manual",
+    "ISO 17025",
+    "competence",
+    "training",
+    "clause 6.2",
+    "authorisation",
+    "proficiency",
+    "personnel"
+   ]
+  },
+  {
+   "doc_code": "QM-SEC-07-UNCERT",
+   "title": "Quality Manual Section 7 - Measurement Uncertainty, Method Validation and Traceability",
+   "doc_type": "Quality Manual",
+   "section_code": "ENV_WATER",
+   "standard_ref": "ISO/IEC 17025:2017 Clause 7.6 / Eurachem QUAM",
+   "version": "Rev 2.1",
+   "summary": "Policy for estimating measurement uncertainty, validating methods and ensuring metrological traceability across the lab.",
+   "keywords": [
+    "quality manual",
+    "measurement uncertainty",
+    "ISO 17025",
+    "clause 7.6",
+    "validation",
+    "traceability",
+    "Eurachem",
+    "metrology"
+   ]
+  },
+  {
+   "doc_code": "MTH-D5863-METALS",
+   "title": "Test Method for Determination of Nickel, Vanadium, Iron and Sodium in Crude Oils and Residual Fuels by AAS/ICP",
+   "doc_type": "Method",
+   "section_code": "ENV_WATER",
+   "standard_ref": "ASTM D5863 / IP 501",
+   "version": "Rev 1.3",
+   "summary": "Trace metals (Ni, V, Fe, Na) in crude and residual fuel by atomic absorption / ICP-OES for corrosion and catalyst poison control.",
+   "keywords": [
+    "trace metals",
+    "nickel",
+    "vanadium",
+    "ICP-OES",
+    "AAS",
+    "ASTM D5863",
+    "IP 501",
+    "residual fuel"
+   ]
+  }
+ ],
+ "kpis": [
+  {
+   "name": "On-Time Sample Turnaround %",
+   "description": "Percentage of samples authorised within their target TAT (LOGIN_DATE to AUTHORIZED_DATE) by GROUP_NAME priority class. Crude assay (CRUDE_DIST) target 24-48 h; routine MOGAS/DIESEL release tests 8 h; LPG/gas (GAS_LPG) and environmental water (ENV_WATER) within their SLA windows.",
+   "unit": "%",
+   "target": 92
+  },
+  {
+   "name": "First-Pass Spec Compliance %",
+   "description": "Share of results passing within ASTM/IP spec limits on first entry without retest or repeat, across release tests such as D2622 sulfur, D5191 RVP, D613 cetane, D86 distillation and D4294 sulfur. Reflects right-first-time quality of analysts and instruments.",
+   "unit": "%",
+   "target": 97
+  },
+  {
+   "name": "Instrument Uptime %",
+   "description": "Available (in-service) hours divided by scheduled hours from INSTRUMENTS1_LOG, across critical analysers: Agilent 7890 GC, Thermo Antek/XOS Sindie sulfur, Anton Paar SVM3001 viscometer, Metrohm KF titrators, Herzog/Tanaka distillation and flash units.",
+   "unit": "%",
+   "target": 95
+  },
+  {
+   "name": "Calibration Overdue Count",
+   "description": "Number of instruments or reference standards past their calibration/verification due date (e.g. GC retention check, sulfur D6299 control, density U-tube, thermometer ITS-90 verification). Each overdue item blocks accredited (ISO/IEC 17025) result release.",
+   "unit": "count",
+   "target": 0
+  },
+  {
+   "name": "Retest Rate %",
+   "description": "Percentage of results requiring re-analysis (REPEAT/RETEST flag in LIMS) due to QC failure, out-of-control charts, ASTM repeatability breach, or analyst entry error. Lower is better; a key driver of TAT and reagent cost.",
+   "unit": "%",
+   "target": 4
+  },
+  {
+   "name": "Off-Spec Product Rate %",
+   "description": "Percentage of finished-product release batches (Mogas 91/95, EN590 Diesel, Jet A-1, LPG, fuel oil, sulphur) failing one or more certificate-of-quality specs and quarantined or re-blended. Directly tied to refinery giveaway and reprocessing.",
+   "unit": "%",
+   "target": 1.5
+  },
+  {
+   "name": "Samples Logged Per Day",
+   "description": "Mean number of samples logged into LIMS per working day (COUNT of SAMPLE by LOGIN_DATE), aggregated across all sections. Tracks lab workload and is the baseline for staffing and the sample-volume forecast.",
+   "unit": "samples/day",
+   "target": 180
+  },
+  {
+   "name": "Mean Turnaround Time (TAT)",
+   "description": "Average elapsed hours from sample login to final authorisation, weighted across sections. The headline responsiveness metric reported to operations and blending planners.",
+   "unit": "hours",
+   "target": 9
+  },
+  {
+   "name": "QC Control Within Limits %",
+   "description": "Percentage of QC/check-standard results falling within Westgard / ASTM D6299 control-chart limits (mean +/- 2-3 SD) for assays running internal reference materials. Indicates analytical method stability.",
+   "unit": "%",
+   "target": 98
+  },
+  {
+   "name": "Proficiency Test (PT) Z-Score Pass Rate %",
+   "description": "Share of inter-laboratory proficiency-testing results (e.g. ASTM ILCP, IIS crude assay round-robins) with |z| <= 2, evidencing accredited measurement competence for the ISO/IEC 17025 scope.",
+   "unit": "%",
+   "target": 95
+  },
+  {
+   "name": "Result Backlog (Pending Authorisation)",
+   "description": "Count of completed results awaiting supervisor authorisation in LIMS at end of shift. A rising backlog signals review bottlenecks that silently breach TAT even when bench work is done.",
+   "unit": "count",
+   "target": 25
+  }
+ ],
+ "alerts": [
+  {
+   "name": "Off-Spec Sulfur (Diesel/Mogas)",
+   "metric": "total_sulfur_ppm",
+   "condition": "gt",
+   "threshold": 10,
+   "rationale": "EN590 / Euro V road diesel and Mogas have a 10 mg/kg (ppm) max total sulfur by ASTM D2622 / D5453. A result above 10 ppm means the batch cannot be certified for the ULSD/Mogas pool and must be quarantined and re-blended before export from the refinery."
+  },
+  {
+   "name": "Jet A-1 Flash Point Below Limit",
+   "metric": "flash_point_c",
+   "condition": "lt",
+   "threshold": 38,
+   "rationale": "ASTM D56/D3828 flash point for Jet A-1 (DEF STAN 91-091 / ASTM D1655) must be >= 38 C for safe handling. A sub-38 C reading flags a volatile/contaminated jet batch and an immediate aviation-fuel safety hold."
+  },
+  {
+   "name": "Mogas RVP Above Seasonal Limit",
+   "metric": "reid_vapor_pressure_kpa",
+   "condition": "gt",
+   "threshold": 60,
+   "rationale": "Reid Vapour Pressure (ASTM D5191) drives evaporative emissions and vapour lock. Summer refinery gasoline must stay below the seasonal RVP cap (~60 kPa); a breach means the blend is off-spec and risks tank venting losses."
+  },
+  {
+   "name": "Instrument Downtime Spike",
+   "metric": "instrument_downtime_hours_24h",
+   "condition": "gt",
+   "threshold": 4,
+   "rationale": "More than 4 unscheduled downtime hours in 24 h on a critical analyser (GC sulfur, distillation, viscometer) from INSTRUMENTS1_LOG starves the release queue and cascades into TAT breaches; triggers maintenance escalation and sample rerouting."
+  },
+  {
+   "name": "TAT SLA Breach",
+   "metric": "open_samples_past_due_pct",
+   "condition": "gt",
+   "threshold": 10,
+   "rationale": "When more than 10% of in-progress samples have exceeded their section TAT target, the lab is missing its operations SLA. Early warning lets the supervisor reprioritise release-critical product samples ahead of routine work."
+  },
+  {
+   "name": "Calibration / Verification Overdue",
+   "metric": "calibration_overdue_count",
+   "condition": "gt",
+   "threshold": 0,
+   "rationale": "Any instrument or reference standard past its calibration due date invalidates results under ISO/IEC 17025. Even one overdue item must block result authorisation, so the threshold is zero tolerance."
+  },
+  {
+   "name": "Reagent / Standard Below Reorder Level",
+   "metric": "reagent_stock_vs_reorder_pct",
+   "condition": "lt",
+   "threshold": 20,
+   "rationale": "Critical consumables (Karl Fischer reagent, certified sulfur standards, GC carrier gas, cetane reference fuels) dropping below 20% of reorder point risk a method stoppage; raises a procurement alert tied to the inventory forecast."
+  },
+  {
+   "name": "QC Control Out-of-Range (Westgard)",
+   "metric": "qc_control_zscore_abs",
+   "condition": "gt",
+   "threshold": 3,
+   "rationale": "A check-standard result beyond +/-3 SD (ASTM D6299 / Westgard 1-3s rule) indicates the analytical method is out of statistical control. All results since the last in-control QC are suspect and must be held pending re-calibration and re-analysis."
+  }
+ ],
+ "vision_use_cases": [
+  {
+   "name": "ASTM Colour & Appearance Grading",
+   "description": "Camera/colourimeter images of product samples are graded against ASTM D1500 (dark oils, diesel, fuel oil), Saybolt ASTM D156 (jet, light naphtha) and D6045 visual colour scales, plus haze/clarity and visible water or sediment. The model returns a colour number and clear-and-bright pass/fail, auto-populating the LIMS appearance field and flagging off-colour or hazy batches for review.",
+   "categories": [
+    "color-grading",
+    "appearance-qc",
+    "product-release",
+    "ASTM-D1500",
+    "ASTM-D156"
+   ]
+  },
+  {
+   "name": "Chromatogram Peak QC",
+   "description": "GC/SimDis and PIONA chromatograms (D2887 simulated distillation, D6730/D5134 detailed hydrocarbon analysis, RGA refinery-gas) are screened by a vision model for baseline drift, peak tailing/fronting, co-elution, retention-time shift versus the reference standard, and missing internal-standard peaks. Bad runs are flagged for retest before results are authorised.",
+   "categories": [
+    "chromatogram-qc",
+    "peak-detection",
+    "instrument-qc",
+    "anomaly-detection"
+   ]
+  },
+  {
+   "name": "Crude / Sediment Image Classification",
+   "description": "Images of crude-oil and bottoms samples, BS&W (water-and-sediment) centrifuge tubes (ASTM D4007), and filtration pads are classified for emulsion layers, sediment/water content band, asphaltene precipitation and free-water presence. Supports crude-assay intake (CRUDE_DIST) and tank-receipt acceptance decisions.",
+   "categories": [
+    "image-classification",
+    "crude-assay",
+    "sediment-water",
+    "BSW",
+    "intake-screening"
+   ]
+  },
+  {
+   "name": "Corrosion-Coupon Image Scoring",
+   "description": "Macro images of copper-strip corrosion strips (ASTM D130 for gasoline/jet/LPG), silver-strip tests, and metal corrosion coupons are scored against the standard rating chart (1a-4c) and for pitting, tarnish and scale. Automates a subjective visual test, giving a repeatable corrosion classification for LPG/MOGAS/jet release.",
+   "categories": [
+    "corrosion-scoring",
+    "copper-strip",
+    "ASTM-D130",
+    "image-grading",
+    "product-release"
+   ]
+  },
+  {
+   "name": "Gauge / Meter OCR Reading",
+   "description": "OCR/vision reads analogue and digital displays on bench instruments and utilities, manual thermometers, pressure gauges, hydrometer (API gravity) scales, distillation temperatures and balance readouts, transcribing them straight into LIMS result fields. Eliminates manual transcription errors and timestamps the reading for the audit trail.",
+   "categories": [
+    "ocr",
+    "gauge-reading",
+    "meter-reading",
+    "data-entry-automation",
+    "audit-trail"
+   ]
+  },
+  {
+   "name": "Distillation Flask Boil Image Monitoring",
+   "description": "Video frames of the ASTM D86 / D1160 distillation flask are analysed to detect the initial boiling point (first drop), bumping/foaming, flooding, decomposition smoke, and consistent drop rate, cross-checking the recorded IBP/FBP curve. Flags abnormal boils that would invalidate the distillation result for naphtha, mogas, jet and diesel.",
+   "categories": [
+    "video-monitoring",
+    "distillation-qc",
+    "ASTM-D86",
+    "boiling-point-detection",
+    "anomaly-detection"
+   ]
+  }
+ ],
+ "verification": {
+  "issues": [
+   {
+    "item": "BENZENE - Purity by GC (ASTM D4492)",
+    "problem": "ASTM D4492 is 'Standard Test Method for Benzene Content of Cyclic Products by Gas Chromatography' - it determines benzene AS AN IMPURITY in other cyclic products (e.g. toluene, cyclohexane). It is NOT the method for assaying the purity of a benzene product stream. Purity of refined benzene is determined by ASTM D2360 (trace impurities by capillary GC) or ASTM D4307, with overall purity by D850/GC area%.",
+    "correction": "Change method for benzene product purity to ASTM D4734 / D2360 (impurities by GC) reporting purity by difference, or report purity via ASTM D850 distillation + GC. Keep D4492 only if the intent is 'benzene-in-toluene' impurity. The FFAP capillary GC-FID instrument is appropriate for the corrected method."
+   },
+   {
+    "item": "TOLUENE - Purity by GC (ASTM D3797)",
+    "problem": "ASTM D3797 is 'Analysis of o-Xylene by Gas Chromatography' (xylene-specific), not a toluene purity method. It is mismatched to the toluene product.",
+    "correction": "Use ASTM D5917 (trace impurities in monocyclic aromatics by GC with external calibration) or ASTM D2360, reporting toluene purity by difference. Instrument (capillary FFAP GC-FID) is fine."
+   },
+   {
+    "item": "MOGAS-91 - Total Aromatics (ASTM D5769) typical_mean 28.5 vol%",
+    "problem": "ASTM D5769 reports aromatics in mass% (it is a GC-MS method calibrated by mass), not vol%. The unit 'vol%' is inconsistent with the method's native output. Also for a 91 RON regular gasoline, 28.5 vol% total aromatics is on the high side relative to the olefin/octane balance but is acceptable; the unit is the real defect.",
+    "correction": "Either report in mass% (D5769 native) or, if vol% aromatics is required against the typical EN228-style 35 vol% limit, use ASTM D6839 (GC-PIONA, vol%) or D1319. Align unit with chosen method."
+   },
+   {
+    "item": "MOGAS-91 - Distillation FBP spec_max 215 / MOGAS-95 FBP spec_max 210 with T50 only",
+    "problem": "Not physically wrong, but the gasoline distillation set is internally incomplete/odd: an FBP max of 215 deg C is higher than the typical worldwide gasoline FBP limit of 210 deg C and the D86 FBP residue/E70/E100/E150 fractional-evaporated points are missing. Minor realism gap, not an impossibility.",
+    "correction": "Tighten MOGAS-91 FBP spec_max to 210 deg C to match MOGAS-95 and EN228/typical refinery limits; consider adding E70 (20-48 vol%) and E100 (46-71 vol%) evaporated points for authenticity. Low priority."
+   },
+   {
+    "item": "LPG-C3C4 - Residual Matter / Volatile Residue (ASTM D2158) unit 'mL'",
+    "problem": "ASTM D2158 'Residues in Liquefied Petroleum (LP) Gases' reports the oil residue as mL (residue on evaporation) AND the end point of the residue; the residue limit is typically expressed in mL per 100 mL (e.g. 0.05 mL/100 mL). Bare 'mL' with spec_max 0.05 is ambiguous but the residue-evaporation apparatus and method are correct.",
+    "correction": "Express unit as 'mL/100 mL' (e.g. spec_max 0.05 mL/100 mL) to remove ambiguity. Method and instrument are correct."
+   },
+   {
+    "item": "LPG-C3C4 - Hydrocarbon Composition (ASTM D2163) labelled 'C2-C5'",
+    "problem": "ASTM D2163 'Determination of Hydrocarbons in Liquefied Petroleum (LP) Gases and Propane/Propene Mixtures by Gas Chromatography' covers C1 through C5+ components. The descriptor and the analyzer ('Refinery Gas Analyser GC-TCD/FID') are appropriate; minor: D2163 is the LPG-specific GC method (correct), so no method error, only the typical_mean of 60 vol% for an unnamed single component is meaningless without specifying which component (e.g. C3).",
+    "correction": "Specify the reported component (e.g. propane content ~ a given vol%) or report the method as a composition profile rather than a single mean. No method/instrument change needed."
+   },
+   {
+    "item": "PROP-COM / LPG-C3C4 Vapour Pressure (ASTM D1267) vs commercial spec",
+    "problem": "ASTM D1267 (LPG gauge vapour pressure) is correct and the apparatus is correct, but using a 1430 kPa cap for a C3/C4 MIX (LPG-C3C4) is the propane limit. A propane/butane mix would normally carry a lower combined-product VP limit; 1430 kPa is really the commercial-propane figure.",
+    "correction": "For the LPG-C3C4 commercial mix, set the VP limit per the actual product grade (commercial propane 1434 kPa, commercial butane 485 kPa, P/B mix ~ per D1835 grade). Keep 1430 kPa only for the pure/commercial-propane stream (PROP-COM)."
+   },
+   {
+    "item": "BENZENE - Density at 15 C spec 882-886 kg/m3 typical_mean 884",
+    "problem": "Benzene density is conventionally specified at 20 C (~876.5 kg/m3) or 15 C (~884 kg/m3). The 882-886 kg/m3 window at 15 C is physically correct (~884). No error - flagged only to confirm. Genuine concern: typical_std 0.6 with a 4 kg/m3 window is realistic. This item is OK.",
+    "correction": "No change required; benzene at 15 C ~884 kg/m3 is correct. (Included for completeness.)"
+   }
+  ],
+  "overall_assessment": "The dataset is largely authentic to refinery petroleum testing - real ASTM methods, realistic means/std-devs, and correct instruments for most physical/chemical tests (octane via CFR engine, RVP via Grabner/Setavap, density via Anton Paar DMA, sulfur via D5453 UV fluorescence and D6667 for gas, distillation via Herzog/PAC OptiDist). The clearest defects are in the AROMATICS PURITY block: ASTM D4492 (benzene-in-cyclic-products) is wrongly used to assay BENZENE product purity, and ASTM D3797 (o-xylene analysis) is wrongly used for TOLUENE purity - both should use the trace-impurity-by-GC methods (D2360/D5917/D4734) with purity by difference. Secondary issues are unit conventions: D5769 aromatics are natively mass% not vol%, and D2158 LPG residue should read mL/100 mL. The propane vapour-pressure limit (1430 kPa) is mis-applied to the C3/C4 mixed-LPG grade. Distillation realism for gasolines could be improved by adding E70/E100/E150 evaporated points and harmonising the FBP limit to 210 deg C. None of the core physics (densities, vapour pressures, octane ranges, sulfur limits) is impossible; the corrections are method/unit/grade alignment rather than gross errors."
+ }
+}
