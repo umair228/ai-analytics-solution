@@ -23,6 +23,8 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .personnel import technician_names
+
 REF_PATH = Path(__file__).resolve().parent / "reference.json"
 WAREHOUSE = Path(__file__).resolve().parent.parent / "media" / "refinery_lims.sqlite3"
 
@@ -63,8 +65,11 @@ DOWNTIME_REASONS = [
     "Preventive Maintenance", "Breakdown", "Calibration", "Power Trip",
     "Awaiting Spare Parts", "Method Setup", "Carrier Gas Change",
 ]
-TECHNICIANS = ["M. Idris", "R. Costa", "T. Okafor", "L. Haddad", "S. Nair",
-               "A. Rahman", "K. Pillai", "B. Subaie"]
+# Named support staff who operate instruments, handle inventory, run
+# calibrations and review vision inspections. Sourced from the shared personnel
+# roster so every ENTERED_BY / TRANSACTION_BY / performed_by / reviewed_by value
+# also has a matching platform login account.
+TECHNICIANS = technician_names()
 
 START_YEAR, START_MONTH = 2021, 1
 END_YEAR, END_MONTH = 2026, 5   # "today" is 2026-06-01
@@ -255,15 +260,27 @@ def build(verbose=True):
     create_schema(cur)
 
     # ---- Dimensions: sections -------------------------------------------
-    section_heads = {}
+    # Pick a head per section: prefer an explicit "Section Head", otherwise fall
+    # back to the most senior bench analyst so every section is headed by a real
+    # named person (and never a blank).
+    _HEAD_PRIORITY = ["Section Head", "Senior Analyst", "QC Chemist", "Analyst"]
+    by_sec_role = {}
     for a in ref["analysts"]:
-        if a["role"] == "Section Head":
-            section_heads.setdefault(canon(a["section_code"]), a["name"])
+        by_sec_role.setdefault(canon(a["section_code"]), {}).setdefault(
+            a["role"], a["name"])
+
+    def head_for(section_code):
+        roles = by_sec_role.get(section_code, {})
+        for r in _HEAD_PRIORITY:
+            if r in roles:
+                return roles[r]
+        return ""
+
     sec_rows = []
     for i, s in enumerate(ref["sections"], 1):
         c = canon(s["code"])
         sec_rows.append((i, c, SECTION_NAME[c], ", ".join(s["group_names"]),
-                         s["description"], section_heads.get(c, "")))
+                         s["description"], head_for(c)))
     cur.executemany("INSERT INTO sections VALUES (?,?,?,?,?,?)", sec_rows)
 
     # ---- Dimensions: analysts -------------------------------------------
@@ -588,7 +605,7 @@ def build(verbose=True):
                 qty = max(0.5, round(month_total / per_month * rng.uniform(0.7, 1.3), 2))
                 ts = datetime(y, m, day, rng.randint(8, 16), rng.randint(0, 59))
                 trans_rows.append((
-                    trans_id, "{" + str(uuid.uuid4()).upper() + "}", i, stock,
+                    trans_id, "{" + str(uuid.uuid5(uuid.NAMESPACE_OID, f"RFL-TRANS-{trans_id}")).upper() + "}", i, stock,
                     "PULL", "C", ts.strftime("%Y-%m-%d %H:%M:%S"),
                     ts.strftime("%Y-%m"), qty, it["unit"], rng.choice(TECHNICIANS),
                     f"Issued to {rng.choice(FORECAST_SECTIONS)}", "",
@@ -598,7 +615,7 @@ def build(verbose=True):
                 trans_id += 1
                 ts = datetime(y, m, rng.randint(1, max(2, mdays - 1)), 10, 0)
                 trans_rows.append((
-                    trans_id, "{" + str(uuid.uuid4()).upper() + "}", i, stock,
+                    trans_id, "{" + str(uuid.uuid5(uuid.NAMESPACE_OID, f"RFL-TRANS-{trans_id}")).upper() + "}", i, stock,
                     "RECEIVE", "C", ts.strftime("%Y-%m-%d %H:%M:%S"),
                     ts.strftime("%Y-%m"), round(month_total * rng.uniform(1.5, 3.0), 1),
                     it["unit"], "Stores", f"PO restock {meta['supplier']}",
