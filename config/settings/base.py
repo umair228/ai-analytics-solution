@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "dashboards",
     "ai",
     "forecasting",
+    "docsearch",
 ]
 
 MIDDLEWARE = [
@@ -215,6 +216,46 @@ FORECAST_SYNC_LABS_COLUMN = config(
 )
 # Connection timeout (seconds) for the LIMS forecast DB.
 FORECAST_DB_TIMEOUT = config("FORECAST_DB_TIMEOUT", default=15, cast=int)
+
+# --------------------------------------------------------------------------
+# AI Document Search (`docsearch` app)
+#
+# RAG over LIMS knowledge documents (BM25 + optional MiniLM semantic rerank,
+# answers synthesised by the shared Claude client) plus natural-language -> SQL
+# over the live LabWare LIMS. Files live under MEDIA_ROOT; the corpus is indexed
+# into a CSV fast-path. The NL->SQL source DB is configured separately from
+# FORECAST_DB so forecasting can stay on the sqlite demo warehouse while document
+# search queries MSSQL.
+# --------------------------------------------------------------------------
+DOCSEARCH_CORPUS_DIR = config(
+    "DOCSEARCH_CORPUS_DIR", default=str(BASE_DIR / "media" / "docsearch" / "corpus"))
+DOCSEARCH_INDEX_PATH = config(
+    "DOCSEARCH_INDEX_PATH", default=str(BASE_DIR / "media" / "docsearch" / "chunks_index.csv"))
+DOCSEARCH_FAQ_PATH = config(
+    "DOCSEARCH_FAQ_PATH", default=str(BASE_DIR / "media" / "docsearch" / "standard_responses.xlsx"))
+DOCSEARCH_EMBED_MODEL = config("DOCSEARCH_EMBED_MODEL", default="all-MiniLM-L12-v2")
+DOCSEARCH_ENABLE_SEMANTIC = config("DOCSEARCH_ENABLE_SEMANTIC", default=True, cast=bool)
+DOCSEARCH_ENABLE_OCR = config("DOCSEARCH_ENABLE_OCR", default=False, cast=bool)
+DOCSEARCH_ENABLE_SQL = config("DOCSEARCH_ENABLE_SQL", default=True, cast=bool)
+# Upload guards (per request): reject oversized files / too many files.
+DOCSEARCH_MAX_UPLOAD_BYTES = config("DOCSEARCH_MAX_UPLOAD_BYTES", default=50 * 1024 * 1024, cast=int)
+DOCSEARCH_MAX_UPLOAD_FILES = config("DOCSEARCH_MAX_UPLOAD_FILES", default=20, cast=int)
+
+# NL->SQL source DB (live LabWare LIMS over SQL Server by default). Reuses the
+# DB_* credentials but has its own ENGINE switch so it stays on MSSQL even when
+# DB_ENGINE=sqlite (forecasting demo mode).
+DOCSEARCH_DB = {
+    "ENGINE": config("DOCSEARCH_DB_ENGINE", default="mssql"),
+    "DRIVER": config("DB_DRIVER", default="ODBC Driver 18 for SQL Server"),
+    "HOST": config("DB_HOST", default="127.0.0.1"),
+    "PORT": config("DB_PORT", default="1433"),
+    "NAME": config("DB_NAME", default="SMJMUN_DEV"),
+    "USER": config("DB_USER", default="SA"),
+    "PASSWORD": config("DB_PASSWORD", default=""),
+    "PATH": config("DB_SQLITE_PATH",
+                   default=str(BASE_DIR / "media" / "refinery_lims.sqlite3")),
+}
+DOCSEARCH_DB_TIMEOUT = config("DOCSEARCH_DB_TIMEOUT", default=20, cast=int)
 
 # --------------------------------------------------------------------------
 # Email (alert notifications).  Dev default = console backend (no SMTP needed).

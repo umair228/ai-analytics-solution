@@ -15,6 +15,7 @@ urlpatterns = [
     path("api/", include("dashboards.urls")),
     path("api/", include("ai.urls")),
     path("api/", include("forecasting.urls")),
+    path("api/", include("docsearch.urls")),
 ]
 
 if settings.DEBUG:

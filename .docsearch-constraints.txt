@@ -1,0 +1,5 @@
+# Pin the NeuralProphet-critical packages so installing docsearch deps
+# (sentence-transformers, transformers, ...) cannot upgrade them.
+numpy==1.26.4
+pandas==2.2.3
+torch==2.12.0

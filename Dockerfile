@@ -18,8 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt .docsearch-constraints.txt ./
+RUN pip install --no-cache-dir -c .docsearch-constraints.txt -r requirements.txt
 
 COPY . .
 

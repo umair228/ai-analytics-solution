@@ -14,7 +14,9 @@ psycopg2-binary>=2.9  # PostgreSQL
 
 # File data sources + analytics
 # Pinned to the 2.2.x line: NeuralProphet 0.9.0 uses Series.view(), removed in
-# pandas 3.0. numpy is likewise held at <2 by NeuralProphet.
+# pandas 3.0. numpy is held at <2 by NeuralProphet — pin it explicitly so adding
+# sentence-transformers/transformers below can't resolve a numpy>=2 that breaks it.
+numpy>=1.26,<2
 pandas>=2.2,<2.3
 openpyxl>=3.1
 
@@ -35,6 +37,18 @@ requests>=2.32
 # Forecasting (LIMS time-series models — `forecasting` app)
 # NeuralProphet pulls torch + pytorch-lightning and pins numpy<2 (1.26.x).
 neuralprophet==0.9.0
+
+# AI Document Search (`docsearch` app) — RAG over LIMS docs + NL->SQL.
+# Document text extraction (lightweight, no version conflicts):
+python-docx>=1.1
+python-pptx>=1.0
+pypdf>=4.0
+# Semantic rerank (recommended; degrades gracefully to BM25-only if absent).
+# Kept compatible with the NeuralProphet numpy<2 / torch pins above — install
+# with a constraints file pinning numpy/pandas/torch if upgrading in place.
+sentence-transformers>=2.7
+# Optional image OCR for scanned uploads (heavy; enable via DOCSEARCH_ENABLE_OCR=True):
+#   easyocr>=1.7
 
 # Production server
 gunicorn>=23
