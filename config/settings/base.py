@@ -171,10 +171,29 @@ DSE_CONNECTION_TEST_TIMEOUT = config("DSE_CONNECTION_TEST_TIMEOUT", default=10, 
 DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
 
 # --------------------------------------------------------------------------
-# AI assistant (Claude API)
+# AI assistant — provider selection
+#
+# LLM_PROVIDER selects where generation runs:
+#   "anthropic" -> the Claude API (cloud)
+#   "local"     -> an on-prem OpenAI-compatible server (Ollama now, vLLM on the
+#                  GPU box later). When "local", the app makes NO outbound calls
+#                  to Anthropic — point LLM_BASE_URL at an internal host to keep
+#                  everything air-gapped. Swapping Ollama -> vLLM is just a
+#                  change of LLM_BASE_URL + LLM_MODEL (no code change).
 # --------------------------------------------------------------------------
+LLM_PROVIDER = config("LLM_PROVIDER", default="anthropic")
+
+# Cloud provider (Claude)
 CLAUDE_API_KEY = config("CLAUDE_API_KEY", default="")
 CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
+
+# Local provider (OpenAI-compatible). Defaults target a local Ollama daemon;
+# for vLLM set LLM_BASE_URL=http://<gpu-host>:8000/v1 and
+# LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ (or similar).
+LLM_BASE_URL = config("LLM_BASE_URL", default="http://127.0.0.1:11434/v1")
+LLM_MODEL = config("LLM_MODEL", default="qwen2.5:7b-instruct")
+LLM_API_KEY = config("LLM_API_KEY", default="EMPTY")
+LLM_TIMEOUT = config("LLM_TIMEOUT", default=120, cast=int)
 
 # --------------------------------------------------------------------------
 # Forecasting source database (LIMS — external SQL Server, read-only)
@@ -231,6 +250,10 @@ DOCSEARCH_CORPUS_DIR = config(
     "DOCSEARCH_CORPUS_DIR", default=str(BASE_DIR / "media" / "docsearch" / "corpus"))
 DOCSEARCH_INDEX_PATH = config(
     "DOCSEARCH_INDEX_PATH", default=str(BASE_DIR / "media" / "docsearch" / "chunks_index.csv"))
+# Knowledge-base staging area: uploaded files awaiting review land here (NOT the
+# corpus dir, so they are not auto-indexed until approved).
+DOCSEARCH_STAGING_DIR = config(
+    "DOCSEARCH_STAGING_DIR", default=str(BASE_DIR / "media" / "docsearch" / "staging"))
 DOCSEARCH_FAQ_PATH = config(
     "DOCSEARCH_FAQ_PATH", default=str(BASE_DIR / "media" / "docsearch" / "standard_responses.xlsx"))
 DOCSEARCH_EMBED_MODEL = config("DOCSEARCH_EMBED_MODEL", default="all-MiniLM-L12-v2")
@@ -240,6 +263,47 @@ DOCSEARCH_ENABLE_SQL = config("DOCSEARCH_ENABLE_SQL", default=True, cast=bool)
 # Upload guards (per request): reject oversized files / too many files.
 DOCSEARCH_MAX_UPLOAD_BYTES = config("DOCSEARCH_MAX_UPLOAD_BYTES", default=50 * 1024 * 1024, cast=int)
 DOCSEARCH_MAX_UPLOAD_FILES = config("DOCSEARCH_MAX_UPLOAD_FILES", default=20, cast=int)
+# Chunking / knowledge-base ingestion knobs.
+# Passages are packed to ~CHUNK_TOKENS (hard-capped at CHUNK_MAX_TOKENS) with a
+# small sentence overlap — replacing the old one-sentence-per-chunk indexing.
+DOCSEARCH_CHUNK_TOKENS = config("DOCSEARCH_CHUNK_TOKENS", default=384, cast=int)
+DOCSEARCH_CHUNK_MAX_TOKENS = config("DOCSEARCH_CHUNK_MAX_TOKENS", default=512, cast=int)
+DOCSEARCH_CHUNK_OVERLAP = config("DOCSEARCH_CHUNK_OVERLAP", default=0.15, cast=float)
+DOCSEARCH_KB_MAX_ROWS = config("DOCSEARCH_KB_MAX_ROWS", default=10000, cast=int)
+# Hybrid retrieval (BM25 + dense) + cross-encoder rerank.
+#   DOCSEARCH_HYBRID         — fuse BM25 with dense (semantic) retrieval (RRF)
+#   DOCSEARCH_CANDIDATE_POOL — how many to pull from each leg before fusion
+#   DOCSEARCH_PER_DOC_CAP    — how many distinct documents may enter the answer
+#                              (was hard-coded to 1 = single doc; relaxed for
+#                              cross-document questions, reranker re-tightens it)
+#   DOCSEARCH_ENABLE_RERANK / DOCSEARCH_RERANK_MODEL — cross-encoder reranker.
+#     Default is a small, fast CrossEncoder. For higher accuracy in production
+#     set DOCSEARCH_RERANK_MODEL=BAAI/bge-reranker-base (pre-stage the weights for
+#     air-gapped installs).
+#   DOCSEARCH_EMBED_*_PREFIX — instruction prefixes some embedders need (bge/e5);
+#     empty for MiniLM. Applied at BOTH index time (passage) and query time —
+#     keep consistent or recall silently degrades.
+#   DOCSEARCH_VECTOR_BACKEND — "numpy" (persisted .npy, in-memory cosine; fine to
+#     ~hundreds of thousands of chunks) or "pgvector" (Postgres, for large scale).
+DOCSEARCH_HYBRID = config("DOCSEARCH_HYBRID", default=True, cast=bool)
+DOCSEARCH_CANDIDATE_POOL = config("DOCSEARCH_CANDIDATE_POOL", default=50, cast=int)
+DOCSEARCH_RRF_K = config("DOCSEARCH_RRF_K", default=60, cast=int)
+DOCSEARCH_PER_DOC_CAP = config("DOCSEARCH_PER_DOC_CAP", default=3, cast=int)
+DOCSEARCH_MAX_CHUNKS = config("DOCSEARCH_MAX_CHUNKS", default=15, cast=int)
+DOCSEARCH_RERANK_KEEP = config("DOCSEARCH_RERANK_KEEP", default=10, cast=int)
+DOCSEARCH_ENABLE_RERANK = config("DOCSEARCH_ENABLE_RERANK", default=True, cast=bool)
+DOCSEARCH_RERANK_MODEL = config(
+    "DOCSEARCH_RERANK_MODEL", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
+DOCSEARCH_EMBED_QUERY_PREFIX = config("DOCSEARCH_EMBED_QUERY_PREFIX", default="")
+DOCSEARCH_EMBED_PASSAGE_PREFIX = config("DOCSEARCH_EMBED_PASSAGE_PREFIX", default="")
+DOCSEARCH_VECTORS_PATH = config(
+    "DOCSEARCH_VECTORS_PATH",
+    default=str(BASE_DIR / "media" / "docsearch" / "chunk_vectors.npy"))
+DOCSEARCH_VECTOR_BACKEND = config("DOCSEARCH_VECTOR_BACKEND", default="numpy")  # numpy | pgvector
+# pgvector backend (used only when DOCSEARCH_VECTOR_BACKEND="pgvector"). DSN is a
+# libpq connection string to a Postgres with the `vector` extension available.
+DOCSEARCH_PGVECTOR_DSN = config("DOCSEARCH_PGVECTOR_DSN", default="")
+DOCSEARCH_PGVECTOR_TABLE = config("DOCSEARCH_PGVECTOR_TABLE", default="docsearch_chunk_vectors")
 
 # NL->SQL source DB (live LabWare LIMS over SQL Server by default). Reuses the
 # DB_* credentials but has its own ENGINE switch so it stays on MSSQL even when

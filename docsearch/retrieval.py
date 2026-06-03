@@ -164,11 +164,89 @@ def get_embedder():
     return _embedder
 
 
-class DocIndex:
-    """In-memory BM25 index over a chunks DataFrame, with optional semantic rerank."""
+# ───── dense-embedding helpers (shared by index build + query) ─────
+def _embed_prefix(kind: str) -> str:
+    from django.conf import settings
+    return getattr(settings, f"DOCSEARCH_EMBED_{kind.upper()}_PREFIX", "") or ""
 
-    def __init__(self, df: pd.DataFrame):
+
+def encode_passages(texts):
+    """Embed passages for indexing. Returns an (n, d) float32 matrix (rows
+    L2-normalised) or None if the embedder is unavailable."""
+    emb = get_embedder()
+    if emb is None or texts is None or len(texts) == 0:
+        return None
+    prefix = _embed_prefix("passage")
+    payload = [prefix + t for t in texts] if prefix else list(texts)
+    return emb.encode(payload, normalize_embeddings=True, batch_size=64).astype("float32")
+
+
+def encode_query(query: str):
+    """Embed a single query. Returns a (d,) float32 vector or None."""
+    emb = get_embedder()
+    if emb is None:
+        return None
+    prefix = _embed_prefix("query")
+    text = (prefix + query) if prefix else query
+    return emb.encode([text], normalize_embeddings=True).astype("float32")[0]
+
+
+# ───── optional cross-encoder reranker (lazy, thread-safe singleton) ─────
+_reranker = None
+_reranker_lock = threading.Lock()
+_reranker_failed_at = 0.0
+
+
+def get_reranker():
+    """Return a CrossEncoder reranker or None (disabled/unavailable). Mirrors
+    get_embedder's lazy + cooldown + graceful-degrade behaviour, so a missing
+    model just falls back to the fused order rather than erroring a query."""
+    global _reranker, _reranker_failed_at
+    if _reranker is not None:
+        return _reranker
+    from django.conf import settings
+    if not getattr(settings, "DOCSEARCH_ENABLE_RERANK", True):
+        return None
+    import time
+    if _reranker_failed_at and (time.monotonic() - _reranker_failed_at) < _EMBEDDER_RETRY_COOLDOWN:
+        return None
+    with _reranker_lock:
+        if _reranker is not None:
+            return _reranker
+        try:
+            model = getattr(settings, "DOCSEARCH_RERANK_MODEL",
+                            "cross-encoder/ms-marco-MiniLM-L-6-v2")
+            from sentence_transformers import CrossEncoder
+            _reranker = CrossEncoder(model)
+            _reranker_failed_at = 0.0
+            print(f"✓ docsearch reranker loaded: {model}")
+        except Exception as exc:
+            print(f"⚠️  cross-encoder rerank unavailable, keeping fused order: {exc}")
+            _reranker = None
+            _reranker_failed_at = time.monotonic()
+    return _reranker
+
+
+def _rrf_fuse(rankings, k: int = 60):
+    """Reciprocal Rank Fusion of several ranked index lists -> one fused list."""
+    scores: dict = defaultdict(float)
+    for ranking in rankings:
+        for rank, idx in enumerate(ranking):
+            scores[idx] += 1.0 / (k + rank + 1)
+    return [idx for idx, _ in sorted(scores.items(), key=lambda kv: kv[1], reverse=True)]
+
+
+class DocIndex:
+    """Hybrid retrieval over a chunks DataFrame: BM25 (+ lexical boosts) fused
+    with dense semantic retrieval (RRF), then an optional cross-encoder rerank."""
+
+    def __init__(self, df: pd.DataFrame, vectors=None):
         self.df = df.reset_index(drop=True) if df is not None else pd.DataFrame(columns=CSV_COLUMNS)
+        # Dense vectors aligned 1:1 with df rows (or None -> lexical-only).
+        if vectors is not None and len(vectors) == len(self.df) and len(self.df) > 0:
+            self.vectors = np.asarray(vectors, dtype="float32")
+        else:
+            self.vectors = None
         self._doc_tf: List[Counter] = []
         self._doc_len: List[int] = []
         self._idf: dict = {}
@@ -208,12 +286,15 @@ class DocIndex:
             score += idf * (f * (k + 1)) / denom
         return score
 
-    # ----- retrieval -----
-    def retrieve(self, query: str, top_k: int = 10, expand_neighbors: int = 2) -> Tuple[list, dict]:
+    # ----- lexical scoring (BM25 + boosts) over all chunks -----
+    def _lexical_scores(self, query: str) -> list:
+        from django.conf import settings
         df = self.df
-        if not self.ready or df.empty:
-            return [], {"best_score": 0.0, "semantic_top_sim": 0.0, "empty": True}
-
+        # Length prior: reward substantial passages. The band is scaled to the
+        # configured passage size (chunk_len_tokens is the post-stopword word
+        # count; ~384-token passages land ~200-260) — the old 20..200 band was
+        # tuned for the previous one-sentence-per-chunk indexing.
+        len_hi = int(getattr(settings, "DOCSEARCH_CHUNK_MAX_TOKENS", 512))
         q_toks = _tokenize_bm25(query)
         q_keywords = set(_extract_keywords_simple(query, k=6))
         q_entities = set(_extract_entities_simple(query))
@@ -224,8 +305,7 @@ class DocIndex:
                 query,
             )
         ]
-
-        final_scores = []
+        scores = []
         for i in range(len(df)):
             row = df.iloc[i]
             base = (
@@ -235,51 +315,136 @@ class DocIndex:
                 + 0.10 * min(1.0, _overlap_score(q_tags, set(str(row.get("intent_tags", "")).split("|")) - {""}))
             )
             L = int(row.get("chunk_len_tokens", 0) or 0)
-            len_bonus = 0.05 if 20 <= L <= 200 else 0.0
+            len_bonus = 0.05 if 40 <= L <= len_hi else 0.0
             text_lower = str(row.get("chunk_text", "")).lower()
             phrase_bonus = 0.15 if any(ph.lower() in text_lower for ph in phrases) else 0.0
             title_terms_row = set(str(row.get("title_terms", "")).split("|")) - {""}
             title_overlap = _overlap_score(set(q_toks), title_terms_row)
             title_lower = str(row.get("doc_title", "")).lower()
             title_phrase_bonus = 0.20 if any(ph.lower() in title_lower for ph in phrases) else 0.0
-            final_scores.append(
+            scores.append(
                 base + len_bonus + phrase_bonus + (TITLE_OVERLAP_W * title_overlap) + title_phrase_bonus
             )
+        return scores
 
-        top_idx = np.argsort(final_scores)[-top_k:][::-1].tolist()
+    # ----- dense (semantic) retrieval over all chunks -----
+    def _dense_search(self, query: str, pool: int):
+        """Return (ordered_indices, {idx: sim}) from dense retrieval over the
+        WHOLE corpus, or ([], {}) if dense retrieval is unavailable."""
+        from django.conf import settings
+        qv = encode_query(query)
+        if qv is None:
+            return [], {}
+        backend = getattr(settings, "DOCSEARCH_VECTOR_BACKEND", "numpy")
+        if backend == "pgvector":
+            try:
+                from .pgvector_store import knn
+                pairs = knn(qv, pool)  # [(ordinal, sim), ...]
+                order = [i for i, _ in pairs if 0 <= i < len(self.df)]
+                return order, {i: float(s) for i, s in pairs if 0 <= i < len(self.df)}
+            except Exception as exc:
+                print(f"⚠️  pgvector dense search failed, using in-memory vectors: {exc}")
+        if self.vectors is None:
+            return [], {}
+        try:
+            # Guard against an embed-dim mismatch (e.g. DOCSEARCH_EMBED_MODEL
+            # changed without a reindex). Degrade to lexical-only, never crash
+            # the whole query.
+            if self.vectors.shape[1] != qv.shape[0]:
+                print(f"⚠️  dense dim {self.vectors.shape[1]} != query dim {qv.shape[0]}; skipping dense leg")
+                return [], {}
+            sims = self.vectors @ qv  # cosine — vectors are L2-normalised
+        except Exception as exc:
+            print(f"⚠️  dense search skipped: {exc}")
+            return [], {}
+        order = np.argsort(sims)[::-1][:pool].tolist()
+        return order, {i: float(sims[i]) for i in order}
 
-        # restrict to the single best document
-        if PER_DOC_CAP == 1 and top_idx:
-            top_doc_id = df.iloc[top_idx[0]]["doc_id"]
-            top_idx = [i for i in top_idx if df.iloc[i]["doc_id"] == top_doc_id]
+    # ----- cross-encoder / bi-encoder rerank of a candidate set -----
+    def _rerank(self, query: str, rows: list, keep: int, debug: dict):
+        if not rows:
+            return rows, debug
+        reranker = get_reranker()
+        if reranker is not None:
+            try:
+                pairs = [(query, str(r.get("chunk_text", ""))) for r in rows]
+                scores = np.asarray(reranker.predict(pairs)).flatten()
+                order = np.argsort(scores)[::-1].tolist()
+                debug["rerank"] = "cross-encoder"
+                debug["rerank_top"] = float(scores[order[0]]) if len(order) else 0.0
+                return [rows[i] for i in order][:keep], debug
+            except Exception as exc:
+                print(f"⚠️  cross-encoder rerank skipped: {exc}")
+        # fallback: bi-encoder cosine rerank (the prior behaviour)
+        try:
+            qv = encode_query(query)
+            dv = encode_passages([str(r.get("chunk_text", "")).strip() for r in rows])
+            if qv is not None and dv is not None:
+                sims = dv @ qv
+                order = np.argsort(sims)[::-1].tolist()
+                debug["rerank"] = "bi-encoder"
+                debug["semantic_top_sim"] = float(sims[order[0]]) if len(order) else debug.get("semantic_top_sim", 0.0)
+                return [rows[i] for i in order][:keep], debug
+        except Exception as exc:
+            print(f"⚠️  bi-encoder rerank skipped: {exc}")
+        return rows[:keep], debug
 
-        # neighbour expansion within the same document
+    # ----- retrieval -----
+    def retrieve(self, query: str, top_k: int = 10, expand_neighbors: int = 2) -> Tuple[list, dict]:
+        from django.conf import settings
+        df = self.df
+        if not self.ready or df.empty:
+            return [], {"best_score": 0.0, "semantic_top_sim": 0.0, "empty": True}
+
+        pool = getattr(settings, "DOCSEARCH_CANDIDATE_POOL", 50)
+        per_doc_cap = getattr(settings, "DOCSEARCH_PER_DOC_CAP", PER_DOC_CAP)
+        max_chunks = getattr(settings, "DOCSEARCH_MAX_CHUNKS", 15)
+        keep = getattr(settings, "DOCSEARCH_RERANK_KEEP", RERANK_KEEP)
+        rrf_k = getattr(settings, "DOCSEARCH_RRF_K", 60)
+        hybrid = getattr(settings, "DOCSEARCH_HYBRID", True)
+
+        # lexical leg
+        lex_scores = self._lexical_scores(query)
+        lex_order = np.argsort(lex_scores)[::-1][:pool].tolist()
+
+        # dense leg + fusion
+        dense_order, dense_map = ([], {})
+        if hybrid:
+            dense_order, dense_map = self._dense_search(query, pool)
+        fused = _rrf_fuse([lex_order, dense_order], k=rrf_k) if dense_order else lex_order
+        if not fused:
+            return [], {"best_score": 0.0, "semantic_top_sim": 0.0}
+
+        # cap to the top-N distinct documents (in fused priority order)
+        top_docs, seen_docs = [], set()
+        for i in fused:
+            d = df.iloc[i]["doc_id"]
+            if d not in seen_docs:
+                seen_docs.add(d)
+                top_docs.append(d)
+            if len(top_docs) >= max(1, per_doc_cap):
+                break
+        top_docs = set(top_docs)
+        seeds = [i for i in fused if df.iloc[i]["doc_id"] in top_docs]
+
+        # neighbour expansion within each seed's document (keeps surrounding context)
         chosen, seen = [], set()
-        for idx in top_idx:
+        for idx in seeds:
             doc_id = df.iloc[idx]["doc_id"]
             for j in range(max(0, idx - expand_neighbors), min(len(df), idx + expand_neighbors + 1)):
-                if j in seen:
+                if j in seen or df.iloc[j]["doc_id"] != doc_id:
                     continue
-                if df.iloc[j]["doc_id"] == doc_id:
-                    seen.add(j)
-                    chosen.append(j)
-        chosen = chosen[:12]
+                seen.add(j)
+                chosen.append(j)
+            if len(chosen) >= max_chunks:
+                break
+        chosen = chosen[:max_chunks]
         rows = [df.iloc[i] for i in chosen]
 
-        debug = {"best_score": float(final_scores[top_idx[0]]) if top_idx else 0.0, "semantic_top_sim": 0.0}
-
-        # optional semantic rerank
-        embedder = get_embedder()
-        if embedder is not None and rows:
-            try:
-                cand = [str(r.get("chunk_text", "")).strip() for r in rows]
-                qv = embedder.encode([query], normalize_embeddings=True).astype("float32")
-                dv = embedder.encode(cand, normalize_embeddings=True).astype("float32")
-                sims = (dv @ qv.T).flatten()
-                order = np.argsort(sims)[::-1].tolist()
-                rows = [rows[i] for i in order][:RERANK_KEEP]
-                debug["semantic_top_sim"] = float(sims[order[0]]) if len(order) else 0.0
-            except Exception as exc:
-                print(f"⚠️  semantic rerank skipped: {exc}")
-
-        return rows, debug
+        debug = {
+            "best_score": float(lex_scores[lex_order[0]]) if lex_order else 0.0,
+            "semantic_top_sim": float(max(dense_map.values())) if dense_map else 0.0,
+            "hybrid": bool(dense_order),
+            "candidates": len(rows),
+        }
+        return self._rerank(query, rows, keep, debug)

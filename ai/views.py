@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import api_view, permission_classes
@@ -9,7 +8,14 @@ from core.audit import record_audit
 from core.models import AuditLog
 from datasets.models import Dataset
 
-from .client import AINotConfigured, generate_insights, is_configured, run_chat
+from .client import (
+    AINotConfigured,
+    active_model,
+    generate_insights,
+    is_configured,
+    run_chat,
+    suggest_widgets,
+)
 from .context import build_dataset_context
 from .models import ChatMessage, Conversation
 from .serializers import ConversationListSerializer, ConversationSerializer
@@ -26,7 +32,7 @@ def ai_status(request):
     """Whether the AI assistant is available (drives the frontend)."""
     return Response({
         "configured": is_configured(),
-        "model": settings.CLAUDE_MODEL if is_configured() else None,
+        "model": active_model(),
     })
 
 
@@ -154,7 +160,7 @@ def insights(request):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def widget_suggest(request):
-    """Use Claude to suggest chart configurations for a dataset."""
+    """Suggest chart configurations for a dataset (provider-agnostic)."""
     if not is_configured():
         return _NOT_CONFIGURED
 
@@ -171,30 +177,11 @@ def widget_suggest(request):
         return Response({"error": True, "detail": f"Could not load dataset: {exc}"},
                         status=status.HTTP_502_BAD_GATEWAY)
 
-    prompt = (
-        f"{context}\n\n"
-        "Based on the dataset above, suggest 4–5 useful dashboard widgets. "
-        "For each widget return a JSON object with these keys:\n"
-        "  widget_type  — one of: bar, line, pie, kpi, table, scatter, area\n"
-        "  title        — short descriptive title\n"
-        "  category_field — best column for the X axis or grouping (exact column name)\n"
-        "  value_field    — best column for the Y axis or KPI value (exact column name)\n"
-        "  rollup         — one of: sum, count, avg, min, max\n"
-        "  reason         — one sentence explaining the value of this chart\n"
-        "Return a raw JSON array only — no markdown, no explanation."
-    )
-
     try:
-        import json
-        from .client import _get_client
-        resp = _get_client().messages.create(
-            model=getattr(settings, "CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
-            max_tokens=900,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = resp.content[0].text.strip()
-        start, end = text.find("["), text.rfind("]") + 1
-        suggestions = json.loads(text[start:end]) if start != -1 else []
+        suggestions = suggest_widgets(context)
+    except AINotConfigured as exc:
+        return Response({"error": True, "detail": str(exc)},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception as exc:  # noqa: BLE001
         return Response({"error": True, "detail": f"AI request failed: {exc}"},
                         status=status.HTTP_502_BAD_GATEWAY)

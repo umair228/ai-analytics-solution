@@ -12,13 +12,15 @@ from .. import index_store
 class DocSearchStatusView(APIView):
     def get(self, request):
         try:
-            from ai.client import is_configured
+            from ai.client import active_model, is_configured
             ai_ok = is_configured()
+            model = active_model()
         except Exception:
             ai_ok = False
+            model = None
         return Response({
             "ai_configured": ai_ok,
-            "model": settings.CLAUDE_MODEL if ai_ok else None,
+            "model": model,
             "answer_engine": "claude" if ai_ok else "extractive",
             "semantic_enabled": getattr(settings, "DOCSEARCH_ENABLE_SEMANTIC", True),
             "ocr_enabled": getattr(settings, "DOCSEARCH_ENABLE_OCR", False),

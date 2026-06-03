@@ -28,8 +28,12 @@ spacy>=3.7,<3.9
 cryptography>=43
 sqlparse>=0.5
 
-# AI assistant (Claude API)
+# AI assistant — cloud provider (Claude API)
 anthropic>=0.40
+# AI assistant — local/on-prem provider (OpenAI-compatible: Ollama / vLLM).
+# Pure-python (httpx + pydantic); does NOT pull numpy>=2, so it is safe against
+# the NeuralProphet numpy<2 pin above. Used only when LLM_PROVIDER=local.
+openai>=1.40
 
 # HTTP client (used for webhook notifications)
 requests>=2.32
