@@ -1,0 +1,26 @@
+{
+  "description": "Petroleum-QC + LIMS + EGPC domain glossary seed for fine-tuning the DIS assistant. Each term becomes definition Q&A pairs. Extend freely with EGPC-specific terms/SOPs.",
+  "terms": [
+    {"term": "Flash Point", "definition": "The lowest temperature at which a petroleum product's vapours ignite when an ignition source is applied; a key safety/volatility property measured by methods such as ASTM D93 (Pensky-Martens) or D92 (Cleveland Open Cup), reported in °C."},
+    {"term": "Kinematic Viscosity", "definition": "A fluid's resistance to flow under gravity, measured (e.g. ASTM D445) at a stated temperature such as 40 °C or 100 °C and reported in centistokes (cSt); critical for fuels and lubricants."},
+    {"term": "API Gravity", "definition": "An inverse measure of a petroleum liquid's density relative to water; higher API means lighter product. Derived from specific gravity at 60/60 °F (ASTM D1298/D4052)."},
+    {"term": "Specific Gravity at 60/60 °F", "definition": "The ratio of the density of a product at 60 °F to the density of water at 60 °F; a core characterization property for crude and refined streams."},
+    {"term": "Total Sulphur", "definition": "The total sulfur content of a fuel, a regulated specification (e.g. ULSD diesel at ≤ 10 ppm). Measured by ASTM D5453 (UV fluorescence), D2622 (XRF) or D4294 (EDXRF); reported in ppm or % mass."},
+    {"term": "Reid Vapour Pressure (RVP)", "definition": "The absolute vapour pressure of a volatile product at 37.8 °C (ASTM D323/D5191), indicating volatility and used to control gasoline seasonal specifications."},
+    {"term": "Pour Point", "definition": "The lowest temperature at which a petroleum product remains pourable (ASTM D97); important for cold-flow behaviour of diesels and fuel oils."},
+    {"term": "Distillation (D86)", "definition": "Atmospheric distillation of petroleum products (ASTM D86) giving the boiling profile (IBP, 10/50/90 % recovered, FBP); defines fuel volatility and cut points."},
+    {"term": "Cetane / Octane Number", "definition": "Combustion-quality indices: cetane number rates diesel ignition quality; octane number (RON/MON) rates gasoline knock resistance."},
+    {"term": "Specification Limit (LSL/USL)", "definition": "The lower (LSL) and upper (USL) specification limits a result must fall between to be in-spec; in LabWare these live in PRODUCT_SPEC (MIN_VALUE/MAX_VALUE/LSL/USL) per product, analysis and component."},
+    {"term": "In-Spec / Out-of-Spec", "definition": "A result is in-spec (IN_SPEC = 'T') when it meets its specification limits, and out-of-spec (IN_SPEC = 'F') when it breaches them, triggering investigation."},
+    {"term": "Cp / Cpk", "definition": "Process-capability indices comparing process spread to spec width: Cp = (USL−LSL)/6σ; Cpk also accounts for centring. Cpk ≥ 1.33 is the usual capable threshold."},
+    {"term": "Control Chart", "definition": "A statistical process-control plot of a measurement over time with a centre line and ±3σ control limits (UCL/LCL); out-of-control signals indicate special-cause variation."},
+    {"term": "Turnaround Time (TAT)", "definition": "Elapsed time from sample login to result completion; a key lab productivity KPI. In EGPC LIMS, TAT = DATE_COMPLETED − LOGIN_DATE on the SAMPLE table."},
+    {"term": "Sample / Test / Result (LIMS)", "definition": "The LabWare LIMS hierarchy: a SAMPLE has one or more TESTs (analyses), each producing one or more RESULTs (component values). EGPC links them by SAMPLE_NUMBER and TEST_NUMBER."},
+    {"term": "Analysis / Component", "definition": "An ANALYSIS is a test method (e.g. SULFUR_Q); a COMPONENT is an individual analyte/result line within it. EGPC has 267 analyses across its products."},
+    {"term": "Sampling Point", "definition": "The physical location/tank/stream a sample is drawn from; EGPC has 491 sampling points across 27 process units."},
+    {"term": "ASTM E1578", "definition": "The ASTM standard guide for laboratory informatics (LIMS/ELN), covering data integrity, audit trails, electronic records and system requirements."},
+    {"term": "ISO/IEC 17025", "definition": "The international standard for the competence of testing and calibration laboratories: requirements for impartiality, traceability, measurement uncertainty, method validation and decision rules."},
+    {"term": "ISO 5725 / Repeatability / Reproducibility", "definition": "ISO 5725 defines accuracy (trueness + precision); repeatability is within-operator/short-term precision, reproducibility is between-lab precision — both used in uncertainty estimation (ISO 21748)."},
+    {"term": "EGPC", "definition": "The Egyptian General Petroleum Corporation — the petroleum-sector organisation whose LabWare LIMS (database EGPC_DEV) is the primary data source for the DIS Decision Intelligence Suite."}
+  ]
+}

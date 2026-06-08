@@ -1,0 +1,10 @@
+{"id": "api_gravity", "question": "What is API gravity in petroleum testing?", "expect_keywords": ["density"]}
+{"id": "total_sulphur", "question": "What is total sulphur and how is it measured in fuels?", "expect_keywords": ["ppm"]}
+{"id": "cpk", "question": "What does a Cpk of at least 1.33 indicate about a process?", "expect_keywords": ["capable"]}
+{"id": "egpc", "question": "What is EGPC?", "expect_keywords": ["egyptian", "petroleum"]}
+{"id": "tat", "question": "How is laboratory turnaround time (TAT) defined in the LIMS?", "expect_keywords": ["login"]}
+{"id": "iso17025_trace", "question": "What does ISO/IEC 17025 require regarding metrological traceability?", "expect_keywords": ["traceability"]}
+{"id": "repro", "question": "What is the difference between repeatability and reproducibility?", "expect_keywords": ["repeatability", "reproducibility"]}
+{"id": "in_spec", "question": "What does it mean for a result to be out-of-spec in the LIMS?", "expect_keywords": ["spec"]}
+{"id": "steam_offspec", "question": "In the EGPC lab data, which product stream has the worst out-of-spec rate?", "expect_keywords": ["steam"]}
+{"id": "flash_point", "question": "What is flash point and why does it matter?", "expect_keywords": ["temperature", "ignit"]}

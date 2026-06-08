@@ -24,9 +24,20 @@ openpyxl>=3.1
 # After install also run: python -m spacy download en_core_web_sm
 spacy>=3.7,<3.9
 
+# Statistical analysis suite (`analytics.stats_tests`): ANOVA, t/F/chi-square,
+# correlation, regression, normality, control charts, process capability, etc.
+# scipy + scikit-learn already arrive via sentence-transformers; pinned explicit
+# now that they are direct deps. All three support numpy 1.26 (the NeuralProphet
+# pin) — install under .docsearch-constraints.txt so they can't bump numpy>=2.
+scipy>=1.11
+scikit-learn>=1.3
+statsmodels>=0.14
+
 # Security / SQL safety
 cryptography>=43
 sqlparse>=0.5
+# Optional enterprise SSO — install only when OIDC_ENABLED=True (config.settings.sso):
+#   mozilla-django-oidc>=4.0
 
 # AI assistant — cloud provider (Claude API)
 anthropic>=0.40

@@ -1,0 +1,6 @@
+# Embedder fine-tuning (finetune/train_embedder.py). Install on the GPU box.
+# sentence-transformers pulls a matching torch; on Blackwell (RTX 50xx / sm_120)
+# install the CUDA 12.4+ torch wheel first, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124
+sentence-transformers>=2.7
+accelerate>=0.30

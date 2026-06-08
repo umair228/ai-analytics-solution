@@ -19,7 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .docsearch-constraints.txt ./
-RUN pip install --no-cache-dir -c .docsearch-constraints.txt -r requirements.txt
+RUN pip install --no-cache-dir -c .docsearch-constraints.txt -r requirements.txt \
+    && python -m spacy download en_core_web_sm
 
 COPY . .
 

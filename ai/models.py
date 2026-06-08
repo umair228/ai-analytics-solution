@@ -34,6 +34,10 @@ class ChatMessage(TimeStampedModel):
     role = models.CharField(max_length=10, choices=Role.choices)
     content = models.TextField()
 
+    # For agent answers: the evidence trace (tool calls + results) and run stats.
+    # Empty for ordinary single-shot chat messages.
+    metadata = models.JSONField(default=dict, blank=True)
+
     class Meta:
         ordering = ["created_at", "id"]
 

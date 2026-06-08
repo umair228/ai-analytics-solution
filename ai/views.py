@@ -8,6 +8,7 @@ from core.audit import record_audit
 from core.models import AuditLog
 from datasets.models import Dataset
 
+from .agent import run_agent
 from .client import (
     AINotConfigured,
     active_model,
@@ -126,6 +127,80 @@ def chat(request):
     return Response({
         "conversation_id": conversation.id,
         "reply": reply,
+        "conversation": ConversationSerializer(conversation).data,
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agent_chat(request):
+    """Agentic chat: the assistant investigates the user's data/documents with
+    tools and returns a grounded answer plus the evidence trace it used.
+
+    Same request shape as ``chat`` (message, optional conversation_id, optional
+    dataset). The assistant reply's ``metadata`` carries the tool-call trace.
+    """
+    if not is_configured():
+        return _NOT_CONFIGURED
+
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return Response({"error": True, "detail": "A message is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    conversation_id = request.data.get("conversation_id")
+    if conversation_id:
+        conversation = get_object_or_404(
+            Conversation, pk=conversation_id, owner=request.user
+        )
+    else:
+        conversation = Conversation.objects.create(
+            owner=request.user,
+            dataset=_accessible_dataset(request, request.data.get("dataset")),
+            title=message[:60],
+        )
+
+    ChatMessage.objects.create(
+        conversation=conversation, role=ChatMessage.Role.USER, content=message
+    )
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in conversation.messages.all()
+    ]
+
+    try:
+        run = run_agent(request.user, history, dataset=conversation.dataset)
+    except AINotConfigured as exc:
+        return Response({"error": True, "detail": str(exc)},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": True, "detail": f"Agent run failed: {exc}"},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    meta = {
+        "trace": run.trace,
+        "steps": run.steps,
+        "tool_calls": run.tool_calls,
+        "stopped_reason": run.stopped_reason,
+    }
+    ChatMessage.objects.create(
+        conversation=conversation, role=ChatMessage.Role.ASSISTANT,
+        content=run.answer, metadata=meta,
+    )
+    conversation.save(update_fields=["updated_at"])
+    record_audit(
+        request, AuditLog.Action.QUERY, target_type="Conversation",
+        target_id=conversation.id,
+        summary=f"AI agent run ({run.tool_calls} tool calls)",
+    )
+
+    return Response({
+        "conversation_id": conversation.id,
+        "reply": run.answer,
+        "trace": run.trace,
+        "steps": run.steps,
+        "tool_calls": run.tool_calls,
+        "stopped_reason": run.stopped_reason,
         "conversation": ConversationSerializer(conversation).data,
     })
 

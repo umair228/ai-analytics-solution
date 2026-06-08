@@ -1,0 +1,69 @@
+{
+  "description": "ASTM/ISO standards evaluation set for the DIS AI assistant — tests retrieval of technical requirements and numerical/contextual information from the indexed standards corpus. Each item passes if ALL expect_keywords appear in the retrieved passages (case-insensitive). Add your own items freely.",
+  "items": [
+    {
+      "id": "iso17025_traceability",
+      "question": "What does ISO/IEC 17025 require for metrological traceability of measurement results?",
+      "expect_keywords": ["traceability", "calibration"],
+      "expect_source_contains": "17025"
+    },
+    {
+      "id": "iso17025_uncertainty",
+      "question": "How must a testing laboratory evaluate measurement uncertainty under ISO/IEC 17025?",
+      "expect_keywords": ["uncertainty"],
+      "expect_source_contains": "17025"
+    },
+    {
+      "id": "iso17025_impartiality",
+      "question": "What are the requirements for impartiality and confidentiality of a laboratory?",
+      "expect_keywords": ["impartiality"]
+    },
+    {
+      "id": "iso17025_decision_rule",
+      "question": "What is a decision rule when stating conformity with a specification?",
+      "expect_keywords": ["decision rule"]
+    },
+    {
+      "id": "astm_e1578_lims",
+      "question": "What is the scope of ASTM E1578, the standard guide for laboratory informatics?",
+      "expect_keywords": ["laboratory", "informatics"],
+      "expect_source_contains": "1578"
+    },
+    {
+      "id": "astm_e1578_audit",
+      "question": "What does ASTM E1578 say about audit trails and electronic records data integrity?",
+      "expect_keywords": ["audit"]
+    },
+    {
+      "id": "astm_d6708_methods",
+      "question": "What does ASTM D6708 cover for comparing results from two test methods?",
+      "expect_keywords": ["bias"],
+      "expect_source_contains": "6708"
+    },
+    {
+      "id": "iso5725_precision",
+      "question": "How does ISO 5725 define repeatability and reproducibility conditions?",
+      "expect_keywords": ["repeatability", "reproducibility"]
+    },
+    {
+      "id": "iso5725_trueness",
+      "question": "What is trueness and precision of a measurement method?",
+      "expect_keywords": ["trueness", "precision"]
+    },
+    {
+      "id": "iso21748_uncertainty",
+      "question": "How is measurement uncertainty estimated using repeatability and reproducibility data?",
+      "expect_keywords": ["uncertainty", "reproducibility"]
+    },
+    {
+      "id": "iso17043_pt",
+      "question": "What are the general requirements for proficiency testing schemes?",
+      "expect_keywords": ["proficiency"]
+    },
+    {
+      "id": "iso15189_quality",
+      "question": "What quality management requirements apply to medical laboratories under ISO 15189?",
+      "expect_keywords": ["quality"]
+    }
+  ]
+}

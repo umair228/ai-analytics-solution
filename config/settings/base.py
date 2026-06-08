@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "accounts",
     "connections",
     "querybuilder",
+    "analytics",
     "datasets",
     "dashboards",
     "ai",
@@ -193,7 +194,20 @@ CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
 LLM_BASE_URL = config("LLM_BASE_URL", default="http://127.0.0.1:11434/v1")
 LLM_MODEL = config("LLM_MODEL", default="qwen2.5:7b-instruct")
 LLM_API_KEY = config("LLM_API_KEY", default="EMPTY")
-LLM_TIMEOUT = config("LLM_TIMEOUT", default=120, cast=int)
+LLM_TIMEOUT = config("LLM_TIMEOUT", default=300, cast=int)
+# Low temperature → reliable, repeatable tool-calling (esp. for smaller local
+# models). LLM_NUM_CTX raises Ollama's context window (default ~4k is too small
+# once tool schemas + results are in play); vLLM ignores it (set at serve time).
+LLM_TEMPERATURE = config("LLM_TEMPERATURE", default=0.2, cast=float)
+LLM_NUM_CTX = config("LLM_NUM_CTX", default=16384, cast=int)
+
+# Agentic assistant (ai.agent) — the tool-using investigation loop.
+#   AGENT_MAX_STEPS      — max reason→act→observe turns before a forced answer.
+#   AGENT_MAX_TOOL_CALLS — hard backstop on total tool calls per run.
+# Use a tool-capable model for LLM_PROVIDER=local (e.g. qwen2.5; the 14B variant
+# is markedly more reliable at multi-step tool use than 7B).
+AGENT_MAX_STEPS = config("AGENT_MAX_STEPS", default=6, cast=int)
+AGENT_MAX_TOOL_CALLS = config("AGENT_MAX_TOOL_CALLS", default=24, cast=int)
 
 # --------------------------------------------------------------------------
 # Forecasting source database (LIMS — external SQL Server, read-only)

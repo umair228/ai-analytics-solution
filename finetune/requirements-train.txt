@@ -1,0 +1,19 @@
+# DIS fine-tuning — GPU TRAINING ENVIRONMENT ONLY.
+#
+# Install these in a SEPARATE virtualenv on the GPU box, NOT the app venv:
+# they pull a CUDA torch and numpy>=2 that conflict with the app's
+# NeuralProphet numpy<2 pin. The trained model is consumed by the app over
+# HTTP (Ollama/vLLM), so the app venv never needs these.
+#
+#   python -m venv .venv-train && source .venv-train/bin/activate
+#   pip install -r finetune/requirements-train.txt
+
+torch>=2.3            # install the CUDA build matching the GPU box driver
+transformers>=4.45
+peft>=0.13
+trl>=0.11
+bitsandbytes>=0.44    # 4-bit QLoRA (CUDA)
+accelerate>=1.0
+datasets>=3.0
+sentencepiece
+# For GGUF conversion (Ollama deployment) use llama.cpp's convert script separately.

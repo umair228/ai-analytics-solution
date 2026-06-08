@@ -19,6 +19,26 @@ class BaseProvider:
       * ``messages`` — ``[{"role","content"}, ...]`` (OpenAI/Anthropic compatible).
       * ``response_format`` — ``None`` or ``"json"`` (request a JSON object).
     Returns the assistant text (str).
+
+    ``complete`` is the agentic variant: it offers the model a set of *tools* and
+    returns whatever the model decided to do for ONE turn — either final text, or
+    a batch of tool calls to run (the :mod:`ai.agent` loop runs them and calls
+    back in). It uses a provider-neutral message + tool vocabulary so the agent
+    loop never sees Anthropic-vs-OpenAI differences:
+
+      * a *tool schema* is ``{"name", "description", "input_schema"}`` where
+        ``input_schema`` is a JSON Schema object (Anthropic's native shape; the
+        OpenAI provider repackages it under ``function.parameters``).
+      * a neutral *message* is one of::
+
+            {"role": "user",      "content": <str>}
+            {"role": "assistant", "content": <str>, "tool_calls": [<call>, ...]}
+            {"role": "tool",      "tool_call_id": <str>, "name": <str>, "content": <str>}
+
+      * a neutral *tool call* is ``{"id", "name", "input": <dict>}``.
+
+    ``complete`` returns ``{"text": <str>, "tool_calls": [<call>, ...]}`` — a
+    non-empty ``tool_calls`` means the model wants those run before answering.
     """
 
     name = "base"
@@ -35,6 +55,12 @@ class BaseProvider:
         return "The AI assistant is not configured."
 
     def chat(self, *, system_blocks, messages, max_tokens, response_format=None) -> str:
+        raise NotImplementedError
+
+    def complete(self, *, system_blocks, messages, tools, max_tokens) -> dict:
+        """One agentic turn. ``tools`` is a list of neutral tool schemas; pass an
+        empty list to force a plain text answer. See the class docstring for the
+        message/tool/return shapes. Returns ``{"text", "tool_calls"}``."""
         raise NotImplementedError
 
 

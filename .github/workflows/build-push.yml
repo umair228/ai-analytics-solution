@@ -1,0 +1,65 @@
+name: build-push
+
+# Build the DIS backend image and push it to GHCR, then (optionally) trigger a
+# deploy on umair228/dis-deploy. Runs the CI gate first via the separate ci.yml.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/umair228/dis-api
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # DEPLOY_DISPATCH_TOKEN (a PAT with 'repo' scope on dis-deploy) is optional —
+    # set it to auto-deploy on every main build; leave unset to deploy manually.
+    env:
+      DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=short
+            type=semver,pattern={{version}}
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trigger deploy on dis-deploy
+        if: github.ref == 'refs/heads/main' && env.DISPATCH_TOKEN != ''
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ env.DISPATCH_TOKEN }}
+          repository: umair228/dis-deploy
+          event-type: deploy
+          client-payload: '{"service": "api", "sha": "${{ github.sha }}"}'
