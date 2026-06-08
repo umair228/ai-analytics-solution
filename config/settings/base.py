@@ -200,6 +200,9 @@ LLM_TIMEOUT = config("LLM_TIMEOUT", default=300, cast=int)
 # once tool schemas + results are in play); vLLM ignores it (set at serve time).
 LLM_TEMPERATURE = config("LLM_TEMPERATURE", default=0.2, cast=float)
 LLM_NUM_CTX = config("LLM_NUM_CTX", default=16384, cast=int)
+# Curbs degenerate looping / language-drift that quantized models can fall into
+# during long tool-use turns (Ollama reads it from options; vLLM ignores it).
+LLM_REPEAT_PENALTY = config("LLM_REPEAT_PENALTY", default=1.1, cast=float)
 
 # Agentic assistant (ai.agent) — the tool-using investigation loop.
 #   AGENT_MAX_STEPS      — max reason→act→observe turns before a forced answer.

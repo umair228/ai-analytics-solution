@@ -62,11 +62,17 @@ class OpenAIProvider(BaseProvider):
     def _tuning_kwargs():
         """Temperature + (Ollama) context-window options shared by chat/complete."""
         kwargs = {"temperature": getattr(settings, "LLM_TEMPERATURE", 0.2)}
+        # Ollama reads `options` from the OpenAI endpoint via extra_body; vLLM
+        # ignores it harmlessly (context/sampling are fixed at serve time).
+        options = {}
         num_ctx = getattr(settings, "LLM_NUM_CTX", 0)
         if num_ctx:
-            # Ollama reads `options` from the OpenAI endpoint via extra_body; vLLM
-            # ignores it harmlessly (context is fixed at serve time).
-            kwargs["extra_body"] = {"options": {"num_ctx": num_ctx}}
+            options["num_ctx"] = num_ctx
+        rp = getattr(settings, "LLM_REPEAT_PENALTY", 0)
+        if rp:
+            options["repeat_penalty"] = rp
+        if options:
+            kwargs["extra_body"] = {"options": options}
         return kwargs
 
     def chat(self, *, system_blocks, messages, max_tokens, response_format=None) -> str:
