@@ -64,6 +64,15 @@ AGENT_SYSTEM_PROMPT = (
     "dataset to answer a sample-type, total-count or octane question), and never "
     "invent company names or values.\n"
     "- Use exact dataset ids and column names from the tools; do not guess them.\n"
+    "- PRE-AGGREGATED datasets (names like '… by Product', '… by Test', 'Sample "
+    "Types', 'Status Breakdown', 'Overview Totals', 'Key Parameter Ranges') are "
+    "ALREADY summarised and sorted — the count/value is IN A COLUMN (e.g. samples, "
+    "off_spec, value, min_value/max_value). Answer them with query_dataset and READ "
+    "the relevant row/column (e.g. the top row, or the row whose analysis matches). "
+    "Do NOT run compare_dimension or aggregate_data on them — that re-counts the "
+    "rows and returns wrong numbers like 1. Use compare_dimension/aggregate_data "
+    "ONLY on row-level datasets ('Sample Register', 'Results (row-level)', 'Off-Spec "
+    "Results', 'Sulphur Results').\n"
     "- Prefer the fewest ANALYSIS steps that answer the question; do not call "
     "search_documents for plain data questions. Stop only once an ANALYSIS tool "
     "(not a discovery tool) has produced the answer.\n"
@@ -71,10 +80,14 @@ AGENT_SYSTEM_PROMPT = (
     "the most decisive result — NOT just your most recent tool call. If an earlier "
     "tool (e.g. root_cause) directly answered the question, lead with that finding "
     "even if you ran other tools afterwards.\n"
+    "- Your FINAL message MUST state the answer with the actual numbers from the "
+    "tool results (e.g. 'SCHEDULED — 53,344 samples'). NEVER end by restating the "
+    "plan ('To find…', 'I will use dataset id=…') or describing a dataset — that is "
+    "a failure. If you named a dataset, you must then read it and give the figure.\n"
     "- Final answer: be concise and specific for a lab operations manager. Lead "
-    "with the takeaway, support it with the concrete figures you found, and note "
-    "which dataset(s)/document(s) the evidence came from. Plain text, short "
-    "paragraphs and bullets — avoid heavy markdown."
+    "with the takeaway + the concrete figures you found, and note which dataset(s)/"
+    "document(s) the evidence came from. Plain text, short paragraphs/bullets — "
+    "avoid heavy markdown."
 )
 
 
@@ -268,13 +281,18 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
             last_text = text
 
         if not calls:
-            if text:
+            # A plan-preamble after tools already ran ("To find…", "I will use
+            # dataset id=…") is NOT an answer — nudge for the actual figures.
+            plan_like = bool(text) and bool(re.match(
+                r"(to find|to answer|to determine|to calculate|i will|i'?ll|"
+                r"let me|first[,: ]|the dataset that)", text.lower()))
+            if text and not (plan_like and trace):
                 return AgentRun(
                     answer=text, trace=trace, steps=step + 1,
                     tool_calls=total_tool_calls, stopped_reason="answered",
                 )
-            # Blank turn (no text, no tools) — nudge the model to answer; bail if
-            # it keeps stalling rather than looping forever.
+            # Blank turn, or a plan-preamble after running tools — nudge; bail if it
+            # keeps stalling rather than looping forever.
             empty_turns += 1
             if empty_turns > 2:
                 return AgentRun(
@@ -285,8 +303,9 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
                 )
             messages.append({
                 "role": "user",
-                "content": "Please give your final answer now, based on the tool "
-                "results above. If you need another tool, call it.",
+                "content": "Give your FINAL answer now with the ACTUAL NUMBERS from "
+                "the tool results above — do not restate the plan or name a dataset "
+                "without giving its figure. If you genuinely need another tool, call it.",
             })
             continue
 
