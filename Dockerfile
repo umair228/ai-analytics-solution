@@ -1,4 +1,6 @@
-FROM python:3.13-slim
+# Python 3.12 (not 3.13): neuralprophet 0.9.0 requires <=3.12, and the whole
+# numpy<2 / pandas 2.2 / torch / sentence-transformers stack is known-good here.
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

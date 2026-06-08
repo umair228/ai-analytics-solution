@@ -34,7 +34,7 @@ CSRF_COOKIE_SECURE = _SECURE_COOKIES
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 X_FRAME_OPTIONS = "DENY"
 # Needed for Django admin POST/login over the server's bare IP or hostname,
-# e.g. CSRF_TRUSTED_ORIGINS=http://20.174.10.31
+# e.g. CSRF_TRUSTED_ORIGINS=http://89.35.193.15
 CSRF_TRUSTED_ORIGINS = config("CSRF_TRUSTED_ORIGINS", default="", cast=Csv())
 
 # Use SMTP in prod when EMAIL_HOST is configured, fall back to console.
