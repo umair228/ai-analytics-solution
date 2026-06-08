@@ -9,7 +9,7 @@ ENV PYTHONUNBUFFERED=1 \
 # System dependencies: unixODBC + Microsoft ODBC Driver 18 (SQL Server),
 # plus build tools for the database driver wheels.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl gnupg apt-transport-https unixodbc unixodbc-dev gcc g++ \
+        curl gnupg apt-transport-https unixodbc unixodbc-dev gcc g++ git \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
         | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \
@@ -21,6 +21,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY requirements.txt .docsearch-constraints.txt ./
+# NeuralProphet 0.9.0 (forecasting app): GitHub-only + a broken Requires-Python
+# (<=3.12 excludes 3.12.x patch releases), so install it from the tag with the
+# python check disabled. Constraints keep numpy/pandas/torch pinned. Runs fine on 3.12.
+RUN pip install --no-cache-dir --ignore-requires-python -c .docsearch-constraints.txt \
+        "neuralprophet @ git+https://github.com/ourownstory/neural_prophet.git@0.9.0"
 RUN pip install --no-cache-dir -c .docsearch-constraints.txt -r requirements.txt \
     && python -m spacy download en_core_web_sm
 

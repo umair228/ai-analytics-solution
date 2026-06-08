@@ -49,9 +49,14 @@ openai>=1.40
 # HTTP client (used for webhook notifications)
 requests>=2.32
 
-# Forecasting (LIMS time-series models — `forecasting` app)
-# NeuralProphet pulls torch + pytorch-lightning and pins numpy<2 (1.26.x).
-neuralprophet==0.9.0
+# Forecasting (LIMS time-series models — `forecasting` app).
+# NeuralProphet 0.9.0 is installed in the Dockerfile, NOT here: it's GitHub-only
+# and its published Requires-Python (<=3.12) wrongly excludes 3.12.x PATCH
+# releases (3.12.7 > 3.12 per PEP 440), so pip rejects it on every 3.12.x and
+# 3.13. The Dockerfile installs it from the tag with --ignore-requires-python.
+# It's imported lazily (forecasting app only), so CI/tests + the rest of DIS
+# build and run without it. numpy/pandas/torch stay pinned via the constraints file.
+#   neuralprophet 0.9.0  ->  see Dockerfile
 
 # AI Document Search (`docsearch` app) — RAG over LIMS docs + NL->SQL.
 # Document text extraction (lightweight, no version conflicts):
