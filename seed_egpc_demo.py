@@ -77,7 +77,8 @@ GROUP BY s.PRODUCT
 ORDER BY samples DESC"""),
 
     ("egpc_status_breakdown", "EGPC Sample Status Breakdown",
-     "How many samples sit in each workflow status.",
+     "Sample COUNT in each workflow status (Authorized, Complete, Cancelled, "
+     "Rejected, …). Use for 'how many samples were cancelled / completed / rejected'.",
      """SELECT """ + STATUS_CASE + """ AS status, COUNT(*) AS samples
 FROM dbo.SAMPLE s
 GROUP BY """ + STATUS_CASE + """
@@ -159,6 +160,67 @@ WHERE r.ENTERED_BY IS NOT NULL
 GROUP BY r.ENTERED_BY
 HAVING COUNT(*) >= 100
 ORDER BY off_spec_pct DESC"""),
+
+    ("egpc_offspec_by_test", "EGPC Off-Spec by Test",
+     "Out-of-spec result COUNT per analysis/test (full population, worst first). "
+     "Use for 'on which test have the most samples gone out of specification'.",
+     """SELECT TOP 30 r.ANALYSIS AS analysis, COUNT(*) AS off_spec
+FROM dbo.RESULT r
+WHERE r.IN_SPEC = 'F'
+GROUP BY r.ANALYSIS
+ORDER BY off_spec DESC"""),
+
+    ("egpc_offspec_by_product", "EGPC Off-Spec by Product",
+     "Out-of-spec result COUNT and RATE per product (full population). Use for "
+     "'which product has the most out-of-spec results' (by count) and 'which "
+     "product has the highest out-of-spec rate' (by off_spec_pct).",
+     """SELECT s.PRODUCT AS product, COUNT(*) AS results,
+       SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END) AS off_spec,
+       ROUND(100.0*SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END)/COUNT(*),2) AS off_spec_pct
+FROM dbo.RESULT r JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+WHERE s.PRODUCT IS NOT NULL
+GROUP BY s.PRODUCT
+HAVING COUNT(*) >= 50
+ORDER BY off_spec DESC"""),
+
+    # ---- Sample registration / parameters / totals ----------------------
+    ("egpc_sample_types", "EGPC Sample Types",
+     "Sample COUNT by sample type (SCHEDULED / CUSTOMER / UNSCHEDULED / "
+     "TANK_SAMPLE / SPECIAL). Use for 'most-used sample type' and 'how many "
+     "unscheduled / scheduled / special samples'.",
+     """SELECT s.SAMPLE_TYPE AS sample_type, COUNT(*) AS samples
+FROM dbo.SAMPLE s
+WHERE s.SAMPLE_TYPE IS NOT NULL
+GROUP BY s.SAMPLE_TYPE
+ORDER BY samples DESC"""),
+
+    ("egpc_param_ranges", "EGPC Key Parameter Ranges",
+     "Min / max / average value and count for key petroleum parameters (Cetane, "
+     "Octane/RON, flash point, density/SP_GR, viscosity, pour point, sulphur). "
+     "Use for 'what is the range of <parameter>'.",
+     """SELECT r.ANALYSIS AS analysis, COUNT(*) AS n,
+       ROUND(MIN(TRY_CONVERT(float, r.NUMERIC_ENTRY)),2) AS min_value,
+       ROUND(MAX(TRY_CONVERT(float, r.NUMERIC_ENTRY)),2) AS max_value,
+       ROUND(AVG(TRY_CONVERT(float, r.NUMERIC_ENTRY)),2) AS avg_value
+FROM dbo.RESULT r
+WHERE r.NUMERIC_ENTRY IS NOT NULL AND (
+       r.ANALYSIS LIKE '%CETANE%' OR r.ANALYSIS LIKE '%OCTANE%'
+    OR r.ANALYSIS LIKE '%FLASH%'  OR r.ANALYSIS LIKE '%SP_GR%'
+    OR r.ANALYSIS LIKE '%VISCO%'  OR r.ANALYSIS LIKE '%POUR%'
+    OR r.ANALYSIS LIKE '%VAPOR%'  OR r.ANALYSIS LIKE 'SULFUR%')
+GROUP BY r.ANALYSIS
+HAVING COUNT(*) >= 20
+ORDER BY n DESC"""),
+
+    ("egpc_overview", "EGPC Overview Totals",
+     "Headline totals for the whole LIMS — total samples, total results, "
+     "out-of-spec results, distinct tests and products. Use for 'how many "
+     "samples / results / out-of-spec results in total across EGPC'.",
+     """SELECT 'total_samples' AS metric, COUNT(*) AS value FROM dbo.SAMPLE
+UNION ALL SELECT 'total_results', COUNT(*) FROM dbo.RESULT
+UNION ALL SELECT 'off_spec_results', SUM(CASE WHEN IN_SPEC='F' THEN 1 ELSE 0 END) FROM dbo.RESULT
+UNION ALL SELECT 'distinct_tests', COUNT(DISTINCT ANALYSIS) FROM dbo.RESULT
+UNION ALL SELECT 'distinct_products', COUNT(DISTINCT PRODUCT) FROM dbo.SAMPLE"""),
 
     # ---- Sulphur analysis (featured) ------------------------------------
     ("egpc_sulphur_results", "EGPC Sulphur Results",
