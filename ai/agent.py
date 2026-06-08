@@ -124,7 +124,30 @@ def _dataset_schema_text(dataset) -> str:
     )
 
 
-def _system_blocks(dataset=None):
+def _dataset_catalog_text(user) -> str:
+    """The user's REAL datasets (id, name, description, columns) injected into the
+    system prompt so the model selects from actual datasets instead of inventing
+    dataset names/ids — the dominant failure mode for small local models."""
+    from .tools import _accessible_datasets
+
+    rows = []
+    for ds in _accessible_datasets(user).order_by("name")[:60]:
+        cols = ", ".join(str(c) for c in (ds.cached_columns or [])[:12])
+        desc = " ".join((ds.description or "").split())
+        rows.append(f'- id={ds.id} "{ds.name}" ({ds.row_count} rows) — {desc} '
+                    f'Columns: {cols}')
+    if not rows:
+        return ""
+    return (
+        "AVAILABLE DATASETS — these are the ONLY datasets that exist. Use these EXACT "
+        "ids/names; never invent a dataset, id, column or value. You do NOT need to "
+        "call list_datasets.\n" + "\n".join(rows) + "\n\nPick the dataset whose name/"
+        "description best matches the question, call an analysis tool on its id, and "
+        "answer with the real figures it returns. If none fits, say what data is missing."
+    )
+
+
+def _system_blocks(dataset=None, user=None):
     blocks = [{"type": "text", "text": AGENT_SYSTEM_PROMPT}]
     if dataset is not None:
         try:
@@ -135,6 +158,15 @@ def _system_blocks(dataset=None):
                 f"(\"{dataset.name}\"). Prefer it unless the question points elsewhere."
             )
         blocks.append({"type": "text", "text": text})
+    elif user is not None:
+        # No focused dataset: inject the real catalog so the model selects from
+        # actual datasets/ids rather than hallucinating them.
+        try:
+            catalog = _dataset_catalog_text(user)
+        except Exception:  # noqa: BLE001 - best-effort
+            catalog = ""
+        if catalog:
+            blocks.append({"type": "text", "text": catalog})
     blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
@@ -202,7 +234,7 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
         max_steps = int(getattr(settings, "AGENT_MAX_STEPS", 6))
     max_tool_calls = int(getattr(settings, "AGENT_MAX_TOOL_CALLS", 24))
 
-    system_blocks = _system_blocks(dataset)
+    system_blocks = _system_blocks(dataset, user)
     schemas = tool_schemas()
     tool_names = {s["name"] for s in schemas}
     messages = [dict(m) for m in (history or [])]
