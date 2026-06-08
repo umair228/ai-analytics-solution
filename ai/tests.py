@@ -139,6 +139,22 @@ class AgentLoopTests(SimpleTestCase):
         # The SECOND model call must have seen the tool result threaded in.
         self.assertIn("tool", provider.seen[1]["roles"])
 
+    def test_recovers_tool_call_written_as_text(self):
+        # Local models often emit the call as TEXT instead of a native tool_call;
+        # the loop must recover it and run the tool, not quit with the preamble.
+        run, provider, stub = self._run(
+            turns=[
+                {"text": 'Let me check.\n```\n{"name": "list_datasets", "arguments": {}}\n```',
+                 "tool_calls": []},
+                {"text": "done: 5 datasets", "tool_calls": []},
+            ],
+            tool_result={"count": 5},
+        )
+        self.assertEqual(run.answer, "done: 5 datasets")
+        self.assertEqual(run.tool_calls, 1)
+        self.assertEqual(run.trace[0]["tool"], "list_datasets")
+        stub.assert_called_once()
+
     def test_tool_error_is_recorded_and_recoverable(self):
         run, provider, stub = self._run(
             turns=[

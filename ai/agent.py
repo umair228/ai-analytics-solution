@@ -20,6 +20,7 @@ Claude (cloud) and a local Qwen model (on-prem) with no code change.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 
 from django.conf import settings
@@ -146,6 +147,46 @@ def _json_safe(obj) -> str:
         return json.dumps({"result": str(obj)})
 
 
+def _extract_text_tool_calls(text, tool_names):
+    """Recover tool calls a model wrote as TEXT instead of native function calls.
+
+    Local/quantized models (via Ollama) often emit, e.g.,
+    ``{"name": "list_datasets", "arguments": {...}}`` (optionally in a ```json
+    fence or <tool_call> tags) in the message body. Without this, the loop would
+    treat that preamble as the final answer and quit after one step. Returns
+    native-shape calls ([{name, input, id}]); only matches known tool names.
+    """
+    if not text or "{" not in text:
+        return []
+    calls = []
+    for chunk in re.findall(r"\{(?:[^{}]|\{[^{}]*\})*\}", text):
+        try:
+            obj = json.loads(chunk)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("name") or obj.get("tool") or obj.get("tool_name")
+        if name not in tool_names:
+            continue
+        args = obj.get("input")
+        if args is None:
+            args = obj.get("arguments")
+        if args is None:
+            args = obj.get("parameters")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except (ValueError, TypeError):
+                args = {}
+        calls.append({
+            "name": name,
+            "input": args if isinstance(args, dict) else {},
+            "id": f"text_call_{len(calls)}",
+        })
+    return calls
+
+
 def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> AgentRun:
     """Run the agent to answer the latest message in ``history``.
 
@@ -163,6 +204,7 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
 
     system_blocks = _system_blocks(dataset)
     schemas = tool_schemas()
+    tool_names = {s["name"] for s in schemas}
     messages = [dict(m) for m in (history or [])]
 
     trace: list = []
@@ -180,9 +222,18 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
             max_tokens=max_tokens,
         )
         text = (turn.get("text") or "").strip()
+        calls = turn.get("tool_calls") or []
+
+        # Local models often emit a tool call as TEXT rather than a native function
+        # call — recover it so the loop continues instead of quitting with a useless
+        # "let me call list_datasets…" preamble (the #1 cause of 1-step give-ups).
+        if not calls and text:
+            recovered = _extract_text_tool_calls(text, tool_names)
+            if recovered:
+                calls, text = recovered, ""
+
         if text:
             last_text = text
-        calls = turn.get("tool_calls") or []
 
         if not calls:
             if text:
