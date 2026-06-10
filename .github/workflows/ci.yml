@@ -1,7 +1,7 @@
 name: CI
 
 # Deterministic accuracy gate — no GPU/LLM required. Runs the Django system
-# check and the analytics / agent / NL->SQL golden test suites on every push
+# check and the analytics / agent / NL->SQL golden + docsearch/RAG authz suites on every push
 # and PR. The model-dependent evals (eval_astm retrieval, eval_domain) run
 # separately where an index / LLM endpoint is available.
 on:
@@ -40,5 +40,5 @@ jobs:
       - name: Django system check
         run: python manage.py check
 
-      - name: Golden + unit tests (analytics + agent + NL->SQL)
-        run: python manage.py test analytics ai -v2
+      - name: Golden + unit + authz tests (analytics + agent + NL->SQL + docsearch/RAG authz)
+        run: python manage.py test analytics ai docsearch -v2

@@ -247,16 +247,23 @@ def reject_record(rec: KnowledgeRecord, *, reviewed_by, reason="") -> KnowledgeR
 def approved_record_chunks() -> Tuple[List[str], List[dict]]:
     """``(texts, metas)`` for every approved record, in stable order — the
     knowledge-base contribution that ``index_store`` merges into the index.
-    Passages of one record stay contiguous so neighbour-expansion works."""
+    Passages of one record stay contiguous so neighbour-expansion works.
+
+    Each meta carries an ``owner`` key (the record's created_by id, or
+    OWNER_PRIVATE when unowned) so retrieval can authorize PER CHUNK rather than
+    per doc_id — two users may approve different content under the same doc_id."""
+    from .retrieval import OWNER_PRIVATE
+
     texts: List[str] = []
     metas: List[dict] = []
     for rec in (KnowledgeRecord.objects
                 .filter(status=KnowledgeRecord.Status.APPROVED)
                 .order_by("id")):
+        owner = str(rec.created_by_id) if rec.created_by_id is not None else OWNER_PRIVATE
         for p in rec.passages:
             t = (p.get("text") or "").strip()
             if not t:
                 continue
             texts.append(t)
-            metas.append({"source": rec.doc_id, "page": p.get("page")})
+            metas.append({"source": rec.doc_id, "page": p.get("page"), "owner": owner})
     return texts, metas

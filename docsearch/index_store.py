@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 from django.conf import settings
 
-from .retrieval import CSV_COLUMNS, DocIndex, build_chunks_dataframe
+from .retrieval import CSV_COLUMNS, OWNER_GLOBAL, DocIndex, build_chunks_dataframe
 from .text_extract import SUPPORTED_EXTS, extract_corpus
 
 _INDEX: DocIndex | None = None
@@ -171,9 +171,12 @@ def _build_df() -> pd.DataFrame:
     IDF is global, so the whole table must be rebuilt together."""
     texts, metas = extract_corpus(corpus_dir())
     texts, metas = list(texts), list(metas)
+    # Legacy physical-corpus chunks are global-readable to any authenticated user.
+    for m in metas:
+        m["owner"] = OWNER_GLOBAL
     try:
         from .ingest import approved_record_chunks  # local: avoid import cycle
-        kb_texts, kb_metas = approved_record_chunks()
+        kb_texts, kb_metas = approved_record_chunks()  # these carry their own owner
         texts += list(kb_texts)
         metas += list(kb_metas)
     except Exception as exc:  # never let KB merge break the file index
@@ -242,13 +245,23 @@ def list_corpus_files() -> list[dict]:
     return files
 
 
-def list_indexed_sources() -> list[dict]:
+def list_indexed_sources(user=None) -> list[dict]:
     """List everything currently searchable, grouped by ``doc_id``. Unlike
     ``list_corpus_files`` (which walks the corpus DIR), this reads the index, so
-    it also surfaces dataset-sourced virtual documents that have no file."""
+    it also surfaces dataset-sourced virtual documents that have no file.
+
+    When ``user`` is given, the listing is scoped to the doc_ids that user may see
+    (slice-1 owner/global policy); pass ``None`` to list everything (internal use)."""
     df = get_index().df
     if df.empty:
         return []
+    if user is not None:
+        from .visibility import visible_owner_keys
+        allowed = visible_owner_keys(user)
+        if allowed is not None:
+            df = df[df["owner"].astype(str).isin(allowed)]
+            if df.empty:
+                return []
     out = []
     for doc_id, grp in df.groupby("doc_id"):
         doc_id = str(doc_id)
