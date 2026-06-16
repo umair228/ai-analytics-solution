@@ -40,6 +40,8 @@ INSTALLED_APPS = [
     "ai",
     "forecasting",
     "docsearch",
+    "replication",
+    "semantics",
 ]
 
 MIDDLEWARE = [
@@ -211,6 +213,29 @@ LLM_REPEAT_PENALTY = config("LLM_REPEAT_PENALTY", default=1.1, cast=float)
 # is markedly more reliable at multi-step tool use than 7B).
 AGENT_MAX_STEPS = config("AGENT_MAX_STEPS", default=6, cast=int)
 AGENT_MAX_TOOL_CALLS = config("AGENT_MAX_TOOL_CALLS", default=24, cast=int)
+
+# --------------------------------------------------------------------------
+# Live text-to-SQL (ai.tools.ask_database / texttosql) — how much live schema
+# to show the model per question. Larger schemas rely on the core-table
+# allow-list in texttosql.schema until schema-RAG (Plan §4) lands.
+# --------------------------------------------------------------------------
+DSE_TEXTTOSQL_MAX_TABLES = config("DSE_TEXTTOSQL_MAX_TABLES", default=14, cast=int)
+DSE_TEXTTOSQL_MAX_COLS = config("DSE_TEXTTOSQL_MAX_COLS", default=50, cast=int)
+# Validate → repair budget: generate, then up to (N-1) corrective retries when a
+# gate (read-only / name allow-list / group-by / DB error / result sanity) fails.
+DSE_TEXTTOSQL_MAX_ATTEMPTS = config("DSE_TEXTTOSQL_MAX_ATTEMPTS", default=3, cast=int)
+
+# --------------------------------------------------------------------------
+# LIMS → analytics-replica replication (replication app).
+#   SOURCE/TARGET are connections.DataSource ids: source = live LIMS (read-only),
+#   target = the replica (a Postgres schema in prod, SQLite in dev). The
+#   text-to-SQL tool should point at the TARGET, never the live source.
+#   FULL_HOUR is the local hour for the nightly full reconcile (catches deletes).
+# --------------------------------------------------------------------------
+DSE_REPLICATION_SOURCE_ID = config("DSE_REPLICATION_SOURCE_ID", default=None, cast=lambda v: int(v) if v else None)
+DSE_REPLICATION_TARGET_ID = config("DSE_REPLICATION_TARGET_ID", default=None, cast=lambda v: int(v) if v else None)
+DSE_REPLICATION_SCHEMA = config("DSE_REPLICATION_SCHEMA", default="")
+DSE_REPLICATION_FULL_HOUR = config("DSE_REPLICATION_FULL_HOUR", default=2, cast=int)
 
 # --------------------------------------------------------------------------
 # Forecasting source database (LIMS — external SQL Server, read-only)

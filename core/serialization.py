@@ -1,14 +1,20 @@
 """Coerce raw database cursor values into JSON-serialisable primitives."""
 import datetime
 import decimal
+import math
 import uuid
 
 
 def coerce_value(value):
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, (str, bool, int)):
         return value
+    # Non-finite floats (NaN/Inf — e.g. AVG/STDDEV over an empty group) are not
+    # JSON-compliant and crash DRF's renderer; normalise them to None.
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
     if isinstance(value, decimal.Decimal):
-        return float(value)
+        f = float(value)
+        return f if math.isfinite(f) else None
     if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
         return value.isoformat()
     if isinstance(value, datetime.timedelta):

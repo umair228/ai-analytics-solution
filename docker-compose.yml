@@ -53,6 +53,7 @@ services:
     command: >
       sh -c "while true; do
                python manage.py run_scheduled_refreshes || true;
+               python manage.py run_scheduled_replication || true;
                sleep 300;
              done"
 

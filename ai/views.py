@@ -264,3 +264,83 @@ def widget_suggest(request):
     record_audit(request, AuditLog.Action.QUERY, target_type="Dataset",
                  target_id=dataset.id, summary=f"AI widget suggestions for '{dataset.name}'")
     return Response({"dataset": dataset.id, "suggestions": suggestions})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def ask_live(request):
+    """Talk → Visualize → Report: run the agent over the user's question and return
+    one AnswerEnvelope (narrative + result table + a deterministic chart spec + full
+    provenance). The frontend renders the narrative + chart and can export the same
+    envelope via /ai/export/.  Body: {message, conversation_id?, dataset?}."""
+    from .envelope import envelope_from_agent_run
+
+    if not is_configured():
+        return _NOT_CONFIGURED
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return Response({"error": True, "detail": "A message is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    conversation_id = request.data.get("conversation_id")
+    if conversation_id:
+        conversation = get_object_or_404(Conversation, pk=conversation_id, owner=request.user)
+    else:
+        conversation = Conversation.objects.create(
+            owner=request.user,
+            dataset=_accessible_dataset(request, request.data.get("dataset")),
+            title=message[:60])
+
+    ChatMessage.objects.create(
+        conversation=conversation, role=ChatMessage.Role.USER, content=message)
+    history = [{"role": m.role, "content": m.content} for m in conversation.messages.all()]
+
+    try:
+        run = run_agent(request.user, history, dataset=conversation.dataset)
+    except AINotConfigured as exc:
+        return Response({"error": True, "detail": str(exc)},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": True, "detail": f"Agent run failed: {exc}"},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    envelope = envelope_from_agent_run(run, model=active_model(), user_id=request.user.id)
+    ChatMessage.objects.create(
+        conversation=conversation, role=ChatMessage.Role.ASSISTANT,
+        content=run.answer, metadata={"trace": run.trace, "envelope": envelope.as_dict()})
+    conversation.save(update_fields=["updated_at"])
+    record_audit(request, AuditLog.Action.QUERY, target_type="Conversation",
+                 target_id=conversation.id, summary="AI ask-live (envelope)")
+
+    return Response({"conversation_id": conversation.id, "envelope": envelope.as_dict()})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def export_answer(request):
+    """Render an AnswerEnvelope to a downloadable report. Body: {envelope, format}.
+    The client posts the envelope it already holds, so exports are deterministic
+    (no re-run). Formats: csv, xlsx, html, pdf (pdf needs WeasyPrint server-side)."""
+    from django.http import HttpResponse
+
+    from .exporters import ExportUnavailable, export
+
+    envelope = request.data.get("envelope")
+    if not isinstance(envelope, dict):
+        return Response({"error": True, "detail": "An 'envelope' object is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+    fmt = (request.data.get("format") or "csv").lower()
+    try:
+        data, content_type, filename = export(envelope, fmt)
+    except ExportUnavailable as exc:
+        return Response({"error": True, "detail": str(exc)},
+                        status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": True, "detail": f"Export failed: {exc}"},
+                        status=status.HTTP_502_BAD_GATEWAY)
+
+    record_audit(request, AuditLog.Action.QUERY, target_type="AnswerEnvelope",
+                 target_id=None, summary=f"Exported answer as {fmt}")
+    resp = HttpResponse(data, content_type=content_type)
+    resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return resp

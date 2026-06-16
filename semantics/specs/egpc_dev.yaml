@@ -1,0 +1,95 @@
+# Curated semantic layer for the EGPC LabWare LIMS (the data dictionary).
+# Load with:  python manage.py load_semantic_layer --datasource EGPC_DEV
+# `datasource:` is matched against DataSource.name (case-insensitive).
+#
+# This is the accuracy-defining artifact: encodings, casts, do_not_group, the
+# certified joins (LabWare declares no FKs) and certified metrics. Curate it;
+# the loader verifies every table/column/join still exists in the live schema.
+datasource: EGPC_DEV
+
+notes: |
+  Time series: use SAMPLE.LOGIN_DATE (full 3-year history); RESULT.ENTERED_ON is a
+  narrower entry window. Turnaround hours = DATEDIFF(hour, SAMPLE.LOGIN_DATE,
+  SAMPLE.DATE_COMPLETED). SAMPLE.STATUS codes: A=Authorized, C=Complete,
+  X=Cancelled, R=Rejected, U=Unreceived, I=In Progress, P=Pending, D=Disposed.
+  Off-spec means IN_SPEC='F'. There is no usable per-result instrument; attribute
+  by operator (RESULT.ENTERED_BY) instead.
+
+tables:
+  SAMPLE:
+    description: One row per sample logged into the LIMS (login register).
+    synonyms: [sample, samples, login, registration, batch]
+    columns:
+      SAMPLE_NUMBER: {description: Primary key for a sample.}
+      TEXT_ID: {description: Human-readable sample id.}
+      PRODUCT: {description: Product / grade / material of the sample., synonyms: [product, grade, material, stream]}
+      SAMPLE_TYPE: {description: SCHEDULED / CUSTOMER / UNSCHEDULED / TANK_SAMPLE / SPECIAL.}
+      STATUS: {description: Workflow status code., encoding: "A=Authorized, C=Complete, X=Cancelled, R=Rejected, U=Unreceived, I=In Progress, P=Pending, D=Disposed"}
+      IN_SPEC: {description: Whether the sample is within specification., encoding: "T=in-spec, F=off-spec", synonyms: [in spec, off spec, out of spec, conforming]}
+      LOGIN_DATE: {description: When the sample was logged (use for time series).}
+      DATE_COMPLETED: {description: When analysis completed (for turnaround).}
+      CHANGED_ON: {description: Last-modified timestamp (replication watermark).}
+
+  RESULT:
+    description: Individual test results; each belongs to a sample.
+    synonyms: [result, results, reading, measurement, analyte]
+    columns:
+      SAMPLE_NUMBER: {description: FK to SAMPLE.}
+      RESULT_NUMBER: {description: Result id within the sample.}
+      ANALYSIS: {description: The analysis / test method code., synonyms: [test, analysis, method, parameter]}
+      NAME: {description: Component / analyte name.}
+      NUMERIC_ENTRY: {description: Numeric result stored as TEXT — cast before maths., needs_cast: true, synonyms: [value, reading, measurement]}
+      UNITS: {description: Units of the result.}
+      IN_SPEC: {description: Whether the result is within spec., encoding: "T=in-spec, F=off-spec", synonyms: [off spec, out of spec, failed]}
+      ENTERED_BY: {description: Operator user-id who entered the result (use for by-analyst/operator breakdowns; join LIMS_USERS for a name)., synonyms: [operator, analyst, technician, entered by]}
+      ENTERED_ON: {description: When the result was entered.}
+      CHANGED_ON: {description: Last-modified timestamp (replication watermark).}
+
+  TEST:
+    description: Tests requested per sample (links a sample to its analyses).
+    synonyms: [test, tests]
+    columns:
+      SAMPLE_NUMBER: {description: FK to SAMPLE.}
+      TEST_NUMBER: {description: Test id within the sample.}
+      ANALYSIS: {description: Analysis / method code.}
+      STATUS: {description: Test status code.}
+      INSTRUMENT: {description: Instrument — essentially EMPTY in EGPC; do not group on it., do_not_group: true}
+
+joins:
+  # NB: "on" is quoted — a bare YAML `on:` key parses as the boolean True.
+  - {left: RESULT, right: SAMPLE, "on": [[SAMPLE_NUMBER, SAMPLE_NUMBER]],
+     description: A result belongs to a sample.}
+  - {left: TEST, right: SAMPLE, "on": [[SAMPLE_NUMBER, SAMPLE_NUMBER]],
+     description: A test belongs to a sample.}
+
+metrics:
+  - key: oos_rate_by_product
+    name: Out-of-spec rate by product
+    synonyms: ["out of spec rate by product", "off spec rate by product",
+               "which product has the worst out of specification rate",
+               "worst product for off spec"]
+    description: In-spec vs off-spec result counts and off-spec % per product, worst first.
+    sql: |
+      SELECT s.PRODUCT AS product,
+             COUNT(*) AS results,
+             SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END) AS off_spec,
+             ROUND(100.0*SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END)/COUNT(*), 2) AS off_spec_pct
+      FROM dbo.RESULT r
+      JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      GROUP BY s.PRODUCT
+      HAVING COUNT(*) >= 200
+      ORDER BY off_spec_pct DESC
+
+  - key: oos_by_operator
+    name: Out-of-spec results by operator
+    synonyms: ["off spec by operator", "out of spec by analyst",
+               "which operator has the most off spec", "off spec by technician"]
+    description: Off-spec result count and rate by the analyst who entered the result.
+    sql: |
+      SELECT r.ENTERED_BY AS operator,
+             COUNT(*) AS results,
+             SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END) AS off_spec,
+             ROUND(100.0*SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END)/COUNT(*), 2) AS off_spec_pct
+      FROM dbo.RESULT r
+      GROUP BY r.ENTERED_BY
+      ORDER BY off_spec DESC

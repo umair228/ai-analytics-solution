@@ -80,6 +80,38 @@ def _get_df(user, dataset_id):
     return dataset, df
 
 
+def _accessible_datasources(user):
+    """Live (database) DataSources the user may query — mirrors
+    :func:`_accessible_datasets` but for connections, and only DB types."""
+    from connections.constants import SourceType
+    from connections.models import DataSource
+
+    if getattr(user, "is_admin", False):
+        qs = DataSource.objects.all()
+    else:
+        qs = DataSource.objects.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+    return qs.filter(source_type__in=list(SourceType.DATABASE_TYPES)).order_by("name")
+
+
+def _resolve_datasource(user, datasource_id):
+    """Pick the DataSource to query: the given id (permission-checked), or the
+    sole accessible one. Raises ToolError with the options if it's ambiguous."""
+    qs = _accessible_datasources(user)
+    if datasource_id is not None:
+        ds = qs.filter(pk=datasource_id).first()
+        if ds is None:
+            raise ToolError(f"No accessible database connection with id {datasource_id}.")
+        return ds
+    items = list(qs[:8])
+    if not items:
+        raise ToolError("No database connections are available to query. "
+                        "Ask an admin to register a DataSource first.")
+    if len(items) == 1:
+        return items[0]
+    opts = "; ".join(f"id={d.id} \"{d.name}\"" for d in items)
+    raise ToolError(f"Multiple databases are available — pass 'datasource_id'. Options: {opts}.")
+
+
 # --------------------------------------------------------------------------
 # Tool implementations
 # --------------------------------------------------------------------------
@@ -273,6 +305,23 @@ def _query_dataset(user, dataset_id=None, question=None, **_):
     result = semantic.answer_question(df, question, dataset_name=dataset.name)
     if isinstance(result, dict) and isinstance(result.get("rows"), list):
         result["rows"] = result["rows"][:MAX_ROWS]
+    return result
+
+
+def _ask_database(user, question=None, datasource_id=None, database=None, **_):
+    """Live text-to-SQL: write & run ONE safe read-only query against a connected
+    database and return the rows + the exact SQL. For the long tail of questions
+    the materialized datasets/tools don't already cover (any table/column)."""
+    if not question:
+        raise ToolError("A 'question' is required.")
+    from texttosql.runner import run_text_to_sql
+
+    datasource = _resolve_datasource(user, datasource_id)
+    result = run_text_to_sql(datasource, question, database=database)
+    rows = result.get("rows")
+    if isinstance(rows, list) and len(rows) > MAX_ROWS:
+        result["rows"] = rows[:MAX_ROWS]
+        result["truncated"] = True
     return result
 
 
@@ -508,6 +557,33 @@ TOOLS: dict[str, Tool] = {
                 "required": ["dataset_id", "question"],
             },
             fn=_query_dataset,
+        ),
+        Tool(
+            name="ask_database",
+            description=(
+                "Ask a plain-English question against a CONNECTED LIVE DATABASE and "
+                "get the answer rows back. The tool reads the real schema (tables, "
+                "columns and the data conventions), writes ONE safe read-only SQL "
+                "query, runs it, and returns the columns + rows plus the EXACT SQL it "
+                "executed. Use this for questions the materialized datasets / other "
+                "tools do NOT already cover, or to query the full database directly "
+                "(any table or column) — prefer it over saying data is missing. If "
+                "more than one database is connected, pass datasource_id (see the "
+                "AVAILABLE DATABASES list). Trust only the rows it returns."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string",
+                                 "description": "The natural-language question to answer from the database."},
+                    "datasource_id": {"type": "integer",
+                                      "description": "Which connected database to query (from AVAILABLE DATABASES). Omit if only one exists."},
+                    "database": {"type": "string",
+                                 "description": "Optional specific database/catalog name on that server."},
+                },
+                "required": ["question"],
+            },
+            fn=_ask_database,
         ),
         Tool(
             name="detect_anomalies_ml",

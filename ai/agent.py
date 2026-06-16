@@ -46,6 +46,9 @@ AGENT_SYSTEM_PROMPT = (
     "detect_anomalies_ml (outliers), root_cause (WHY an outcome happens — drivers "
     "of out-of-spec by product/analysis/operator), find_associations, cluster_data, "
     "forecast_metric, correlate_columns / discover_relationships, or query_dataset. "
+    "Use ask_database to query the LIVE database directly — it writes and runs a "
+    "safe read-only SQL query over the real schema and returns the rows + the exact "
+    "SQL — when the materialized datasets do not contain the needed table or column. "
     "Chain them when useful: e.g. compare_dimension to find the worst group, then "
     "root_cause to explain WHY.\n"
     "4. Use search_documents ONLY to ground answers in written specs/SOPs/ASTM-ISO "
@@ -64,6 +67,9 @@ AGENT_SYSTEM_PROMPT = (
     "dataset to answer a sample-type, total-count or octane question), and never "
     "invent company names or values.\n"
     "- Use exact dataset ids and column names from the tools; do not guess them.\n"
+    "- For anything the materialized datasets don't cover, use ask_database (live SQL "
+    "over the real schema, any table/column) BEFORE concluding data is missing. Trust "
+    "only the rows it returns and report the figure; never invent columns or values.\n"
     "- PRE-AGGREGATED datasets (names like '… by Product', '… by Test', 'Sample "
     "Types', 'Status Breakdown', 'Overview Totals', 'Key Parameter Ranges') are "
     "ALREADY summarised and sorted — the count/value is IN A COLUMN (e.g. samples, "
@@ -160,6 +166,30 @@ def _dataset_catalog_text(user) -> str:
     )
 
 
+def _datasource_catalog_text(user) -> str:
+    """The user's live DATABASE connections (id, name, type) injected so the model
+    knows it can reach the whole database via ask_database — and which id to pass."""
+    from .tools import _accessible_datasources
+
+    rows = []
+    for ds in _accessible_datasources(user)[:20]:
+        db = ds.database_name or ""
+        desc = " ".join((ds.description or "").split())
+        rows.append(
+            f'- id={ds.id} "{ds.name}" [{ds.source_type}{("/" + db) if db else ""}]'
+            + (f" — {desc}" if desc else "")
+        )
+    if not rows:
+        return ""
+    return (
+        "AVAILABLE DATABASES — live connections you can query directly with the "
+        "ask_database tool (it writes & runs a safe read-only SQL query over the real "
+        "schema and returns the rows + the exact SQL). Pass the id as datasource_id. "
+        "Use this for any question the materialized datasets above do not cover.\n"
+        + "\n".join(rows)
+    )
+
+
 def _system_blocks(dataset=None, user=None):
     blocks = [{"type": "text", "text": AGENT_SYSTEM_PROMPT}]
     if dataset is not None:
@@ -180,6 +210,15 @@ def _system_blocks(dataset=None, user=None):
             catalog = ""
         if catalog:
             blocks.append({"type": "text", "text": catalog})
+    if user is not None:
+        # Live DB connections are always worth advertising — ask_database covers
+        # the long tail the materialized datasets don't.
+        try:
+            ds_catalog = _datasource_catalog_text(user)
+        except Exception:  # noqa: BLE001 - best-effort
+            ds_catalog = ""
+        if ds_catalog:
+            blocks.append({"type": "text", "text": ds_catalog})
     blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
