@@ -13,6 +13,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.permissions import IsAnalystOrAbove
+
 from .. import index_store
 from ..text_extract import SUPPORTED_EXTS
 
@@ -37,6 +39,10 @@ def _unique_dest(corpus: Path, name: str) -> Path:
 
 
 class DocumentsView(APIView):
+    # GET (list) is allowed for any authenticated user; POST (upload) requires
+    # the analyst/builder role (IsAnalystOrAbove gates write methods on can_build).
+    permission_classes = [IsAnalystOrAbove]
+
     def get(self, request):
         return Response(_payload(), status=status.HTTP_200_OK)
 
@@ -94,6 +100,10 @@ class DocumentsView(APIView):
 
 
 class DocumentDeleteView(APIView):
+    # DELETE requires the analyst/builder role (IsAnalystOrAbove gates write
+    # methods on can_build); viewers are denied before any file is touched.
+    permission_classes = [IsAnalystOrAbove]
+
     def delete(self, request, name):
         safe = os.path.basename(name or "")
         target = index_store.corpus_dir() / safe

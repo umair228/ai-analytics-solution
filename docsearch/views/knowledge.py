@@ -44,8 +44,14 @@ def _staging_dir() -> Path:
     return p
 
 
-def _get(pk) -> KnowledgeRecord | None:
-    return KnowledgeRecord.objects.filter(pk=pk).first()
+def _get(request, pk) -> KnowledgeRecord | None:
+    """Fetch a record the requester may act on: admins see all; everyone else is
+    scoped to their own records (created_by). Other/unowned records resolve to
+    None -> 404, so no data leaks and existence is not disclosed."""
+    qs = KnowledgeRecord.objects.filter(pk=pk)
+    if not getattr(request.user, "is_admin", False):
+        qs = qs.filter(created_by=request.user)
+    return qs.first()
 
 
 def _not_found():
@@ -59,6 +65,10 @@ class KnowledgeListView(generics.ListAPIView):
 
     def get_queryset(self):
         qs = KnowledgeRecord.objects.all()
+        # Scope to the requester's own records (admins see all). Records with
+        # created_by=None fail closed for non-admins.
+        if not getattr(self.request.user, "is_admin", False):
+            qs = qs.filter(created_by=self.request.user)
         status_ = self.request.query_params.get("status")
         source_type = self.request.query_params.get("source_type")
         if status_:
@@ -135,7 +145,10 @@ class KnowledgeIngestDatasetView(APIView):
             return Response({"error": "Field 'dataset' (id) is required."},
                             status=http.HTTP_400_BAD_REQUEST)
         dataset = Dataset.objects.filter(pk=dataset_id).first()
-        if dataset is None:
+        # Object-level access: a builder may ingest only a dataset they own or
+        # that is shared with them (admins: any). Treat "no access" as not-found
+        # so dataset existence isn't disclosed (IDOR hardening).
+        if dataset is None or not dataset.accessible_by(request.user):
             return Response({"error": "Dataset not found."}, status=http.HTTP_404_NOT_FOUND)
         if not dataset.cached_rows:
             return Response({"error": "Dataset has no cached rows — refresh the dataset first."},
@@ -164,13 +177,13 @@ class KnowledgeDetailView(APIView):
     permission_classes = [IsAnalystOrAbove]
 
     def get(self, request, pk):
-        rec = _get(pk)
+        rec = _get(request, pk)
         if rec is None:
             return _not_found()
         return Response(KnowledgeRecordDetailSerializer(rec).data)
 
     def delete(self, request, pk):
-        rec = _get(pk)
+        rec = _get(request, pk)
         if rec is None:
             return _not_found()
         was_approved = rec.status == KnowledgeRecord.Status.APPROVED
@@ -184,7 +197,7 @@ class KnowledgeApproveView(APIView):
     permission_classes = [IsAnalystOrAbove]
 
     def post(self, request, pk):
-        rec = _get(pk)
+        rec = _get(request, pk)
         if rec is None:
             return _not_found()
         try:
@@ -202,7 +215,7 @@ class KnowledgeRejectView(APIView):
     permission_classes = [IsAnalystOrAbove]
 
     def post(self, request, pk):
-        rec = _get(pk)
+        rec = _get(request, pk)
         if rec is None:
             return _not_found()
         ingest.reject_record(rec, reviewed_by=request.user,
@@ -214,4 +227,7 @@ class KnowledgeSourcesView(APIView):
     permission_classes = [IsAnalystOrAbove]
 
     def get(self, request):
-        return Response({"sources": index_store.list_indexed_sources(), **index_store.status()})
+        return Response({
+            "sources": index_store.list_indexed_sources(request.user),
+            **index_store.status(),
+        })

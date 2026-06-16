@@ -27,6 +27,7 @@ from ..answer import synthesize_answer
 from ..faq import faq_lookup
 from ..index_store import get_index
 from ..nlp_sql import run_nl_sql
+from ..visibility import visible_owner_keys
 
 
 class DocSearchView(APIView):
@@ -57,7 +58,10 @@ class DocSearchView(APIView):
         # 2) Document retrieval + answer synthesis (docs/auto).
         if mode in ("auto", "docs"):
             try:
-                rows, debug = get_index().retrieve(question, top_k=10, expand_neighbors=2)
+                rows, debug = get_index().retrieve(
+                    question, top_k=10, expand_neighbors=2,
+                    allowed_owners=visible_owner_keys(request.user),
+                )
                 ans = synthesize_answer(question, rows, history=history)
                 resp.update({
                     "answer": ans["answer"],

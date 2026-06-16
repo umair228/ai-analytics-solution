@@ -32,9 +32,19 @@ PER_DOC_CAP = 1            # 1 => restrict the final answer to the single best d
 RERANK_KEEP = 10          # keep top-N after semantic rerank
 TITLE_OVERLAP_W = 0.25
 
+# Per-chunk visibility owner. doc_id is NOT unique across users (two users can
+# approve different content under the same doc_id), so authorization keys on this
+# owner value, never on doc_id alone:
+#   OWNER_GLOBAL  -> legacy physical-corpus chunk (readable by all authenticated)
+#   "<user id>"   -> KB chunk owned by that user (created_by)
+#   OWNER_PRIVATE -> KB chunk with no/unknown owner -> admin-only (fail closed)
+OWNER_GLOBAL = "__global__"
+OWNER_PRIVATE = "__private__"
+
 CSV_COLUMNS = [
     "doc_id", "page", "chunk_id", "chunk_text", "doc_title", "title_terms",
     "keywords", "entities", "bm25_terms", "intent_tags", "chunk_len_tokens",
+    "owner",
 ]
 
 _STOP = {
@@ -122,6 +132,7 @@ def build_chunks_dataframe(chunk_texts, chunk_metas) -> pd.DataFrame:
             "bm25_terms": bm25_terms,
             "intent_tags": "|".join(_intent_tags_from_text(chunk_text)),
             "chunk_len_tokens": len(bm25_terms.split()),
+            "owner": str(meta.get("owner", OWNER_PRIVATE)),
         })
     return pd.DataFrame(rows, columns=CSV_COLUMNS)
 
@@ -390,7 +401,8 @@ class DocIndex:
         return rows[:keep], debug
 
     # ----- retrieval -----
-    def retrieve(self, query: str, top_k: int = 10, expand_neighbors: int = 2) -> Tuple[list, dict]:
+    def retrieve(self, query: str, top_k: int = 10, expand_neighbors: int = 2,
+                 allowed_owners=None) -> Tuple[list, dict]:
         from django.conf import settings
         df = self.df
         if not self.ready or df.empty:
@@ -403,14 +415,31 @@ class DocIndex:
         rrf_k = getattr(settings, "DOCSEARCH_RRF_K", 60)
         hybrid = getattr(settings, "DOCSEARCH_HYBRID", True)
 
+        # Per-user visibility scoping. allowed_owners is None => no restriction;
+        # otherwise a chunk is a candidate only if its OWNER (not its doc_id —
+        # doc_ids are not unique across users) is in the set. Filtering is applied
+        # BEFORE the candidate-pool cut and document selection, so chunks the user
+        # MAY see are never crowded out of the pool by ones they may not.
+        owners = df["owner"].to_numpy() if allowed_owners is not None else None
+
+        def _visible(i) -> bool:
+            return allowed_owners is None or str(owners[i]) in allowed_owners
+
         # lexical leg
         lex_scores = self._lexical_scores(query)
-        lex_order = np.argsort(lex_scores)[::-1][:pool].tolist()
+        lex_ranked = np.argsort(lex_scores)[::-1]
+        if allowed_owners is None:
+            lex_order = lex_ranked[:pool].tolist()
+        else:
+            lex_order = [int(i) for i in lex_ranked if _visible(i)][:pool]
 
         # dense leg + fusion
         dense_order, dense_map = ([], {})
         if hybrid:
             dense_order, dense_map = self._dense_search(query, pool)
+            if allowed_owners is not None and dense_order:
+                dense_order = [i for i in dense_order if _visible(i)]
+                dense_map = {i: s for i, s in dense_map.items() if _visible(i)}
         fused = _rrf_fuse([lex_order, dense_order], k=rrf_k) if dense_order else lex_order
         if not fused:
             return [], {"best_score": 0.0, "semantic_top_sim": 0.0}
@@ -432,7 +461,10 @@ class DocIndex:
         for idx in seeds:
             doc_id = df.iloc[idx]["doc_id"]
             for j in range(max(0, idx - expand_neighbors), min(len(df), idx + expand_neighbors + 1)):
-                if j in seen or df.iloc[j]["doc_id"] != doc_id:
+                # Same doc_id is not enough: doc_ids are shared across users, so a
+                # neighbour must also be visible to the requester (owner check),
+                # otherwise expansion would re-introduce another user's chunk.
+                if j in seen or df.iloc[j]["doc_id"] != doc_id or not _visible(j):
                     continue
                 seen.add(j)
                 chosen.append(j)
