@@ -58,6 +58,10 @@ AGENT_SYSTEM_PROMPT = (
     "standards (e.g. to quote a spec limit) — not for plain data questions.\n\n"
     "Rules:\n"
     "- Always respond in English, regardless of the language of the question.\n"
+    "- If the user is only greeting you, thanking you, asking who you are / what you "
+    "can do, or making small talk (no actual data question), reply briefly and warmly "
+    "in plain English — introduce yourself and suggest 2-3 example questions — and do "
+    "NOT call any tool or re-answer a previous question.\n"
     "- list_datasets and describe_dataset are NAVIGATION, never a final answer. "
     "For a data question you MUST go on to run an ANALYSIS tool and answer with the "
     "actual findings — NEVER reply by merely listing or describing the available "
@@ -302,8 +306,49 @@ def _extract_text_tool_calls(text, tool_names):
     return calls
 
 
+# Greetings / capability / chit-chat — handled warmly WITHOUT running a query, so
+# "hi" or "what can you do" gets a proactive intro instead of being forced into SQL
+# (or worse, re-answering the previous question because of conversation history).
+_SMALLTALK_RE = re.compile(
+    r"^\s*("
+    r"hi+|hey+|hello+|hiya|yo|sup|greetings|good\s+(morning|afternoon|evening|day)|"
+    r"thanks|thank\s+you|thx|ty|cheers|ok|okay|kk|cool|great|nice|awesome|got\s+it|"
+    r"who\s+are\s+you|what\s+(can|do)\s+you\s+(do|help\s+with)|what\s+do\s+you\s+do|"
+    r"what\s+is\s+this|what\s+can\s+i\s+ask|how\s+do\s+you\s+work|how\s+can\s+you\s+help|"
+    r"help|hello\s+there|test|ping|are\s+you\s+there|what\s+are\s+your\s+capabilities"
+    r")\s*[!.?…]*\s*$",
+    re.IGNORECASE,
+)
+
+_ASSISTANT_INTRO = (
+    "Hi! I'm the DIS analytics assistant for your EGPC laboratory data. Ask me anything "
+    "about your samples, results, products, tests, off-spec rates, operators or "
+    "turnaround — in plain English. I can also run statistics, detect anomalies, find "
+    "root causes, forecast trends, and look up lab standards (ASTM/ISO).\n\n"
+    "Here are a few things you can try:\n\n"
+    "- Which product has the highest out-of-spec rate?\n"
+    "- How many results are out of specification?\n"
+    "- What are the top 5 most-used tests?\n"
+    "- Average sulphur by product, highest first\n"
+    "- Forecast next month's sample volume\n\n"
+    "What would you like to know?"
+)
+
+
+def _smalltalk_fast_path(history):
+    """Return a friendly intro AgentRun for greetings / capability / chit-chat
+    messages (no tools, no LLM), else None to fall through to the normal flow."""
+    msg = next((m.get("content", "").strip() for m in reversed(history or [])
+                if m.get("role") == "user" and m.get("content")), "")
+    if not msg or len(msg.split()) > 6 or not _SMALLTALK_RE.match(msg):
+        return None
+    return AgentRun(answer=_ASSISTANT_INTRO, trace=[], steps=0, tool_calls=0,
+                    stopped_reason="greeting")
+
+
 def _format_metric_answer(result) -> str:
-    """Render a certified-metric result's rows into a short, figure-bearing answer."""
+    """Render a certified-metric result's rows into a short, figure-bearing answer
+    (the deterministic fallback when no LLM is available to narrate)."""
     cols = result.get("columns") or []
     rows = result.get("rows") or []
     if not rows:
@@ -312,6 +357,37 @@ def _format_metric_answer(result) -> str:
     if len(rows) == 1:
         return top
     return f"{top}  (top of {result.get('row_count', len(rows))} rows)"
+
+
+def _narrate_metric(question, result) -> str:
+    """Turn the exact metric rows into a brief, human English answer via ONE grounded
+    LLM call — the figures are handed to the model (it must not change them), so the
+    answer is deterministic in its numbers but natural in its wording. Falls back to a
+    structured line if no LLM is configured."""
+    structured = _format_metric_answer(result)
+    cols = result.get("columns") or []
+    rows = result.get("rows") or []
+    if not rows:
+        return structured
+    try:
+        provider = get_provider()
+        if not provider.configured:
+            return structured
+        table = "\n".join(
+            ", ".join(f"{c}={v}" for c, v in zip(cols, r)) for r in rows[:20])
+        system = (
+            "You are a laboratory data analyst. Write a brief, clear answer to the "
+            "user's question for a lab operations manager, using ONLY the result data "
+            "provided — never invent, add, or change a number. Lead with the key "
+            "figure(s); 1-3 short sentences, plain English, no markdown tables.")
+        user = (f"Question: {question}\n\nExact result data (already computed — do not "
+                f"alter any value):\n{table}")
+        text = provider.chat(
+            system_blocks=[{"type": "text", "text": system}],
+            messages=[{"role": "user", "content": user}], max_tokens=220)
+        return (text or "").strip() or structured
+    except Exception:  # noqa: BLE001 - narration is best-effort; never break the answer
+        return structured
 
 
 def _certified_fast_path(user, history, dataset):
@@ -341,7 +417,7 @@ def _certified_fast_path(user, history, dataset):
             and str(result.get("path", "")).startswith("certified_metric")):
         return None
     return AgentRun(
-        answer=_format_metric_answer(result),
+        answer=_narrate_metric(question, result),
         trace=[{"step": 1, "tool": "ask_database", "input": {"question": question},
                 "result": result, "ok": True}],
         steps=1, tool_calls=1, stopped_reason="certified_metric")
@@ -354,6 +430,10 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
     in the user's question. ``dataset`` (optional) is the focused dataset.
     Returns an :class:`AgentRun` (answer + evidence trace).
     """
+    greeting = _smalltalk_fast_path(history)
+    if greeting is not None:
+        return greeting
+
     fast = _certified_fast_path(user, history, dataset)
     if fast is not None:
         return fast

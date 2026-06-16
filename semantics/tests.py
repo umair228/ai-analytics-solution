@@ -286,6 +286,25 @@ class SemanticIntegrationTests(TestCase):
         self.assertFalse(out["understood"])
         self.assertIn("SAMPLE", out["available_tables"])
 
+    def test_greeting_gets_friendly_intro_not_a_query(self):
+        from ai.agent import run_agent
+        # even with a prior data question in history, "hi" must greet, not re-query
+        run = run_agent(self.ds.owner, [
+            {"role": "user", "content": "average sulphur by product"},
+            {"role": "assistant", "content": "NAPHTHA ..."},
+            {"role": "user", "content": "hi"},
+        ], dataset=None)
+        self.assertEqual(run.stopped_reason, "greeting")
+        self.assertEqual(run.trace, [])
+        self.assertIn("assistant", run.answer.lower())
+        self.assertNotIn("NAPHTHA", run.answer)
+
+    def test_capability_question_gets_intro(self):
+        from ai.agent import run_agent
+        run = run_agent(self.ds.owner, [{"role": "user", "content": "what can you do?"}],
+                        dataset=None)
+        self.assertEqual(run.stopped_reason, "greeting")
+
     @override_settings(DSE_TEXTTOSQL_DEFAULT_DATASOURCE="egpc")
     def test_agent_certified_fast_path(self):
         from ai.agent import run_agent
