@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
+from django.conf import settings
 from django.db.models import Q
 
 from analytics import engine, predict, semantic
@@ -108,8 +109,17 @@ def _resolve_datasource(user, datasource_id):
                         "Ask an admin to register a DataSource first.")
     if len(items) == 1:
         return items[0]
-    opts = "; ".join(f"id={d.id} \"{d.name}\"" for d in items)
-    raise ToolError(f"Multiple databases are available — pass 'datasource_id'. Options: {opts}.")
+    # Multiple available and none specified: use the configured default if set
+    # (so the agent answers instead of stopping to ask which database).
+    default = getattr(settings, "DSE_TEXTTOSQL_DEFAULT_DATASOURCE", "") or ""
+    if default:
+        d = (qs.filter(pk=int(default)).first() if str(default).isdigit()
+             else qs.filter(name__iexact=str(default)).first())
+        if d is not None:
+            return d
+    opts = "; ".join(f'id={d.id} "{d.name}"' for d in items)
+    raise ToolError("Multiple databases are available — pass 'datasource_id' (or set "
+                    f"DSE_TEXTTOSQL_DEFAULT_DATASOURCE). Options: {opts}.")
 
 
 # --------------------------------------------------------------------------

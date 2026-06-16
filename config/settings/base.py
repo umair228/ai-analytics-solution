@@ -221,6 +221,9 @@ AGENT_MAX_TOOL_CALLS = config("AGENT_MAX_TOOL_CALLS", default=24, cast=int)
 # --------------------------------------------------------------------------
 DSE_TEXTTOSQL_MAX_TABLES = config("DSE_TEXTTOSQL_MAX_TABLES", default=14, cast=int)
 DSE_TEXTTOSQL_MAX_COLS = config("DSE_TEXTTOSQL_MAX_COLS", default=50, cast=int)
+# When several DB connections exist and the agent didn't name one, ask_database
+# falls back to this datasource (id or name) instead of stopping to ask the user.
+DSE_TEXTTOSQL_DEFAULT_DATASOURCE = config("DSE_TEXTTOSQL_DEFAULT_DATASOURCE", default="")
 # Validate → repair budget: generate, then up to (N-1) corrective retries when a
 # gate (read-only / name allow-list / group-by / DB error / result sanity) fails.
 DSE_TEXTTOSQL_MAX_ATTEMPTS = config("DSE_TEXTTOSQL_MAX_ATTEMPTS", default=3, cast=int)

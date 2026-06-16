@@ -118,6 +118,44 @@ class RouterTests(SimpleTestCase):
         layer.metrics = []
         self.assertIsNone(match_certified_metric(layer, "off spec by operator"))
 
+    def test_topic_word_extra_still_fires(self):
+        # plain topic words (egpc/lab) don't change the metric → still fires
+        m = match_certified_metric(_layer(), "show me off spec by operator for the egpc lab")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.key, "oos_by_operator")
+
+    def test_shape_constraint_word_defers(self):
+        # "trend"/"over time" change the answer shape → defer to long-tail
+        self.assertIsNone(match_certified_metric(_layer(), "off spec by operator trend over time"))
+
+
+class EgpcMetricRoutingTests(SimpleTestCase):
+    """Guards the shipped egpc_dev.yaml synonyms against routing regressions."""
+
+    def _layer_from_file(self):
+        from django.conf import settings
+        spec = load_yaml(os.path.join(settings.BASE_DIR, "semantics", "specs", "egpc_dev.yaml"))
+        metrics = [LMetric(key=m["key"], name=m.get("name", m["key"]), sql=m["sql"],
+                           synonyms=m.get("synonyms") or []) for m in spec["metrics"]]
+        return Layer(metrics=metrics)
+
+    def test_oos_rate_fires_on_golden_phrasing(self):
+        m = match_certified_metric(
+            self._layer_from_file(),
+            "On which product is the out-of-specification rate highest across EGPC?")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.key, "oos_rate_by_product")
+
+    def test_sulphur_fires(self):
+        m = match_certified_metric(
+            self._layer_from_file(), "What is the average sulphur value for each product?")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.key, "sulphur_by_product")
+
+    def test_unrelated_question_defers(self):
+        self.assertIsNone(match_certified_metric(
+            self._layer_from_file(), "how many samples were logged last month"))
+
 
 class SemanticIntegrationTests(TestCase):
     def setUp(self):

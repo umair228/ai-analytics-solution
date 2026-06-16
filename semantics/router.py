@@ -21,9 +21,18 @@ import re
 
 from .text import tokenize
 
-# How many question content-words may remain after removing the matched synonym's
-# words. 0 = the question must be essentially the canonical metric question.
-MAX_EXTRA_TOKENS = 0
+# Words that change the SHAPE of the answer (a time series, a filter, a comparison)
+# which a fixed metric SQL cannot honor. If the question adds one of these beyond
+# the matched synonym, defer to the (constraint-aware) long-tail path. Plain topic
+# words ("product", "EGPC", "results") are fine — they don't change the metric.
+CONSTRAINT_WORDS = {
+    "trend", "trends", "over", "time", "month", "months", "monthly", "year", "years",
+    "yearly", "annual", "annually", "daily", "weekly", "quarter", "quarterly",
+    "last", "past", "recent", "since", "between", "before", "after", "above",
+    "below", "under", "greater", "less", "than", "vs", "versus", "compare",
+    "comparison", "change", "growth", "forecast", "predict", "projection",
+    "today", "yesterday", "week", "quarterly", "ytd", "wow", "mom", "yoy",
+}
 
 
 def _norm(s: str) -> str:
@@ -31,24 +40,24 @@ def _norm(s: str) -> str:
 
 
 def match_certified_metric(layer, question):
-    """Return the most specific certified metric whose canonical phrasing the
-    question matches with no extra constraints, or None."""
+    """Return the most specific certified metric whose canonical phrasing appears
+    in the question with no added shape/time/filter constraint, or None."""
     if not layer.metrics:
         return None
     qn = _norm(question)
-    q_content = tokenize(question)
+    q_tokens = tokenize(question)
 
     best = None
     best_specificity = -1
     for metric in layer.metrics:
         for syn in metric.synonyms:
             sn = _norm(syn)
-            if not sn or sn not in qn:                 # require a contiguous phrase hit
+            if not sn or sn not in qn:                          # contiguous phrase hit
                 continue
-            extra = q_content - tokenize(syn)
-            if len(extra) > MAX_EXTRA_TOKENS:          # question adds a constraint → defer
+            extra = q_tokens - tokenize(syn)
+            if extra & CONSTRAINT_WORDS:                        # adds a constraint → defer
                 continue
-            specificity = len(tokenize(syn))           # prefer the most specific synonym
+            specificity = len(tokenize(syn))                    # prefer the most specific synonym
             if specificity > best_specificity:
                 best, best_specificity = metric, specificity
     return best

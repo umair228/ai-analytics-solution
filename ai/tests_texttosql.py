@@ -12,7 +12,7 @@ from unittest import mock
 import pandas as pd
 from sqlalchemy import create_engine
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from querybuilder.executor import QueryError
 from texttosql import execution as texec
@@ -262,6 +262,39 @@ class DeadlineTests(SimpleTestCase):
                                side_effect=QueryError("boom")):
             with self.assertRaises(QueryError):
                 texec.execute_with_deadline(object(), "SELECT 1", seconds=5)
+
+
+class ResolveDatasourceTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="rds_t", password="x")
+
+    def _ds(self, name):
+        from connections.models import DataSource
+        return DataSource.objects.create(
+            name=name, source_type="sqlite", database_name=f"/tmp/{name}.sqlite",
+            options={"path": f"/tmp/{name}.sqlite"}, owner=self.user)
+
+    def test_single_datasource_auto_resolves(self):
+        from ai.tools import _resolve_datasource
+        d = self._ds("ONE")
+        self.assertEqual(_resolve_datasource(self.user, None).id, d.id)
+
+    def test_explicit_id_wins(self):
+        from ai.tools import _resolve_datasource
+        a = self._ds("A"); self._ds("B")
+        self.assertEqual(_resolve_datasource(self.user, a.id).id, a.id)
+
+    def test_multiple_without_default_raises(self):
+        from ai.tools import ToolError, _resolve_datasource
+        self._ds("A"); self._ds("B")
+        with self.assertRaises(ToolError):
+            _resolve_datasource(self.user, None)
+
+    @override_settings(DSE_TEXTTOSQL_DEFAULT_DATASOURCE="B")
+    def test_default_used_when_multiple(self):
+        from ai.tools import _resolve_datasource
+        self._ds("A"); self._ds("B")
+        self.assertEqual(_resolve_datasource(self.user, None).name, "B")
 
 
 class BuildSchemaTests(TestCase):

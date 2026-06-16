@@ -14,6 +14,9 @@ notes: |
   X=Cancelled, R=Rejected, U=Unreceived, I=In Progress, P=Pending, D=Disposed.
   Off-spec means IN_SPEC='F'. There is no usable per-result instrument; attribute
   by operator (RESULT.ENTERED_BY) instead.
+  Sulphur/sulfur: the analyte is spelled SULFUR in this data — filter with
+  (RESULT.ANALYSIS LIKE 'SULFUR%' OR RESULT.NAME LIKE '%Sulfur%') and
+  NUMERIC_ENTRY IS NOT NULL; never NAME='Sulphur'.
 
 tables:
   SAMPLE:
@@ -67,7 +70,10 @@ metrics:
     name: Out-of-spec rate by product
     synonyms: ["out of spec rate by product", "off spec rate by product",
                "which product has the worst out of specification rate",
-               "worst product for off spec"]
+               "worst product for off spec",
+               "highest out of specification rate", "out of specification rate highest",
+               "out of specification rate is highest", "out of spec rate highest",
+               "product out of specification rate", "off spec rate by product"]
     description: In-spec vs off-spec result counts and off-spec % per product, worst first.
     sql: |
       SELECT s.PRODUCT AS product,
@@ -93,3 +99,22 @@ metrics:
       FROM dbo.RESULT r
       GROUP BY r.ENTERED_BY
       ORDER BY off_spec DESC
+
+  - key: sulphur_by_product
+    name: Average sulphur by product
+    synonyms: ["average sulphur by product", "sulphur by product",
+               "average sulphur value for each product", "average sulfur by product",
+               "sulphur content by product", "sulfur by product"]
+    description: Average and max total-sulphur result per product (analyte spelled SULFUR).
+    sql: |
+      SELECT TOP 50 s.PRODUCT AS product,
+             COUNT(*) AS results,
+             ROUND(AVG(TRY_CONVERT(float, r.NUMERIC_ENTRY)), 4) AS avg_sulphur,
+             ROUND(MAX(TRY_CONVERT(float, r.NUMERIC_ENTRY)), 4) AS max_sulphur,
+             MAX(r.UNITS) AS units
+      FROM dbo.RESULT r
+      JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      WHERE (r.ANALYSIS LIKE 'SULFUR%' OR r.NAME LIKE '%Sulfur%')
+        AND r.NUMERIC_ENTRY IS NOT NULL AND s.PRODUCT IS NOT NULL
+      GROUP BY s.PRODUCT
+      ORDER BY avg_sulphur DESC
