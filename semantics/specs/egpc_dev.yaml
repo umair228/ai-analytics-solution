@@ -14,9 +14,6 @@ notes: |
   X=Cancelled, R=Rejected, U=Unreceived, I=In Progress, P=Pending, D=Disposed.
   Off-spec means IN_SPEC='F'. There is no usable per-result instrument; attribute
   by operator (RESULT.ENTERED_BY) instead.
-  Sulphur/sulfur: the analyte is spelled SULFUR in this data — filter with
-  (RESULT.ANALYSIS LIKE 'SULFUR%' OR RESULT.NAME LIKE '%Sulfur%') and
-  NUMERIC_ENTRY IS NOT NULL; never NAME='Sulphur'.
 
 tables:
   SAMPLE:
@@ -118,3 +115,24 @@ metrics:
         AND r.NUMERIC_ENTRY IS NOT NULL AND s.PRODUCT IS NOT NULL
       GROUP BY s.PRODUCT
       ORDER BY avg_sulphur DESC
+
+  - key: oos_total
+    name: Total out-of-spec results
+    synonyms: ["how many results are out of specification", "how many off spec results",
+               "how many results out of spec", "total off spec results",
+               "number of out of specification results", "count of off spec results"]
+    description: Count of out-of-spec results across EGPC (RESULT.IN_SPEC='F').
+    sql: |
+      SELECT COUNT(*) AS off_spec_results FROM dbo.RESULT WHERE IN_SPEC = 'F'
+
+  - key: oos_by_test_count
+    name: Out-of-spec results by test
+    synonyms: ["greatest number of samples gone out of specification",
+               "which test has the most out of spec", "out of spec by test",
+               "off spec by test", "out of specification by test",
+               "test with the most out of spec results"]
+    description: Out-of-spec result count per analysis/test (RESULT.IN_SPEC='F'), worst first.
+    sql: |
+      SELECT TOP 30 ANALYSIS AS analysis, COUNT(*) AS off_spec
+      FROM dbo.RESULT WHERE IN_SPEC = 'F'
+      GROUP BY ANALYSIS ORDER BY off_spec DESC

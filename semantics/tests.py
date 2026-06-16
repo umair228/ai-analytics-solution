@@ -156,6 +156,27 @@ class EgpcMetricRoutingTests(SimpleTestCase):
         self.assertIsNone(match_certified_metric(
             self._layer_from_file(), "how many samples were logged last month"))
 
+    def test_oos_total_routes(self):
+        m = match_certified_metric(
+            self._layer_from_file(), "How many results are out of specification across EGPC?")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.key, "oos_total")
+
+    def test_oos_by_test_routes(self):
+        m = match_certified_metric(
+            self._layer_from_file(),
+            "On which test have the greatest number of samples gone out of specification across EGPC?")
+        self.assertIsNotNone(m)
+        self.assertEqual(m.key, "oos_by_test_count")
+
+    def test_oos_metrics_do_not_cross_fire(self):
+        # the rate question must hit the RATE metric, not the count/total ones
+        layer = self._layer_from_file()
+        self.assertEqual(
+            match_certified_metric(
+                layer, "On which product is the out-of-specification rate highest across EGPC?").key,
+            "oos_rate_by_product")
+
 
 class SemanticIntegrationTests(TestCase):
     def setUp(self):
