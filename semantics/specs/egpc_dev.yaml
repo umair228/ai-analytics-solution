@@ -193,7 +193,7 @@ metrics:
              ROUND(AVG(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS mean_value,
              COUNT(*) AS n
       FROM dbo.RESULT
-      WHERE ANALYSIS = 'CETANE_INDEX' AND NUMERIC_ENTRY IS NOT NULL
+      WHERE (ANALYSIS LIKE '%CETANE%' OR NAME LIKE '%Cetane%') AND NUMERIC_ENTRY IS NOT NULL
 
   - key: octane_range
     name: Octane Number (RON) range

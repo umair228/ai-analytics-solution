@@ -302,6 +302,51 @@ def _extract_text_tool_calls(text, tool_names):
     return calls
 
 
+def _format_metric_answer(result) -> str:
+    """Render a certified-metric result's rows into a short, figure-bearing answer."""
+    cols = result.get("columns") or []
+    rows = result.get("rows") or []
+    if not rows:
+        return "No matching rows were found for that question."
+    top = ", ".join(f"{c}={v}" for c, v in zip(cols, rows[0]))
+    if len(rows) == 1:
+        return top
+    return f"{top}  (top of {result.get('row_count', len(rows))} rows)"
+
+
+def _certified_fast_path(user, history, dataset):
+    """Answer deterministically from a curated metric when the VERBATIM user question
+    maps to one — so the agent can't rephrase past the metric (SQL-first mode only).
+    Returns an AgentRun, or None to fall through to the normal agent loop. Needs no LLM."""
+    if dataset is not None or not getattr(settings, "DSE_TEXTTOSQL_DEFAULT_DATASOURCE", ""):
+        return None
+    question = next((m.get("content", "").strip() for m in reversed(history or [])
+                     if m.get("role") == "user" and m.get("content")), "")
+    if not question:
+        return None
+    try:
+        from ai.tools import _resolve_datasource
+        from semantics.layer import get_semantic_layer
+        from semantics.router import match_certified_metric
+        from texttosql.runner import run_text_to_sql
+
+        ds = _resolve_datasource(user, None)
+        layer = get_semantic_layer(ds)
+        if not layer.is_present() or match_certified_metric(layer, question) is None:
+            return None
+        result = run_text_to_sql(ds, question)
+    except Exception:  # noqa: BLE001 - never block the agent on the fast path
+        return None
+    if not (isinstance(result, dict) and result.get("understood")
+            and str(result.get("path", "")).startswith("certified_metric")):
+        return None
+    return AgentRun(
+        answer=_format_metric_answer(result),
+        trace=[{"step": 1, "tool": "ask_database", "input": {"question": question},
+                "result": result, "ok": True}],
+        steps=1, tool_calls=1, stopped_reason="certified_metric")
+
+
 def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> AgentRun:
     """Run the agent to answer the latest message in ``history``.
 
@@ -309,6 +354,10 @@ def run_agent(user, history, dataset=None, max_steps=None, max_tokens=2048) -> A
     in the user's question. ``dataset`` (optional) is the focused dataset.
     Returns an :class:`AgentRun` (answer + evidence trace).
     """
+    fast = _certified_fast_path(user, history, dataset)
+    if fast is not None:
+        return fast
+
     provider = get_provider()
     if not provider.configured:
         raise AINotConfigured(provider.not_configured_message())

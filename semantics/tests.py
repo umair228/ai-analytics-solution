@@ -9,7 +9,7 @@ from unittest import mock
 import pandas as pd
 from sqlalchemy import create_engine
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from semantics.layer import LColumn, LJoin, LMetric, LTable, Layer, get_semantic_layer
 from semantics.retrieval import select_tables
@@ -285,6 +285,17 @@ class SemanticIntegrationTests(TestCase):
             out = runner.run_text_to_sql(self.ds, "anything from widgets", max_attempts=2)
         self.assertFalse(out["understood"])
         self.assertIn("SAMPLE", out["available_tables"])
+
+    @override_settings(DSE_TEXTTOSQL_DEFAULT_DATASOURCE="egpc")
+    def test_agent_certified_fast_path(self):
+        from ai.agent import run_agent
+        apply_spec(self.ds, self.spec, verify=True)
+        # verbatim metric question → deterministic answer, no LLM needed
+        run = run_agent(self.ds.owner, [{"role": "user", "content": "samples by product"}],
+                        dataset=None)
+        self.assertEqual(run.stopped_reason, "certified_metric")
+        self.assertEqual(run.trace[0]["tool"], "ask_database")
+        self.assertIn("DIESEL", run.answer)
 
     def test_ask_smoke_command_certified_path(self):
         import json

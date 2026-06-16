@@ -159,6 +159,25 @@ class SerializationTests(SimpleTestCase):
             export(_envelope_dict(), "docx")
 
 
+class FormatMetricAnswerTests(SimpleTestCase):
+    def test_single_row(self):
+        from ai.agent import _format_metric_answer
+        out = _format_metric_answer({"columns": ["product", "pct"], "rows": [["PROPANE", 36.0]],
+                                     "row_count": 1})
+        self.assertEqual(out, "product=PROPANE, pct=36.0")
+
+    def test_multi_row_notes_total(self):
+        from ai.agent import _format_metric_answer
+        out = _format_metric_answer({"columns": ["analysis", "n"],
+                                     "rows": [["TDS_WAT_U", 389], ["PH_WAT_U", 375]], "row_count": 30})
+        self.assertIn("TDS_WAT_U", out)
+        self.assertIn("top of 30 rows", out)
+
+    def test_empty(self):
+        from ai.agent import _format_metric_answer
+        self.assertIn("No matching rows", _format_metric_answer({"columns": [], "rows": []}))
+
+
 class EndpointTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(username="ep_t", password="x")
