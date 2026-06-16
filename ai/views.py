@@ -344,3 +344,51 @@ def export_answer(request):
     resp = HttpResponse(data, content_type=content_type)
     resp["Content-Disposition"] = f'attachment; filename="{filename}"'
     return resp
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def save_dataset(request):
+    """Turn an Ask-the-Database answer's SQL into a reusable, dashboard-able Dataset
+    (the 'report / operationalize' bridge). Body: {sql, datasource_id, name}. Creates
+    a raw QueryDefinition + Dataset, refreshes it, and returns the dataset id — after
+    which the normal dataset/dashboard machinery applies."""
+    from connections.models import DataSource
+    from datasets.models import Dataset
+    from datasets.services import refresh_dataset
+    from querybuilder.executor import QueryError, assert_read_only
+    from querybuilder.models import QueryDefinition
+
+    sql = (request.data.get("sql") or "").strip()
+    name = ((request.data.get("name") or "").strip() or "Saved answer")[:200]
+    ds_id = request.data.get("datasource_id") or request.data.get("datasource")
+    if not sql:
+        return Response({"error": True, "detail": "A 'sql' string is required."},
+                        status=status.HTTP_400_BAD_REQUEST)
+    ds = DataSource.objects.filter(pk=ds_id).first() if ds_id else None
+    if ds is None or not ds.accessible_by(request.user):
+        return Response({"error": True, "detail": "Unknown or inaccessible datasource."},
+                        status=status.HTTP_400_BAD_REQUEST)
+    try:
+        assert_read_only(sql)
+    except QueryError as exc:
+        return Response({"error": True, "detail": f"Only a read-only SELECT can be saved: {exc}"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    query = QueryDefinition.objects.create(
+        name=name, description="Saved from an Ask-the-Database answer.",
+        datasource=ds, mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
+        owner=request.user, visibility=QueryDefinition.Visibility.SHARED)
+    dataset = Dataset.objects.create(
+        name=name, description="Saved from an Ask-the-Database answer.",
+        query=query, owner=request.user, visibility=Dataset.Visibility.SHARED)
+    row_count = None
+    try:
+        row_count = refresh_dataset(dataset).get("row_count")
+    except Exception as exc:  # noqa: BLE001 - dataset is created; surface refresh issues softly
+        dataset.last_error = str(exc)[:2000]
+        dataset.save(update_fields=["last_error", "updated_at"])
+
+    record_audit(request, AuditLog.Action.CREATE, target_type="Dataset",
+                 target_id=dataset.id, summary=f"Saved dataset from answer: {name}")
+    return Response({"dataset_id": dataset.id, "name": dataset.name, "row_count": row_count})

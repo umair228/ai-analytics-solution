@@ -3,6 +3,7 @@ server-side exporters, and the ask-live / export endpoints (agent mocked)."""
 import io
 from unittest import mock
 
+import pandas as pd
 from openpyxl import load_workbook
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
@@ -212,6 +213,41 @@ class EndpointTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "text/csv")
         self.assertIn(b"PROPANE", resp.content)
+
+    def test_save_dataset_creates_dataset_from_sql(self):
+        import os
+        import tempfile
+        from sqlalchemy import create_engine
+        from connections.models import DataSource
+        from datasets.models import Dataset
+
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "egpc.sqlite")
+        eng = create_engine(f"sqlite:///{path}")
+        pd.DataFrame([{"product": "DIESEL", "n": 5}, {"product": "PROPANE", "n": 2}]).to_sql(
+            "agg", eng, index=False, if_exists="replace")
+        eng.dispose()
+        ds = DataSource.objects.create(
+            name="egpc_save", source_type="sqlite", database_name=path,
+            options={"path": path}, owner=self.user)
+
+        resp = self.client.post("/api/ai/save-dataset/", {
+            "sql": "SELECT product, n FROM agg ORDER BY n DESC",
+            "datasource_id": ds.id, "name": "Top products"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        body = resp.json()
+        self.assertEqual(body["name"], "Top products")
+        self.assertEqual(body["row_count"], 2)
+        self.assertTrue(Dataset.objects.filter(pk=body["dataset_id"]).exists())
+
+    def test_save_dataset_rejects_non_select(self):
+        from connections.models import DataSource
+        ds = DataSource.objects.create(
+            name="egpc_save2", source_type="sqlite", database_name="/tmp/x.sqlite",
+            options={"path": "/tmp/x.sqlite"}, owner=self.user)
+        resp = self.client.post("/api/ai/save-dataset/", {
+            "sql": "DROP TABLE agg", "datasource_id": ds.id, "name": "bad"}, format="json")
+        self.assertEqual(resp.status_code, 400)
 
     def test_export_pdf_without_weasyprint_is_clean_400(self):
         # WeasyPrint isn't installed in this env → a clean 400, not a 500.
