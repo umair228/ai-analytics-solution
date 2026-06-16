@@ -136,3 +136,74 @@ metrics:
       SELECT TOP 30 ANALYSIS AS analysis, COUNT(*) AS off_spec
       FROM dbo.RESULT WHERE IN_SPEC = 'F'
       GROUP BY ANALYSIS ORDER BY off_spec DESC
+
+  - key: oos_by_product_count
+    name: Out-of-spec results by product (count)
+    synonyms: ["greatest number of out of spec results", "most out of spec results by product",
+               "product with the most out of spec results", "most off spec results by product"]
+    description: Out-of-spec result COUNT per product (RESULT.IN_SPEC='F'), most first.
+    sql: |
+      SELECT TOP 30 s.PRODUCT AS product, COUNT(*) AS off_spec
+      FROM dbo.RESULT r JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      WHERE r.IN_SPEC = 'F'
+      GROUP BY s.PRODUCT ORDER BY off_spec DESC
+
+  - key: top5_tests
+    name: Top tests by volume
+    synonyms: ["top 5 tests most used", "5 most used tests", "most used tests",
+               "top tests by volume", "most common tests"]
+    description: The highest-volume analyses by result count.
+    sql: |
+      SELECT TOP 5 ANALYSIS AS analysis, COUNT(*) AS results
+      FROM dbo.RESULT GROUP BY ANALYSIS ORDER BY results DESC
+
+  - key: most_used_product
+    name: Most-tested product
+    synonyms: ["most used to conduct testing", "most tested product",
+               "product most used for testing", "which product is tested most"]
+    description: The product with the most samples logged.
+    sql: |
+      SELECT TOP 5 PRODUCT AS product, COUNT(*) AS samples
+      FROM dbo.SAMPLE GROUP BY PRODUCT ORDER BY samples DESC
+
+  - key: unscheduled_count
+    name: Unscheduled sample count
+    synonyms: ["how many unscheduled samples", "number of unscheduled samples",
+               "unscheduled samples registered", "count of unscheduled samples"]
+    description: Number of samples with SAMPLE_TYPE='UNSCHEDULED'.
+    sql: |
+      SELECT COUNT(*) AS unscheduled_samples FROM dbo.SAMPLE WHERE SAMPLE_TYPE = 'UNSCHEDULED'
+
+  - key: cancelled_count
+    name: Cancelled sample count
+    synonyms: ["how many samples were cancelled", "number of cancelled samples",
+               "count of cancelled samples", "cancelled samples"]
+    description: Number of cancelled samples (SAMPLE.STATUS='X').
+    sql: |
+      SELECT COUNT(*) AS cancelled_samples FROM dbo.SAMPLE WHERE STATUS = 'X'
+
+  - key: cetane_range
+    name: Cetane Index range
+    synonyms: ["range of cetane index", "cetane index range", "cetane index in diesel",
+               "cetane number range", "min and max cetane"]
+    description: Min/max/mean of the Cetane Index analysis (verify the analysis code against the data).
+    sql: |
+      SELECT ROUND(MIN(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS min_value,
+             ROUND(MAX(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS max_value,
+             ROUND(AVG(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS mean_value,
+             COUNT(*) AS n
+      FROM dbo.RESULT
+      WHERE ANALYSIS = 'CETANE_INDEX' AND NUMERIC_ENTRY IS NOT NULL
+
+  - key: octane_range
+    name: Octane Number (RON) range
+    synonyms: ["range of octane number", "octane number range", "octane rating range",
+               "ron range", "min and max octane"]
+    description: Min/max/mean of the Octane Number (RON) analysis (verify the analysis code against the data).
+    sql: |
+      SELECT ROUND(MIN(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS min_value,
+             ROUND(MAX(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS max_value,
+             ROUND(AVG(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS mean_value,
+             COUNT(*) AS n
+      FROM dbo.RESULT
+      WHERE ANALYSIS = 'OCTANE_NO' AND NUMERIC_ENTRY IS NOT NULL

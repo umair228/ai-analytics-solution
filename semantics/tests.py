@@ -177,6 +177,22 @@ class EgpcMetricRoutingTests(SimpleTestCase):
                 layer, "On which product is the out-of-specification rate highest across EGPC?").key,
             "oos_rate_by_product")
 
+    def test_golden_phrasings_route_to_expected_metrics(self):
+        layer = self._layer_from_file()
+        cases = {
+            "Which product has the greatest number of out-of-spec results across EGPC?": "oos_by_product_count",
+            "What are the top 5 tests most used across EGPC?": "top5_tests",
+            "Which product is most used to conduct testing across EGPC?": "most_used_product",
+            "How many unscheduled samples were registered across EGPC?": "unscheduled_count",
+            "How many samples were cancelled across EGPC?": "cancelled_count",
+            "What is the range of Cetane Index in diesel/gasoil across EGPC?": "cetane_range",
+            "What is the range of Octane Number (RON) across EGPC?": "octane_range",
+        }
+        for question, expected_key in cases.items():
+            m = match_certified_metric(layer, question)
+            self.assertIsNotNone(m, f"no metric matched: {question}")
+            self.assertEqual(m.key, expected_key, f"{question} → {m.key}, expected {expected_key}")
+
 
 class SemanticIntegrationTests(TestCase):
     def setUp(self):

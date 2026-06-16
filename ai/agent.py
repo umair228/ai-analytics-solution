@@ -196,7 +196,31 @@ def _datasource_catalog_text(user) -> str:
     )
 
 
+# SQL-FIRST mode (enabled when DSE_TEXTTOSQL_DEFAULT_DATASOURCE is set): the agent
+# answers from the LIVE database via ask_database instead of the pre-built datasets.
+# Eval showed the model otherwise wanders into query_dataset/compare_dimension on the
+# materialized summaries and MISREADS them (row counts, wrong by-count-vs-rate, missing
+# labels). This forces the reliable path and flags the known company/customer data gap.
+SQL_FIRST_DIRECTIVE = (
+    "ANSWER MODE — LIVE DATABASE.\n"
+    "Answer EVERY factual question (counts, totals, rates, rankings/top-N, breakdowns "
+    "by product/test/operator/date) by calling ask_database with the user's question — "
+    "it writes and runs read-only SQL over the real tables and returns exact rows with "
+    "the SQL. ask_database is your PRIMARY tool; call it FIRST.\n"
+    "Do NOT use list_datasets, query_dataset, compare_dimension, aggregate_data or "
+    "describe_dataset for these questions — they read tiny pre-built summaries and give "
+    "WRONG numbers (e.g. a row count instead of the value, or by-count when asked "
+    "by-rate). Use search_documents only for standards/method questions (ASTM/ISO), and "
+    "the forecast tools only for explicit 'forecast / next month' questions.\n"
+    "DATA GAP: this database has NO populated company/customer dimension "
+    "(SAMPLE.CUSTOMER is ~93% empty). For any 'which company / customer / interlab' "
+    "question, state that company/customer data is not available — do NOT answer it "
+    "with products or operators."
+)
+
+
 def _system_blocks(dataset=None, user=None):
+    sql_first = bool(getattr(settings, "DSE_TEXTTOSQL_DEFAULT_DATASOURCE", ""))
     blocks = [{"type": "text", "text": AGENT_SYSTEM_PROMPT}]
     if dataset is not None:
         try:
@@ -207,9 +231,10 @@ def _system_blocks(dataset=None, user=None):
                 f"(\"{dataset.name}\"). Prefer it unless the question points elsewhere."
             )
         blocks.append({"type": "text", "text": text})
-    elif user is not None:
+    elif user is not None and not sql_first:
         # No focused dataset: inject the real catalog so the model selects from
-        # actual datasets/ids rather than hallucinating them.
+        # actual datasets/ids rather than hallucinating them. Skipped in SQL-first
+        # mode so the 19 summary datasets don't distract the agent from ask_database.
         try:
             catalog = _dataset_catalog_text(user)
         except Exception:  # noqa: BLE001 - best-effort
@@ -217,14 +242,14 @@ def _system_blocks(dataset=None, user=None):
         if catalog:
             blocks.append({"type": "text", "text": catalog})
     if user is not None:
-        # Live DB connections are always worth advertising — ask_database covers
-        # the long tail the materialized datasets don't.
         try:
             ds_catalog = _datasource_catalog_text(user)
         except Exception:  # noqa: BLE001 - best-effort
             ds_catalog = ""
         if ds_catalog:
             blocks.append({"type": "text", "text": ds_catalog})
+    if sql_first and dataset is None:
+        blocks.append({"type": "text", "text": SQL_FIRST_DIRECTIVE})
     blocks[-1]["cache_control"] = {"type": "ephemeral"}
     return blocks
 
