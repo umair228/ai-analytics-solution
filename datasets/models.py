@@ -150,19 +150,36 @@ class AlertEvent(TimeStampedModel):
 
 
 class DatasetReport(TimeStampedModel):
-    """A scheduled CSV email report for a dataset."""
+    """A scheduled email report — a dataset CSV, a saved analysis run, or a chart."""
 
     class Schedule(models.TextChoices):
         DAILY   = "daily",   "Daily"
         WEEKLY  = "weekly",  "Weekly"
         MONTHLY = "monthly", "Monthly"
 
-    dataset          = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="reports")
+    class Kind(models.TextChoices):
+        DATASET_CSV  = "dataset_csv",  "Dataset CSV"
+        ANALYSIS_RUN = "analysis_run", "Saved analysis run"
+        CHART        = "chart",        "Chart"
+
+    dataset          = models.ForeignKey(Dataset, null=True, blank=True,
+                                         on_delete=models.CASCADE, related_name="reports")
+    owner            = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                         on_delete=models.CASCADE, related_name="dataset_reports")
     name             = models.CharField(max_length=200)
     recipient_emails = models.TextField(help_text="Comma-separated list of recipient email addresses")
     schedule         = models.CharField(max_length=10, choices=Schedule.choices, default=Schedule.DAILY)
     is_active        = models.BooleanField(default=True)
     last_sent_at     = models.DateTimeField(null=True, blank=True)
+
+    # Release-0: a report can target a saved analysis run or a chart, exported in
+    # a chosen format, in addition to the original dataset-CSV behaviour.
+    kind             = models.CharField(max_length=16, choices=Kind.choices,
+                                        default=Kind.DATASET_CSV)
+    analysis_run     = models.ForeignKey("analytics.AnalysisRun", null=True, blank=True,
+                                         on_delete=models.SET_NULL, related_name="reports")
+    chart_config     = models.JSONField(default=dict, blank=True)
+    export_format    = models.CharField(max_length=8, default="csv")
 
     class Meta:
         ordering = ["name"]

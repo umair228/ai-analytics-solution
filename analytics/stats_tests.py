@@ -106,6 +106,92 @@ def _corr_strength(r):
     return f"{s} {'positive' if r >= 0 else 'negative'}"
 
 
+def _ci_mean(arr, alpha=0.05):
+    """Two-sided confidence interval for a mean (t-based). [lo, hi]."""
+    arr = np.asarray(arr, dtype=float)
+    n = len(arr)
+    if n < 2:
+        return [None, None]
+    mean = float(np.mean(arr))
+    sem = float(stats.sem(arr))
+    if sem == 0 or np.isnan(sem):
+        return [_num(mean), _num(mean)]
+    lo, hi = stats.t.interval(1 - alpha, n - 1, loc=mean, scale=sem)
+    return [_num(lo), _num(hi)]
+
+
+def _cohens_d(a, b, paired=False):
+    """Standardised mean difference (effect size)."""
+    a = np.asarray(a, float)
+    b = np.asarray(b, float)
+    if paired:
+        diff = a - b
+        sd = float(np.std(diff, ddof=1)) if len(diff) > 1 else 0.0
+        return float(np.mean(diff) / sd) if sd else 0.0
+    na, nb = len(a), len(b)
+    pooled = ((na - 1) * np.var(a, ddof=1) + (nb - 1) * np.var(b, ddof=1)) / max(na + nb - 2, 1)
+    sp = float(np.sqrt(pooled))
+    return float((np.mean(a) - np.mean(b)) / sp) if sp else 0.0
+
+
+def _d_magnitude(d):
+    a = abs(d)
+    return ("large" if a >= 0.8 else "medium" if a >= 0.5
+            else "small" if a >= 0.2 else "negligible")
+
+
+def _assume(groups: dict, alpha=0.05) -> dict:
+    """Assumption checks for parametric comparisons.
+
+    ``groups`` maps label -> 1-D array. Checks per-group normality (Shapiro,
+    where 3≤n≤5000) and variance homogeneity (Levene, robust). Returns a dict
+    with a parametric/non-parametric recommendation and advisory warnings.
+    """
+    normality, all_normal = {}, True
+    for label, arr in groups.items():
+        arr = np.asarray(arr, float)
+        n = len(arr)
+        ok = True
+        if 3 <= n <= 5000:
+            try:
+                _, p = stats.shapiro(arr)
+                ok = bool(p > alpha)
+            except Exception:  # noqa: BLE001
+                ok = True
+        normality[str(label)] = ok
+        all_normal = all_normal and ok
+
+    equal_var, levene_p = True, None
+    arrays = [np.asarray(a, float) for a in groups.values() if len(a) >= 2]
+    if len(arrays) >= 2:
+        try:
+            _, lp = stats.levene(*arrays)
+            levene_p = _p(lp)
+            equal_var = bool(lp > alpha)
+        except Exception:  # noqa: BLE001
+            pass
+
+    warnings = []
+    if not all_normal:
+        warnings.append(
+            "One or more groups deviate from normality (Shapiro p<α) — consider a "
+            "non-parametric test (Mann-Whitney / Kruskal-Wallis) or a transformation."
+        )
+    if not equal_var:
+        warnings.append(
+            "Group variances differ (Levene p<α) — prefer Welch's t-test and "
+            "interpret ANOVA with caution."
+        )
+    return {
+        "normality": normality,
+        "all_normal": all_normal,
+        "equal_variance": equal_var,
+        "levene_p": levene_p,
+        "recommended": "parametric" if all_normal else "nonparametric",
+        "warnings": warnings,
+    }
+
+
 # --------------------------------------------------------------------------
 # Descriptive statistics
 # --------------------------------------------------------------------------
@@ -218,7 +304,8 @@ def t_test_one_sample(df, column, popmean, alpha=0.05):
 
 
 def t_test_two_sample(df, column, group_column=None, column2=None,
-                      equal_var=True, paired=False, alpha=0.05):
+                      equal_var=True, paired=False, alpha=0.05,
+                      check_assumptions=False):
     if group_column:
         (n1, a), (n2, b) = _split_two(df, column, group_column)
         label1, label2 = f"{group_column}={n1}", f"{group_column}={n2}"
@@ -237,29 +324,50 @@ def t_test_two_sample(df, column, group_column=None, column2=None,
         t, p = stats.ttest_ind(a, b, equal_var=equal_var)
         kind = "Student" if equal_var else "Welch"
 
-    return {
+    d = _cohens_d(a, b, paired=paired)
+    result = {
         "test": "two_sample_t_test",
         "variant": kind,
         "group1": {"label": label1, "n": len(a), "mean": _num(float(np.mean(a))),
-                   "std": _num(float(np.std(a, ddof=1)))},
+                   "std": _num(float(np.std(a, ddof=1))), "ci": _ci_mean(a, alpha)},
         "group2": {"label": label2, "n": len(b), "mean": _num(float(np.mean(b))),
-                   "std": _num(float(np.std(b, ddof=1)))},
+                   "std": _num(float(np.std(b, ddof=1))), "ci": _ci_mean(b, alpha)},
         "mean_difference": _num(float(np.mean(a) - np.mean(b))),
         "t_statistic": _num(float(t)),
         "p_value": _p(p),
+        "cohens_d": _num(d),
+        "effect_magnitude": _d_magnitude(d),
         "alpha": alpha,
         "significant": bool(p < alpha),
         "interpretation": (
             f"Means of {label1} ({np.mean(a):.4g}) and {label2} ({np.mean(b):.4g}) "
-            f"differ — {_sig(p, alpha)} ({kind}'s t-test)."
+            f"differ — {_sig(p, alpha)} ({kind}'s t-test; "
+            f"Cohen's d={d:.2f}, {_d_magnitude(d)} effect)."
         ),
     }
+
+    if check_assumptions:
+        assumptions = _assume({label1: a, label2: b}, alpha)
+        result["assumptions"] = assumptions
+        if assumptions["warnings"]:
+            result["warning"] = " ".join(assumptions["warnings"])
+        if assumptions["recommended"] == "nonparametric" and not paired:
+            try:
+                u, pu = stats.mannwhitneyu(a, b, alternative="two-sided")
+                result["nonparametric"] = {
+                    "test": "mann_whitney_u", "statistic": _num(float(u)),
+                    "p_value": _p(pu), "significant": bool(pu < alpha),
+                }
+            except Exception:  # noqa: BLE001
+                pass
+    return result
 
 
 # --------------------------------------------------------------------------
 # ANOVA (one-way) + Tukey HSD
 # --------------------------------------------------------------------------
-def anova_oneway(df, value_column, group_column, alpha=0.05, posthoc=True):
+def anova_oneway(df, value_column, group_column, alpha=0.05, posthoc=True,
+                 check_assumptions=False):
     groups = _named_groups(df, value_column, group_column)
     arrays = list(groups.values())
     f, p = stats.f_oneway(*arrays)
@@ -272,7 +380,8 @@ def anova_oneway(df, value_column, group_column, alpha=0.05, posthoc=True):
 
     summary = [
         {"group": str(g), "n": len(v), "mean": _num(float(np.mean(v))),
-         "std": _num(float(np.std(v, ddof=1)) if len(v) > 1 else 0.0)}
+         "std": _num(float(np.std(v, ddof=1)) if len(v) > 1 else 0.0),
+         "ci": _ci_mean(v, alpha)}
         for g, v in groups.items()
     ]
     summary.sort(key=lambda r: (r["mean"] is None, -(r["mean"] or 0)))
@@ -321,6 +430,21 @@ def anova_oneway(df, value_column, group_column, alpha=0.05, posthoc=True):
             )[:25]
         except Exception as exc:  # noqa: BLE001
             result["tukey_hsd_error"] = str(exc)
+
+    if check_assumptions:
+        assumptions = _assume(groups, alpha)
+        result["assumptions"] = assumptions
+        if assumptions["warnings"]:
+            result["warning"] = " ".join(assumptions["warnings"])
+        if assumptions["recommended"] == "nonparametric":
+            try:
+                h, ph = stats.kruskal(*arrays)
+                result["nonparametric"] = {
+                    "test": "kruskal_wallis", "statistic": _num(float(h)),
+                    "p_value": _p(ph), "significant": bool(ph < alpha),
+                }
+            except Exception:  # noqa: BLE001
+                pass
     return result
 
 
@@ -782,3 +906,90 @@ def _mann_kendall(y):
             "z": _num(float(z)),
             "trend": ("increasing" if z > 0 and p < 0.05 else
                       "decreasing" if z < 0 and p < 0.05 else "none")}
+
+
+# --------------------------------------------------------------------------
+# Batch descriptive statistics (all numeric columns at once)
+# --------------------------------------------------------------------------
+def batch_descriptive(df, columns=None):
+    """Descriptive statistics for every numeric column (or a given subset).
+
+    Returns a table (columns + rows) so the frontend can render it directly —
+    the one-click "describe everything" for the statistics dashboard.
+    """
+    total = len(df)
+    if columns:
+        candidates = [c for c in columns if c in df.columns]
+    else:
+        candidates = []
+        for c in df.columns:
+            s = pd.to_numeric(df[c], errors="coerce")
+            if s.notna().sum() >= 2 and s.notna().mean() >= 0.8:
+                candidates.append(c)
+    if not candidates:
+        raise AnalyticsError("No numeric columns to summarise.")
+
+    rows = []
+    for c in candidates:
+        try:
+            y = _numeric(df, c)
+        except AnalyticsError:
+            continue
+        n = len(y)
+        std = float(np.std(y, ddof=1)) if n > 1 else 0.0
+        q1, med, q3 = (float(v) for v in np.percentile(y, [25, 50, 75]))
+        rows.append({
+            "column": c, "n": n,
+            "mean": _num(float(np.mean(y))), "median": _num(med), "std": _num(std),
+            "min": _num(float(np.min(y))), "q1": _num(q1), "q3": _num(q3),
+            "max": _num(float(np.max(y))),
+            "skewness": _num(float(stats.skew(y))) if n > 2 else None,
+            "kurtosis": _num(float(stats.kurtosis(y))) if n > 3 else None,
+            "missing_pct": _num((1 - n / total) * 100) if total else None,
+        })
+    if not rows:
+        raise AnalyticsError("No numeric columns to summarise.")
+    return {
+        "test": "batch_descriptive",
+        "n_columns": len(rows),
+        "columns": ["column", "n", "mean", "median", "std", "min", "q1", "q3",
+                    "max", "skewness", "kurtosis", "missing_pct"],
+        "rows": rows,
+        "interpretation": (
+            f"Descriptive statistics across {len(rows)} numeric column(s) "
+            f"({total} rows)."
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
+# Assumption checks (normality + variance homogeneity)
+# --------------------------------------------------------------------------
+def check_assumptions(df, value_column=None, group_column=None, column=None,
+                      column2=None, columns=None, alpha=0.05):
+    """Normality (Shapiro) + variance homogeneity (Levene) for a comparison,
+    with a parametric / non-parametric recommendation."""
+    if value_column and group_column:
+        groups = _named_groups(df, value_column, group_column, min_n=2)
+    elif column and column2:
+        groups = {column: _numeric(df, column), column2: _numeric(df, column2)}
+    elif columns:
+        groups = {c: _numeric(df, c) for c in columns if c in df.columns}
+    elif column:
+        groups = {column: _numeric(df, column)}
+    else:
+        raise AnalyticsError(
+            "Provide value_column+group_column, column(+column2), or columns."
+        )
+    if not groups:
+        raise AnalyticsError("No usable columns/groups for assumption checks.")
+
+    res = _assume(groups, alpha)
+    res["test"] = "assumption_checks"
+    res["groups_checked"] = [str(g) for g in groups]
+    res["interpretation"] = (
+        f"{'All groups appear ~normal' if res['all_normal'] else 'Non-normality detected'}; "
+        f"variances {'homogeneous' if res['equal_variance'] else 'unequal'}. "
+        f"Recommended approach: {res['recommended']}."
+    )
+    return res

@@ -286,6 +286,77 @@ def _forecast_metric(user, dataset_id=None, date_column=None, value_column=None,
         raise ToolError(str(exc))
 
 
+def _forecast_advanced(user, dataset_id=None, column=None, date_column=None,
+                       value_column=None, agg="count", freq="M", periods=6,
+                       methods="auto", metric="smape", **_):
+    """Forecast with the unified engine (10 methods + 'auto' best-pick by backtest
+    accuracy). Either a numeric ``column`` or a ``date_column`` (resampled)."""
+    import pandas as pd
+
+    from analytics import forecasting_models as FM, predict
+    from analytics.engine import AnalyticsError
+    from analytics.forecasting_ext import _FREQ, _build_series
+
+    _, df = _get_df(user, dataset_id)
+    vcol = value_column or column
+    periods = int(periods or 6)
+    try:
+        if date_column:
+            if date_column not in df.columns:
+                raise ToolError(f"Date column '{date_column}' not found.")
+            fr = (freq or "M").upper()
+            if fr not in _FREQ:
+                raise ToolError("freq must be one of D, W, M, Q, Y.")
+            rule, _fmt = _FREQ[fr]
+            work = df.copy()
+            work["_dt"] = pd.to_datetime(work[date_column], errors="coerce")
+            work = work.dropna(subset=["_dt"])
+            s = _build_series(work, rule, vcol, (agg or "count").lower())
+            res = FM.run_forecast(s.to_numpy(float), periods=periods,
+                                  methods=methods or "auto", freq=fr, metric=metric)
+        else:
+            y = predict._series(df, vcol)
+            res = FM.run_forecast(y, periods=periods, methods=methods or "auto", metric=metric)
+    except AnalyticsError as exc:
+        raise ToolError(str(exc))
+    # Trim for the agent's context: keep the leaderboard (scores) + the chosen
+    # forecast; drop the full per-method results blob.
+    res.pop("results", None)
+    return res
+
+
+def _detect_anomalies_advanced(user, dataset_id=None, scope="multivariate",
+                               method="auto", columns=None, value_column=None,
+                               contamination=0.05, threshold=None, **_):
+    """Anomaly detection across scopes: univariate (z/IQR/MAD), seasonal (STL) or
+    multivariate (IsolationForest/LOF/EllipticEnvelope/autoencoder/auto consensus),
+    with per-feature contributions on flagged rows."""
+    from analytics import anomaly
+    from analytics.engine import AnalyticsError
+    _, df = _get_df(user, dataset_id)
+    try:
+        res = anomaly.detect(df, scope=scope, method=method, columns=columns,
+                             value_column=value_column,
+                             contamination=float(contamination or 0.05),
+                             threshold=threshold, projection=False)
+    except AnalyticsError as exc:
+        raise ToolError(str(exc))
+    # Trim big per-point arrays for the agent's context.
+    for k in ("pca_projection", "values", "flags", "trend", "seasonal", "resid", "labels"):
+        res.pop(k, None)
+    if isinstance(res.get("anomalies"), list):
+        res["anomalies"] = res["anomalies"][:MAX_ANOMALIES]
+    return res
+
+
+def _explain_analysis(user, workflow="generic", result=None, question="", **_):
+    """Narrate a prior analysis result in plain English via the local LLM."""
+    from analytics.explain import explain_result
+    if not isinstance(result, dict) or not result:
+        raise ToolError("Provide the 'result' object from a prior analysis to explain.")
+    return explain_result(workflow, result, question=question or "")
+
+
 def _discover_relationships(user, dataset_id=None, **_):
     from analytics import relationships
     from analytics.engine import AnalyticsError
@@ -718,6 +789,86 @@ TOOLS: dict[str, Tool] = {
                 "required": ["dataset_id", "date_column"],
             },
             fn=_forecast_metric,
+        ),
+        Tool(
+            name="forecast_advanced",
+            description=(
+                "Forecast a series with the BEST of 10 methods, auto-selected by "
+                "backtest accuracy. Methods: naive, moving_average, ses, holt, "
+                "holt_winters, arima, sarima, prophet, regression, xgboost, lstm — or "
+                "methods='auto' (default) to try the panel and pick the lowest-error "
+                "model (MAE/RMSE/MAPE/sMAPE). Give a numeric 'column', OR a "
+                "'date_column' (+value_column/agg/freq) to resample first. Returns the "
+                "selected method, a per-method accuracy leaderboard, and the chosen "
+                "forecast with confidence bands. Use for the most accurate projection."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": _ds_id_prop(),
+                    "column": {"type": "string", "description": "Numeric series to forecast (exact name)."},
+                    "date_column": {"type": "string", "description": "Optional: resample on this date column instead."},
+                    "value_column": {"type": "string", "description": "With date_column: numeric column to aggregate (omit for count)."},
+                    "agg": {"type": "string", "enum": ["count", "sum", "mean", "min", "max", "median"]},
+                    "freq": {"type": "string", "enum": ["D", "W", "M", "Q", "Y"]},
+                    "periods": {"type": "integer", "description": "Horizon (default 6)."},
+                    "methods": {"type": "string",
+                                "description": "'auto' (default) or a method name (e.g. 'sarima', 'xgboost')."},
+                    "metric": {"type": "string", "enum": ["smape", "mape", "rmse", "mae"],
+                               "description": "Selection metric for 'auto' (default smape)."},
+                },
+                "required": ["dataset_id"],
+            },
+            fn=_forecast_advanced,
+        ),
+        Tool(
+            name="detect_anomalies_advanced",
+            description=(
+                "Advanced anomaly detection across three scopes. scope='univariate' "
+                "(method z-score/iqr/modified_zscore on a value_column), scope='series' "
+                "(STL seasonal-residual on a value_column), or scope='multivariate' "
+                "(isolation_forest/local_outlier_factor/elliptic_envelope/mahalanobis/"
+                "autoencoder, or 'auto' for a consensus vote across models). Multivariate "
+                "results include per-feature contributions (which variable drove each "
+                "flag). Use for robust/seasonal/combination anomalies beyond a simple "
+                "single-column z-score."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": _ds_id_prop(),
+                    "scope": {"type": "string", "enum": ["univariate", "series", "multivariate"]},
+                    "method": {"type": "string",
+                               "description": "Method for the scope (e.g. 'auto', 'isolation_forest', 'modified_zscore', 'stl_residual')."},
+                    "columns": {"type": "array", "items": {"type": "string"},
+                                "description": "Multivariate feature columns (omit = all numeric)."},
+                    "value_column": {"type": "string", "description": "Single column for univariate/series scope."},
+                    "contamination": {"type": "number", "description": "Expected outlier fraction (default 0.05)."},
+                    "threshold": {"type": "number", "description": "Score threshold for univariate/series."},
+                },
+                "required": ["dataset_id"],
+            },
+            fn=_detect_anomalies_advanced,
+        ),
+        Tool(
+            name="explain_analysis",
+            description=(
+                "Turn the result of a PRIOR analysis (forecast / anomaly / statistics) "
+                "into a plain-English explanation for a non-specialist, grounded strictly "
+                "in the numbers. Pass the 'result' object you got from a previous tool "
+                "call and the matching 'workflow' ('forecast'|'anomaly'|'statistics'). "
+                "Optionally ask a specific 'question' about it."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "workflow": {"type": "string", "enum": ["forecast", "anomaly", "statistics", "generic"]},
+                    "result": {"type": "object", "description": "The result dict from a prior analysis tool."},
+                    "question": {"type": "string", "description": "Optional specific question about the result."},
+                },
+                "required": ["workflow", "result"],
+            },
+            fn=_explain_analysis,
         ),
         Tool(
             name="discover_relationships",

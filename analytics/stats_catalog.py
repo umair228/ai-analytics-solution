@@ -28,6 +28,12 @@ TESTS = {
         "description": "Mean, median, std, quartiles, skewness, kurtosis for a column.",
         "params": [_p("column", "numeric_column", True, help="Numeric column.")],
     },
+    "descriptive_all": {
+        "fn": S.batch_descriptive, "label": "Descriptive (All Columns)",
+        "category": "Descriptive",
+        "description": "Mean, median, std, quartiles, skew/kurtosis for every numeric column at once.",
+        "params": [_p("columns", "columns", help="Optional subset (default: all numeric).")],
+    },
     "normality": {
         "fn": S.normality_test, "label": "Normality Test",
         "category": "Descriptive",
@@ -59,7 +65,9 @@ TESTS = {
                    _p("column2", "numeric_column", help="…or compare against this column."),
                    _p("equal_var", "bool", default=True, help="Equal variances (Student) vs Welch."),
                    _p("paired", "bool", default=False),
-                   _p("alpha", "number", default=0.05)],
+                   _p("alpha", "number", default=0.05),
+                   _p("check_assumptions", "bool", default=False,
+                      help="Run normality & equal-variance checks (advisory).")],
     },
     "anova_oneway": {
         "fn": S.anova_oneway, "label": "One-Way ANOVA",
@@ -68,7 +76,18 @@ TESTS = {
         "params": [_p("value_column", "numeric_column", True),
                    _p("group_column", "category_column", True),
                    _p("alpha", "number", default=0.05),
-                   _p("posthoc", "bool", default=True)],
+                   _p("posthoc", "bool", default=True),
+                   _p("check_assumptions", "bool", default=False,
+                      help="Run normality & equal-variance checks (advisory).")],
+    },
+    "assumptions": {
+        "fn": S.check_assumptions, "label": "Assumption Checks",
+        "category": "Comparison",
+        "description": "Normality (Shapiro) + equal-variance (Levene) checks with a parametric/non-parametric recommendation.",
+        "params": [_p("value_column", "numeric_column", help="Value column (with group_column)."),
+                   _p("group_column", "category_column", help="Split into groups by this."),
+                   _p("column", "numeric_column", help="…or a single column."),
+                   _p("column2", "numeric_column", help="…compared against this column.")],
     },
     "f_test_variances": {
         "fn": S.f_test_variances, "label": "F-Test (Equal Variance)",
