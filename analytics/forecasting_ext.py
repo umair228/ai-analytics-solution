@@ -52,15 +52,42 @@ def _build_series(sub, rule, value_column, agg):
     return s.dropna()
 
 
-def _project(s, rule, fmt, periods):
+def _project(s, rule, fmt, periods, method=None):
     if len(s) < 3:
         return None
-    fc = predict.forecast(pd.DataFrame({"v": s.to_numpy(float)}), "v", periods=periods)
+    y = s.to_numpy(float)
     future = pd.date_range(s.index[-1], periods=periods + 1, freq=rule)[1:]
+    hist = [{"period": _label(ts, fmt), "value": _num(float(v))} for ts, v in s.items()]
+
+    # Advanced engine path: a specific method (or "auto") routes through the
+    # unified forecasting engine; falls back to Holt if it is unavailable.
+    if method and method not in ("holt",):
+        try:
+            from .forecasting_models import run_forecast
+            res = run_forecast(y, periods=periods, methods=method, freq=rule[0])
+            chosen = res.get("forecast")
+            if chosen:
+                fcv = chosen.get("forecast") or []
+                lo, up = chosen.get("lower"), chosen.get("upper")
+                return {
+                    "points": len(s), "history": hist,
+                    "forecast": [{"period": _label(ts, fmt),
+                                  "value": fcv[i] if i < len(fcv) else None,
+                                  "lower": (lo[i] if lo and i < len(lo) else None),
+                                  "upper": (up[i] if up and i < len(up) else None)}
+                                 for i, ts in enumerate(future)],
+                    "trend": chosen.get("trend") or {},
+                    "method": res.get("selected"),
+                    "selected": res.get("selected"),
+                    "scores": res.get("scores"),
+                }
+        except Exception:  # noqa: BLE001 - degrade to the Holt projection
+            pass
+
+    fc = predict.forecast(pd.DataFrame({"v": y}), "v", periods=periods)
     return {
         "points": len(s),
-        "history": [{"period": _label(ts, fmt), "value": _num(float(v))}
-                    for ts, v in s.items()],
+        "history": hist,
         "forecast": [{"period": _label(ts, fmt), "value": fc["forecast"][i],
                       "lower": fc["lower"][i], "upper": fc["upper"][i]}
                      for i, ts in enumerate(future)],
@@ -69,13 +96,18 @@ def _project(s, rule, fmt, periods):
 
 
 def forecast_metric(df, date_column, value_column=None, agg="count", freq="M",
-                    periods=6, group_by=None):
+                    periods=6, group_by=None, method=None, exog_columns=None):
     """Forecast an operational metric over time.
 
     Resamples by ``freq`` (D/W/M/Q/Y), aggregating ``value_column`` with ``agg``
     (or counting rows when agg='count'); optionally one series per ``group_by``
     value (top groups by volume). Returns history + forecast + trend per series.
+
+    ``method``/``exog_columns`` select the unified forecasting engine
+    (:mod:`analytics.forecasting_models`); when ``method`` is None/"holt" the
+    historic Holt's-linear projection is used.
     """
+    _ = exog_columns  # exog regressors are handled by the /analytics/forecast/ workbench
     if date_column not in df.columns:
         raise AnalyticsError(f"Date column '{date_column}' not found.")
     agg = (agg or "count").lower()
@@ -107,7 +139,7 @@ def forecast_metric(df, date_column, value_column=None, agg="count", freq="M",
         series_list = []
         for name in top:
             sub = work[work[group_by].astype(str) == name]
-            proj = _project(_build_series(sub, rule, value_column, agg), rule, fmt, periods)
+            proj = _project(_build_series(sub, rule, value_column, agg), rule, fmt, periods, method)
             if proj:
                 series_list.append({"group": str(name), **proj})
         if not series_list:
@@ -125,7 +157,7 @@ def forecast_metric(df, date_column, value_column=None, agg="count", freq="M",
         }
 
     s = _build_series(work, rule, value_column, agg)
-    proj = _project(s, rule, fmt, periods)
+    proj = _project(s, rule, fmt, periods, method)
     if proj is None:
         raise AnalyticsError("Not enough history to forecast (need ≥3 periods).")
     t = proj["trend"]

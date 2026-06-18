@@ -32,9 +32,11 @@ spacy>=3.7,<3.9
 scipy>=1.11
 scikit-learn>=1.3
 statsmodels>=0.14
-# Association-rule mining (apriori) for `analytics.rootcause.association_rules_mining`.
-# numpy-1.26-compatible; install under .docsearch-constraints.txt so it can't bump numpy>=2.
-mlxtend>=0.23
+# Advanced forecasting (analytics.forecasting_models) — gradient-boosted trees.
+# Lazy-imported; the engine reports XGBoost as "skipped" if absent. 2.x wheels
+# are numpy<2-ABI compatible — install under .docsearch-constraints.txt so it
+# cannot pull numpy>=2 (the NeuralProphet pin).
+xgboost>=2.0,<3.0
 
 # Security / SQL safety
 cryptography>=43

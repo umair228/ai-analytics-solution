@@ -91,8 +91,23 @@ class AlertEventSerializer(serializers.ModelSerializer):
 
 class DatasetReportSerializer(serializers.ModelSerializer):
     dataset_name = serializers.CharField(source="dataset.name", read_only=True)
+    run_name = serializers.CharField(source="analysis_run.name", read_only=True)
 
     class Meta:
         model = DatasetReport
-        fields = ["id", "dataset", "dataset_name", "name", "recipient_emails", "schedule", "is_active", "last_sent_at", "created_at"]
+        fields = ["id", "kind", "dataset", "dataset_name", "analysis_run", "run_name",
+                  "chart_config", "export_format", "name", "recipient_emails",
+                  "schedule", "is_active", "last_sent_at", "created_at"]
         read_only_fields = ["id", "last_sent_at", "created_at"]
+
+    def validate(self, attrs):
+        kind = attrs.get("kind", getattr(self.instance, "kind", DatasetReport.Kind.DATASET_CSV))
+        if kind == DatasetReport.Kind.DATASET_CSV and not (attrs.get("dataset") or getattr(self.instance, "dataset", None)):
+            raise serializers.ValidationError("A dataset is required for a dataset CSV report.")
+        if kind == DatasetReport.Kind.ANALYSIS_RUN and not (attrs.get("analysis_run") or getattr(self.instance, "analysis_run", None)):
+            raise serializers.ValidationError("An analysis_run is required for an analysis-run report.")
+        return attrs
+
+    def create(self, validated_data):
+        validated_data["owner"] = self.context["request"].user
+        return super().create(validated_data)

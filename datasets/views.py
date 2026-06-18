@@ -341,13 +341,76 @@ class AlertEventViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class DatasetReportViewSet(viewsets.ModelViewSet):
-    """CRUD for scheduled dataset email reports."""
+    """CRUD for scheduled email reports (dataset CSV / analysis run / chart),
+    plus a one-off ``email-now`` action for ad-hoc chart sharing."""
     serializer_class = DatasetReportSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        qs = DatasetReport.objects.select_related("dataset", "analysis_run")
         if self.request.user.is_admin:
-            return DatasetReport.objects.select_related("dataset").all()
-        return DatasetReport.objects.select_related("dataset").filter(
-            dataset__owner=self.request.user
-        )
+            return qs
+        return qs.filter(
+            Q(owner=self.request.user) | Q(dataset__owner=self.request.user)
+        ).distinct()
+
+    @action(detail=False, methods=["post"], url_path="email-now")
+    def email_now(self, request):
+        """Send a one-off email now (no schedule): a chart image (PNG/JPEG data
+        URL) and/or an exported analysis run / chart-data file."""
+        import base64
+        import binascii
+
+        from django.core.mail import EmailMessage
+
+        d = request.data
+        recipients = [e.strip() for e in (d.get("recipient_emails") or "").split(",") if e.strip()]
+        if not recipients:
+            return Response({"error": True, "detail": "At least one recipient email is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        subject = (d.get("subject") or "DSE chart").strip()
+        safe = "".join(c if c.isalnum() else "_" for c in subject)[:60] or "dse"
+        msg = EmailMessage(subject=f"[DSE] {subject}",
+                           body=(d.get("note") or f"{subject} (shared from DSE)."),
+                           to=recipients)
+
+        attached = False
+        image_data_url = d.get("image_data_url") or ""
+        if "," in image_data_url:
+            header, b64 = image_data_url.split(",", 1)
+            ext = "jpeg" if ("jpeg" in header or "jpg" in header) else "png"
+            try:
+                msg.attach(f"{safe}.{ext}", base64.b64decode(b64), f"image/{ext}")
+                attached = True
+            except (binascii.Error, ValueError):
+                pass
+
+        fmt = (d.get("format") or "").lower()
+        if fmt:
+            from ai.exporters import ExportUnavailable, export
+            envelope = None
+            if d.get("analysis_run"):
+                from analytics.models import AnalysisRun
+                from analytics.reporting import run_to_envelope
+                run = AnalysisRun.objects.filter(pk=d["analysis_run"]).first()
+                if run and run.accessible_by(request.user):
+                    envelope = run_to_envelope(run)
+            elif d.get("chart_config"):
+                from analytics.reporting import chart_to_envelope
+                envelope = chart_to_envelope(d["chart_config"])
+            if envelope is not None:
+                try:
+                    data, ctype, _ = export(envelope, fmt)
+                    msg.attach(f"{safe}.{fmt}", data, ctype)
+                    attached = True
+                except ExportUnavailable:
+                    pass
+
+        try:
+            msg.send()
+        except Exception as exc:  # noqa: BLE001
+            return Response({"error": True, "detail": f"Email failed: {exc}"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        record_audit(request, AuditLog.Action.QUERY, target_type="Email",
+                     summary=f"Emailed '{subject}' to {len(recipients)} recipient(s)")
+        return Response({"ok": True, "recipients": len(recipients), "attached": attached})
