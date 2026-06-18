@@ -413,9 +413,12 @@ def _search_documents(user, query=None, top_k=MAX_DOC_HITS, **_):
     if not query:
         raise ToolError("A 'query' is required.")
     from docsearch.index_store import get_index
+    from docsearch.visibility import visible_owner_keys
 
     index = get_index()
-    rows, meta = index.retrieve(query, top_k=int(top_k or MAX_DOC_HITS))
+    rows, meta = index.retrieve(
+        query, top_k=int(top_k or MAX_DOC_HITS), allowed_owners=visible_owner_keys(user)
+    )
     hits = []
     for row in rows[:MAX_DOC_HITS]:
         get = row.get if hasattr(row, "get") else (lambda k, d=None: row[k] if k in row else d)
