@@ -1,6 +1,6 @@
 # Test Scripts / Test Cases — DSE Release 0
 
-**Status:** Draft · **Owner:** Zia (execute black‑box on the running app, record actual result + pass/fail + `[SCREENSHOT]`) · **Version:** 0.9
+**Status:** Draft · **Owner:** Zia Arshad (execute black‑box on the running app, record actual result + pass/fail + `[SCREENSHOT]`) · **Version:** 0.9
 
 Two layers: **white‑box** (automated, already in the repo) and **black‑box** (manual UI scripts below). Environment for manual runs: `[SITE: URL]`, seeded EGPC datasets, logged in as an analyst.
 

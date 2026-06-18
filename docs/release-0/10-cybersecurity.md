@@ -1,6 +1,6 @@
 # Cybersecurity Document — DSE Release 0
 
-**Status:** Draft · **Owner:** Zia (format to house template) · **Extends:** `../../SECURITY.md`
+**Status:** Draft · **Owner:** Muhammad Naseem · **Extends:** `../../SECURITY.md`
 
 ## 1. Security objective
 DSE processes laboratory/QC data on‑premise. The security posture for R0 centres on **data locality** (no third‑party processing), **least‑privilege read access**, **auditability**, and **graceful failure**. This document covers what the R0 features add to the existing platform posture in `SECURITY.md`.

@@ -1,6 +1,6 @@
 # Installation Qualification (IQ) — DSE Release 0
 
-**Status:** Draft · **Owner:** Zia (execute on the prod host, sign each step) · **System:** `[SITE: host / URL]`
+**Status:** Draft · **Owner:** Umair Khan (execute on the prod host, sign each step) · **System:** `[SITE: host / URL]`
 **Purpose:** document objective evidence that DSE R0 is installed correctly and completely in the target environment.
 
 ## 1. Pre‑requisites (verify & record)

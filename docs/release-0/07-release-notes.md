@@ -1,6 +1,6 @@
-# Release Notes — DSE Release 0
+# Release Notes / Product Roadmap — DSE Release 0
 
-**Version:** 0 · **Date:** 2026‑06‑21 · **Audience:** customers / pilot users
+**Status:** Draft · **Owner:** Muhammad Naseem / Umair Khan · **Version:** 0 · **Date:** 2026‑06‑21 · **Audience:** customers / pilot users
 **Theme:** self‑service analytics workflows, best‑in‑class forecasting, comparative charting, and one‑click publishing — all running fully on‑premise.
 
 ## ✨ New features
@@ -40,4 +40,9 @@ No third‑party API calls at runtime; all inference is local. Analytics run ove
 - New backend dependency: `xgboost` (installed under the pinned‑numpy constraints in the image).
 - No configuration changes required for existing installs.
 
-`[SITE]` Add build tag / commit SHA and customer name on final formatting.
+## 🗺️ Product roadmap (indicative — owner to confirm priorities)
+**Next (post‑R0 hardening):** TLS/production hardening; extract Root‑Cause & Relationship discovery into standalone workflows + a true Analytics hub landing page; one‑click PNG embedding in scheduled chart emails.
+**Near‑term:** async execution for long deep‑model/Prophet runs (the `AnalysisRun` status seam); forecast scenario comparison & saved‑run diffing; richer Chart Studio (saved chart configs, dashboards).
+**Later:** event‑triggered/agentic monitoring (auto‑run anomaly checks on refresh + alert); COA/report writer; broader omics analytics phasing.
+
+`[SITE]` Add build tag / commit SHA and customer name on final formatting; `[REVIEW]` owner to finalize roadmap priorities/dates.

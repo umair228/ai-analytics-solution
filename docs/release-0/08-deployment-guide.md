@@ -1,6 +1,6 @@
 # Deployment Guide — DSE Release 0
 
-**Status:** Draft · **Owner:** Zia (validate by deploying to `[SITE]`) · **Reference:** `dis-deploy/` (`docker-compose.prod.yml`, `Makefile`, `scripts/`, `.env.prod.example`)
+**Status:** Draft · **Owner:** Muhammad Naseem / Umair Khan (validate by deploying to `[SITE]`) · **Reference:** `dis-deploy/` (`docker-compose.prod.yml`, `Makefile`, `scripts/`, `.env.prod.example`)
 
 ## 1. Topology
 - **Build/registry:** GitHub Actions on each app repo builds and pushes images to **GHCR**: `ghcr.io/umair228/dis-api` (Django backend + scheduler) and `ghcr.io/umair228/dis-web` (built frontend, served by nginx).

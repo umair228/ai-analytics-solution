@@ -1,6 +1,6 @@
 # User Manual — DSE Release 0 Analytics Workflows
 
-**Status:** Draft · **Owner:** Zia (add `[SCREENSHOT]`s, verify steps) · **Audience:** lab analysts & managers
+**Status:** Draft · **Owner:** Kulsoom (add `[SCREENSHOT]`s, verify steps) · **Audience:** lab analysts & managers
 
 ## Getting started
 Sign in at `[SITE: https://…]`. The left sidebar is grouped: **Workspace**, **Analytics**, **AI**, **Operations**, **Admin**. The new workflows live under **Analytics**: *Anomaly Detection*, *Statistical Calculations*, *Forecast Workbench*, *Chart Studio*, *Saved Runs* (plus *LIMS Forecasting*, *Data Explorer*, *Advanced Analytics*). `[SCREENSHOT: sidebar]`
