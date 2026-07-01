@@ -24,6 +24,8 @@ import os
 import shutil
 import tempfile
 
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
@@ -33,6 +35,7 @@ from rest_framework.test import APITestCase
 from docsearch import index_store, ingest
 from docsearch.answer import _clean_page, _unique_sources
 from docsearch.models import KnowledgeRecord
+from docsearch.views.search import DocSearchView
 
 User = get_user_model()
 
@@ -121,6 +124,44 @@ class DocsearchRenderSafetyTestCase(APITestCase):
         for s in body.get("sources", []):
             self.assertNotIsInstance(s.get("page"), float,
                                      "page should be coerced away from raw float NaN")
+
+    def test_approve_survives_reindex_failure(self):
+        # A record is staged pending, then approved while the index rebuild blows
+        # up (e.g. transient IO / embed error on the server). The approval itself
+        # must still succeed with a 200 + warning, never a 500.
+        rec = ingest._stage(
+            source_type=KnowledgeRecord.Source.DOCUMENT,
+            doc_id="approve-me.docx",
+            passages=[{"page": 1, "text": "alpha bravo charlie delta echo foxtrot golf"}],
+            created_by=self.user,
+        )
+        self.client.force_authenticate(self.user)
+        with patch("docsearch.index_store.rebuild_index", side_effect=RuntimeError("boom")):
+            resp = self.client.post(reverse("kb-approve", kwargs={"pk": rec.id}))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content[:500])
+        rec.refresh_from_db()
+        self.assertEqual(rec.status, KnowledgeRecord.Status.APPROVED)
+        self.assertIn("warning", resp.json())
+
+    def test_rebuild_index_never_raises(self):
+        # Even if the chunk-frame build fails outright, rebuild_index returns a
+        # well-formed status dict instead of propagating (callers on the request
+        # path depend on this).
+        with patch("docsearch.index_store._build_df", side_effect=RuntimeError("boom")):
+            out = index_store.rebuild_index()
+        self.assertIsInstance(out, dict)
+        self.assertIn("indexed", out)
+
+    def test_search_backstops_unexpected_error(self):
+        # The top-level guard must turn any unforeseen pipeline error into a
+        # graceful 200, honouring the view's "never returns 5xx" contract.
+        self.client.force_authenticate(self.user)
+        with patch.object(DocSearchView, "_run", side_effect=RuntimeError("boom")):
+            resp = self.client.post(
+                reverse("doc-search"), {"question": "anything", "mode": "docs"}, format="json"
+            )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content[:500])
+        self.assertEqual(resp.json().get("engine"), "error")
 
     def test_clean_page_unit(self):
         self.assertEqual(_clean_page(float("nan")), "?")
