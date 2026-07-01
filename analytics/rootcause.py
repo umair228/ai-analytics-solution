@@ -231,7 +231,13 @@ def cluster_analysis(df, columns=None, method="kmeans", k=4):
 # --------------------------------------------------------------------------
 def association_rules_mining(df, columns, target_column=None, target_value=None,
                             min_support=0.05, min_confidence=0.5, max_len=3):
-    from mlxtend.frequent_patterns import apriori, association_rules
+    try:
+        from mlxtend.frequent_patterns import apriori, association_rules
+    except ImportError as exc:  # optional dep — degrade to a handled 400, not a 500
+        raise AnalyticsError(
+            "Association-rule mining requires the 'mlxtend' package, which is not "
+            "installed on the server."
+        ) from exc
 
     cols = [c for c in (columns or []) if c in df.columns]
     if not cols:

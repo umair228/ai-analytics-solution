@@ -210,8 +210,22 @@ def _extract_text_from_pdf(path: Path) -> Tuple[List[str], List[Dict]]:
     texts: List[str] = []
     metas: List[Dict] = []
     reader = PdfReader(str(path))
+    # Many corporate PDFs (calibration certs, ISO guidebooks, quality manuals) are
+    # "encrypted" only to set permissions, with an EMPTY user password. Accessing
+    # reader.pages then raises unless we decrypt first — which extract_file would
+    # swallow, silently yielding 0 chunks. Decrypt with the empty password so the
+    # document still indexes.
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception as exc:  # genuinely locked -> skip, don't abort the corpus
+            print(f"⚠️  could not decrypt {path.name}: {exc}")
     for i, page in enumerate(reader.pages, start=1):
-        page_text = page.extract_text() or ""
+        try:
+            page_text = page.extract_text() or ""
+        except Exception as exc:  # one malformed page must not zero the whole doc
+            print(f"⚠️  {path.name} page {i}: {exc}")
+            continue
         if not page_text.strip():
             continue
         t, m = pack_passages([page_text], path.name, i)
