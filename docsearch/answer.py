@@ -15,6 +15,7 @@ Both return: ``{"answer": str, "sources": [{"doc","page","label"}], "engine": st
 """
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter
 
@@ -24,11 +25,28 @@ MAX_CONTEXT_CHARS = 6000
 TOP_SENTENCES = 24
 
 
+def _clean_page(value):
+    """Normalise a chunk 'page' (section index) into a clean, JSON-safe value.
+
+    A page-less passage is stored by pandas as float ``NaN``, and an int page read
+    back from a mixed-dtype column arrives as a float like ``3.0``. Coerce NaN ->
+    ``"?"`` and integral floats -> ``int`` so the response never carries a
+    non-JSON-compliant ``NaN`` (which crashes DRF's renderer) and labels never
+    read "section nan"."""
+    if isinstance(value, float):  # numpy.float64 is a float subclass, caught here
+        if not math.isfinite(value):
+            return "?"
+        if float(value).is_integer():
+            return int(value)
+        return float(value)
+    return value
+
+
 def _unique_sources(rows) -> list[dict]:
     seen, out = set(), []
     for r in rows:
         doc = str(r.get("doc_id", "unknown"))
-        page = r.get("page", "?")
+        page = _clean_page(r.get("page", "?"))
         key = (doc, str(page))
         if key in seen:
             continue

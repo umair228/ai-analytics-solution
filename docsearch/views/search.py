@@ -23,6 +23,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.serialization import json_safe
+
 from ..answer import synthesize_answer
 from ..faq import faq_lookup
 from ..index_store import get_index
@@ -53,7 +55,7 @@ class DocSearchView(APIView):
                 faq = None
             if faq and faq["kind"] in ("exact", "fuzzy"):
                 resp.update({"answer": faq["answer"], "engine": "faq", "faq": True})
-                return Response(resp, status=status.HTTP_200_OK)
+                return Response(json_safe(resp), status=status.HTTP_200_OK)
 
         # 2) Document retrieval + answer synthesis (docs/auto).
         if mode in ("auto", "docs"):
@@ -103,4 +105,8 @@ class DocSearchView(APIView):
             resp["answer"] = f"Returned {resp['sql_result']['row_count']} row(s) from the LIMS database."
             resp["engine"] = "sql"
 
-        return Response(resp, status=status.HTTP_200_OK)
+        # Strictly JSON-safe before rendering: DRF renders with allow_nan=False, so
+        # any stray NaN/Inf (a page-less chunk's float page, a degenerate score)
+        # would raise at render time — a 500 outside every try/except above,
+        # breaking this view's "never returns 5xx for a normal query" contract.
+        return Response(json_safe(resp), status=status.HTTP_200_OK)

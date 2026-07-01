@@ -1,6 +1,6 @@
 # DSE Release 0 — Documentation Set
 
-**Product:** Data Science Engine (DSE) — AI‑Powered Interactive & Agentic Analytics for LabWare LIMS
+**Product:** Data Science Engine (DSE) — AI‑Powered Insights for Modern Laboratories (LabWare LIMS)
 **Release:** 0 (customer‑demo / pilot) · **Target date:** 2026‑06‑21
 **Scope documented here:** standalone **Anomaly Detection**, **Statistical Calculations** and **Forecasting** workflows (saved run history + local‑LLM explanations), a unified 10‑method forecasting engine, **Chart Studio** (multi‑dataset comparative charts) and **chart publishing/distribution** (export, email, scheduling) — on top of the existing fully‑local LLM analytics platform.
 
