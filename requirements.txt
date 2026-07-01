@@ -37,6 +37,11 @@ statsmodels>=0.14
 # are numpy<2-ABI compatible — install under .docsearch-constraints.txt so it
 # cannot pull numpy>=2 (the NeuralProphet pin).
 xgboost>=2.0,<3.0
+# Association-rule mining for root-cause analysis (analytics.rootcause
+# .association_rules_mining): apriori + association_rules. 0.23.x builds only on
+# scikit-learn/scipy/pandas/numpy already pinned above, so it cannot pull numpy>=2
+# (the NeuralProphet pin). Without it that RCA method raises at call time.
+mlxtend>=0.23,<0.24
 
 # Security / SQL safety
 cryptography>=43
@@ -67,7 +72,11 @@ requests>=2.32
 # Document text extraction (lightweight, no version conflicts):
 python-docx>=1.1
 python-pptx>=1.0
-pypdf>=4.0
+# pypdf: keep a MODERN floor. 4.x raises on many permission-encrypted /
+# object-stream PDFs (corporate calibration certs, ISO guidebooks, quality
+# manuals) that 5.x/6.x parse fine; extract_file swallows the error, so an old
+# pypdf silently yields "0 chunks" for those uploads. See _extract_text_from_pdf.
+pypdf>=5.1
 # Semantic rerank (recommended; degrades gracefully to BM25-only if absent).
 # Kept compatible with the NeuralProphet numpy<2 / torch pins above — install
 # with a constraints file pinning numpy/pandas/torch if upgrading in place.
