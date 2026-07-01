@@ -34,7 +34,7 @@ from ..visibility import visible_owner_keys
 
 class DocSearchView(APIView):
     def post(self, request):
-        data = request.data or {}
+        data = request.data if isinstance(request.data, dict) else {}
         question = (data.get("question") or "").strip()
         if not question:
             return Response({"error": "Missing field: question."}, status=status.HTTP_400_BAD_REQUEST)
@@ -42,6 +42,21 @@ class DocSearchView(APIView):
         mode = (data.get("mode") or "auto").lower()
         if mode not in ("auto", "docs", "data"):
             mode = "auto"
+
+        # Absolute backstop: the per-step blocks below already degrade gracefully,
+        # but wrap the whole pipeline so no unforeseen error (or a render-time NaN
+        # in an environment without the json_safe pass) can 500 a normal query —
+        # this view's documented contract is "never returns 5xx".
+        try:
+            resp = self._run(request, data, question, mode)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[doc-search] unexpected error: {exc}")
+            resp = {"question": question, "mode": mode, "sources": [],
+                    "answer": "Document search hit an unexpected error. Please try again.",
+                    "engine": "error"}
+        return Response(json_safe(resp), status=status.HTTP_200_OK)
+
+    def _run(self, request, data, question, mode) -> dict:
         history = data.get("history") if isinstance(data.get("history"), list) else []
 
         resp = {"question": question, "mode": mode, "sources": []}
@@ -55,7 +70,7 @@ class DocSearchView(APIView):
                 faq = None
             if faq and faq["kind"] in ("exact", "fuzzy"):
                 resp.update({"answer": faq["answer"], "engine": "faq", "faq": True})
-                return Response(json_safe(resp), status=status.HTTP_200_OK)
+                return resp
 
         # 2) Document retrieval + answer synthesis (docs/auto).
         if mode in ("auto", "docs"):
@@ -105,8 +120,4 @@ class DocSearchView(APIView):
             resp["answer"] = f"Returned {resp['sql_result']['row_count']} row(s) from the LIMS database."
             resp["engine"] = "sql"
 
-        # Strictly JSON-safe before rendering: DRF renders with allow_nan=False, so
-        # any stray NaN/Inf (a page-less chunk's float page, a degenerate score)
-        # would raise at render time — a 500 outside every try/except above,
-        # breaking this view's "never returns 5xx for a normal query" contract.
-        return Response(json_safe(resp), status=status.HTTP_200_OK)
+        return resp

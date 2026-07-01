@@ -187,16 +187,35 @@ def _build_df() -> pd.DataFrame:
 
 def rebuild_index() -> dict:
     """(Re)build the index from corpus + approved KB records, persist, refresh.
-    Recomputes dense vectors so they stay aligned with the chunk rows."""
+    Recomputes dense vectors so they stay aligned with the chunk rows.
+
+    Best-effort and resilient: a failure in any single step is logged and skipped
+    rather than raised, so an approve/upload/delete never 500s on a transient
+    IO/embed error. Callers on the request path (KnowledgeApproveView,
+    DocumentsView) rely on this contract — the DB action has already committed by
+    the time we get here, so indexing is a best-effort follow-on, never a gate."""
     global _INDEX
     with _LOCK:
-        df = _build_df()
-        df.to_csv(index_path(), index=False, encoding="utf-8")
-        vectors = _build_vectors(df)
+        try:
+            df = _build_df()
+        except Exception as exc:  # keep the prior index rather than crash the caller
+            print(f"⚠️  rebuild_index: could not build chunk frame, keeping prior index: {exc}")
+            return _safe_status()
+        try:
+            df.to_csv(index_path(), index=False, encoding="utf-8")
+        except Exception as exc:
+            print(f"⚠️  rebuild_index: could not persist index CSV: {exc}")
+        vectors = _build_vectors(df)  # already returns None on any failure
         if vectors is None:  # keep the vector store lifecycle atomic with the CSV
-            _clear_vectors()
-        _INDEX = DocIndex(df, vectors=vectors)
-    return status()
+            try:
+                _clear_vectors()
+            except Exception as exc:
+                print(f"⚠️  rebuild_index: could not clear stale vectors: {exc}")
+        try:
+            _INDEX = DocIndex(df, vectors=vectors)
+        except Exception as exc:
+            print(f"⚠️  rebuild_index: could not construct in-memory index: {exc}")
+    return _safe_status()
 
 
 def get_index() -> DocIndex:
@@ -284,3 +303,22 @@ def status() -> dict:
         "corpus_dir": str(corpus_dir()),
         "index_path": str(index_path()),
     }
+
+
+def _safe_status() -> dict:
+    """``status()`` that never raises — ``status()`` calls ``get_index()``, which
+    can trigger a (re)build if ``_INDEX`` is unset. Used by ``rebuild_index`` so a
+    failed rebuild still returns a well-formed payload instead of propagating."""
+    try:
+        return status()
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️  status() failed after rebuild: {exc}")
+        ready = _INDEX is not None and getattr(_INDEX, "ready", False)
+        chunks = int(len(_INDEX.df)) if _INDEX is not None else 0
+        return {
+            "indexed": bool(ready),
+            "documents": 0,
+            "chunks": chunks,
+            "corpus_dir": str(corpus_dir()),
+            "index_path": str(index_path()),
+        }

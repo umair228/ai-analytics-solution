@@ -208,7 +208,25 @@ class KnowledgeApproveView(APIView):
             rec.refresh_from_db()
             return Response({"error": "Identical content is already approved and indexed."},
                             status=http.HTTP_409_CONFLICT)
-        return Response({"id": rec.id, "status": rec.status, "index": index_store.status()})
+        except Exception as exc:  # noqa: BLE001 — approval must not 500 on an index hiccup
+            # rebuild_index is best-effort and shouldn't raise, but guard anyway:
+            # if the record did flip to APPROVED, report success with a warning so
+            # the reviewer isn't blocked by a transient indexing error.
+            print(f"[doc-search] approve reindex error for record {pk}: {exc}")
+            rec.refresh_from_db()
+            if rec.status == KnowledgeRecord.Status.APPROVED:
+                return Response({"id": rec.id, "status": rec.status,
+                                 "warning": "Approved, but the search index could not be "
+                                            "refreshed yet — it will update on the next rebuild."},
+                                status=http.HTTP_200_OK)
+            return Response({"error": "Could not approve this record. Please try again."},
+                            status=http.HTTP_400_BAD_REQUEST)
+        try:
+            idx_status = index_store.status()
+        except Exception as exc:  # noqa: BLE001 — never let a status read 500 a good approve
+            print(f"[doc-search] approve status read failed for record {pk}: {exc}")
+            idx_status = None
+        return Response({"id": rec.id, "status": rec.status, "index": idx_status})
 
 
 class KnowledgeRejectView(APIView):
