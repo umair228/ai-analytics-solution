@@ -9,8 +9,11 @@ from django.test import SimpleTestCase, TestCase
 from connections.models import DataSource
 from querybuilder.executor import (
     QueryError,
+    _remap_order_by,
+    _wrap_for_filter,
     build_filter_where,
     execute_dataset_query,
+    execute_raw_sql_filtered,
 )
 
 User = get_user_model()
@@ -52,6 +55,70 @@ class BuildFilterWhereTests(SimpleTestCase):
               "op": "=", "value": 1}],
             self.COLS, _quote)
         self.assertEqual((where, params), ("", {}))
+
+    def test_resolve_maps_columns_to_aliases(self):
+        where, _ = build_filter_where(
+            [{"column": "VALUE", "type": "compare", "op": ">=", "value": 10}],
+            self.COLS, _quote, resolve=lambda c: '"dse_c1"')
+        self.assertEqual(where, '"dse_c1" >= :flt0')
+
+
+class RemapOrderByTests(SimpleTestCase):
+    NAME_TO_SQL = {"ENTERED_ON": '"ENTERED_ON"', "VALUE": '"VALUE"'}
+
+    def test_strips_table_qualifier(self):
+        self.assertEqual(
+            _remap_order_by("ORDER BY R.ENTERED_ON DESC", self.NAME_TO_SQL),
+            'ORDER BY "ENTERED_ON" DESC')
+
+    def test_multi_term(self):
+        self.assertEqual(
+            _remap_order_by("ORDER BY R.ENTERED_ON DESC, S.VALUE", self.NAME_TO_SQL),
+            'ORDER BY "ENTERED_ON" DESC, "VALUE"')
+
+    def test_drops_when_column_not_in_output(self):
+        self.assertEqual(_remap_order_by("ORDER BY R.MISSING", self.NAME_TO_SQL), "")
+
+    def test_drops_expressions(self):
+        self.assertEqual(_remap_order_by("ORDER BY LEN(R.NAME) DESC", self.NAME_TO_SQL), "")
+
+    def test_empty(self):
+        self.assertEqual(_remap_order_by("", self.NAME_TO_SQL), "")
+
+
+class WrapForFilterTests(SimpleTestCase):
+    def test_plain_wrapper_without_dups(self):
+        _, n2s, proj, aliased = _wrap_for_filter("SELECT a, b", ["A", "B"], _quote, "sqlite")
+        self.assertEqual(proj, "*")
+        self.assertFalse(aliased)
+        self.assertEqual(n2s["A"], '"A"')
+
+    def test_alias_list_for_mssql_dups(self):
+        fc, n2s, proj, aliased = _wrap_for_filter(
+            "SELECT a, b, a", ["NAME", "B", "NAME"], _quote, "mssql")
+        self.assertTrue(aliased)
+        self.assertIn('AS dse_sub ("dse_c0", "dse_c1", "dse_c2")', fc)
+        self.assertEqual(n2s["NAME"], '"dse_c0"')  # first occurrence
+        self.assertEqual(proj, '"dse_c0", "dse_c1", "dse_c2"')
+
+    def test_dedup_suffix_triggers_alias_on_mssql(self):
+        # The driver renders the duplicate as "NAME:1" — still needs aliasing.
+        _, _, _, aliased = _wrap_for_filter(
+            "SELECT a, b, a", ["NAME", "B", "NAME:1"], _quote, "mssql")
+        self.assertTrue(aliased)
+
+    def test_mssql_normal_query_uses_plain_wrapper(self):
+        _, _, proj, aliased = _wrap_for_filter(
+            "SELECT a, b", ["A", "B"], _quote, "mssql")
+        self.assertFalse(aliased)
+        self.assertEqual(proj, "*")
+
+    def test_sqlite_dups_use_plain_wrapper(self):
+        # SQLite tolerates duplicate subquery columns, so no alias list needed.
+        _, _, proj, aliased = _wrap_for_filter(
+            "SELECT a, b, a", ["NAME", "B", "NAME:1"], _quote, "sqlite")
+        self.assertFalse(aliased)
+        self.assertEqual(proj, "*")
 
 
 class ExecuteDatasetQueryTests(TestCase):
@@ -175,3 +242,73 @@ class ExecuteDatasetQueryTests(TestCase):
                        "agg": "median"})
         with self.assertRaises(QueryError):
             self._run({"mode": "extent", "column": "NOPE"})
+
+
+class DuplicateColumnQueryTests(TestCase):
+    """Regression: real LIMS queries that SELECT a column twice + carry a
+    table-qualified trailing ORDER BY (both break a naive derived-table wrap)."""
+
+    # Mirrors the prod query shape: product selected twice, ORDER BY r.entered_on.
+    # SQLAlchemy dedups the second duplicate key to "product:1" (what the app's
+    # cached_columns actually stores).
+    SQL = ("SELECT r.entered_on, r.product, r.value, r.product "
+           "FROM results r ORDER BY r.entered_on DESC")
+    COLS = ["entered_on", "product", "value", "product:1"]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        fd, cls.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        conn = sqlite3.connect(cls.db_path)
+        conn.execute("CREATE TABLE results (entered_on TEXT, product TEXT, value REAL)")
+        conn.executemany("INSERT INTO results VALUES (?, ?, ?)", [
+            ("2024-02-08 00:50:09", "JET_A1", 255.0),
+            ("2024-02-08 00:43:42", "GASOIL", 1.5),
+            ("2024-02-07 09:00:00", "JET_A1", 42.0),
+            ("2024-01-10 08:00:00", "LPG", 24.0),
+        ])
+        conn.commit()
+        conn.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        os.unlink(cls.db_path)
+
+    def setUp(self):
+        owner = User.objects.create_user(username="dup-tester", password="x")
+        self.ds = DataSource.objects.create(
+            name="dup-sqlite", source_type="sqlite", owner=owner,
+            options={"path": self.db_path})
+
+    def _run(self, spec, filters=None):
+        return execute_dataset_query(
+            self.ds, self.SQL, filters=filters, columns=self.COLS, spec=spec)
+
+    def test_count_with_date_filter_does_not_error(self):
+        out = self._run(
+            {"mode": "count"},
+            filters=[{"column": "entered_on", "type": "date-range",
+                      "from": "2024-02-08", "to": "2024-02-08"}])
+        self.assertEqual(out["total_row_count"], 2)
+
+    def test_rows_preserve_duplicate_names_and_order(self):
+        out = self._run({"mode": "rows", "limit": 10})
+        self.assertEqual(out["columns"], self.COLS)  # duplicate 'product' kept
+        self.assertEqual(out["total_row_count"], 4)
+        # Qualified ORDER BY r.entered_on DESC is remapped, not dropped.
+        self.assertEqual(out["rows"][0][0], "2024-02-08 00:50:09")
+
+    def test_aggregate_on_dup_column(self):
+        out = self._run({"mode": "aggregate", "x": "product", "agg": "count"})
+        self.assertEqual({d["label"]: d["value"] for d in out["data"]},
+                         {"JET_A1": 2, "GASOIL": 1, "LPG": 1})
+
+    def test_filtered_raw_sql_does_not_error(self):
+        result = execute_raw_sql_filtered(
+            self.ds, self.SQL, columns=self.COLS,
+            filters=[{"column": "product", "type": "dropdown", "value": "JET_A1"}])
+        self.assertEqual(result["columns"], self.COLS)
+        self.assertEqual(result["row_count"], 2)
+        self.assertTrue(all(r[1] == "JET_A1" for r in result["rows"]))
