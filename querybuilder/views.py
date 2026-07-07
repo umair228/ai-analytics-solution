@@ -105,34 +105,70 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
     # ---- ad-hoc: execute a spec or raw SQL (no save) -----------------------
     @action(detail=False, methods=["post"])
     def execute(self, request):
+        """Run a query and return one page of rows.
+
+        Pages the FULL result server-side so the whole table is reachable
+        (nothing is silently dropped): ``offset`` selects the window,
+        ``max_rows`` its size, and ``total_row_count`` (computed on the first
+        page) reports how many rows match in all. ``columns`` (echoed back by
+        the client on page 2+) lets the paginated wrapper handle queries whose
+        output has duplicate column names.
+        """
+        from querybuilder.executor import execute_dataset_query
+
         ds = self._get_datasource(request.data.get("datasource"))
         if ds is None:
             return _err("Data source not found or access denied.", status.HTTP_404_NOT_FOUND)
         database = request.data.get("database") or None
         mode = request.data.get("mode", "builder")
+        raw_sql = request.data.get("raw_sql", "")
         params = request.data.get("params") or None
-        max_rows = _clamp_max_rows(request.data.get("max_rows"))
+        page_size = _clamp_max_rows(request.data.get("max_rows")) \
+            or settings.DSE_QUERY_MAX_ROWS
+        offset = max(0, int(request.data.get("offset") or 0))
+        columns = request.data.get("columns") or None
+        want_total = bool(request.data.get("count_total", offset == 0))
         t0 = time.monotonic()
         try:
-            if mode == "raw":
-                result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database,
-                                         params=params, max_rows=max_rows)
+            if mode == "raw" and offset > 0 and columns:
+                # A later page — slice via the dup-safe OFFSET/FETCH wrapper.
+                # Skip the COUNT (the client already has the total from page 1).
+                result = execute_dataset_query(
+                    ds, raw_sql, database, params=params, columns=columns,
+                    spec={"mode": "rows", "offset": offset, "limit": page_size,
+                          "with_count": want_total})
+            elif mode == "raw":
+                result = execute_raw_sql(ds, raw_sql, database,
+                                         params=params, max_rows=page_size)
             else:
                 result = execute_spec(ds, request.data.get("spec") or {}, database,
-                                      max_rows=max_rows)
+                                      max_rows=page_size)
         except (SpecError, CompileError, QueryError) as exc:
             QueryRun.objects.create(
-                user=request.user, datasource=ds,
-                sql=request.data.get("raw_sql", ""),
-                duration_ms=int((time.monotonic() - t0) * 1000),
-                error=str(exc),
+                user=request.user, datasource=ds, sql=raw_sql,
+                duration_ms=int((time.monotonic() - t0) * 1000), error=str(exc),
             )
             return _err(exc)
         except Exception as exc:  # noqa: BLE001
             return _err(exc)
+
+        # True total (once, on the first page) so the UI can show "of N".
+        if want_total and result.get("total_row_count") is None:
+            total = result["row_count"]
+            if result.get("truncated") and mode == "raw":
+                try:
+                    total = execute_dataset_query(
+                        ds, raw_sql, database, params=params,
+                        columns=result["columns"], spec={"mode": "count"},
+                    )["total_row_count"]
+                except Exception:  # noqa: BLE001 — count is best-effort
+                    total = None
+            result["total_row_count"] = total
+        result.setdefault("offset", offset)
+        result.setdefault("limit", page_size)
+
         QueryRun.objects.create(
-            user=request.user, datasource=ds,
-            sql=result.get("sql", ""),
+            user=request.user, datasource=ds, sql=result.get("sql", ""),
             row_count=result["row_count"],
             duration_ms=int((time.monotonic() - t0) * 1000),
         )
