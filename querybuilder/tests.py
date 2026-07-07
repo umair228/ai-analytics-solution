@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase
 from connections.models import DataSource
 from querybuilder.executor import (
     QueryError,
+    _dialect_error_hint,
     _remap_order_by,
     _wrap_for_filter,
     build_filter_where,
@@ -61,6 +62,23 @@ class BuildFilterWhereTests(SimpleTestCase):
             [{"column": "VALUE", "type": "compare", "op": ">=", "value": 10}],
             self.COLS, _quote, resolve=lambda c: '"dse_c1"')
         self.assertEqual(where, '"dse_c1" >= :flt0')
+
+
+class DialectHintTests(SimpleTestCase):
+    def test_hint_for_tsql_on_sqlite(self):
+        for q in ("SELECT TRY_CAST(x AS DATETIME) FROM t",
+                  "SELECT DATEDIFF(MINUTE, a, b) FROM t",
+                  "SELECT CONVERT(varchar, x) FROM t",
+                  "SELECT ISNULL(x, 0) FROM t"):
+            self.assertIn("SQLite", _dialect_error_hint(q, "sqlite"))
+            self.assertIn("julianday", _dialect_error_hint(q, "sqlite"))
+
+    def test_no_hint_for_plain_sql_on_sqlite(self):
+        self.assertEqual(_dialect_error_hint("SELECT date(x) FROM t", "sqlite"), "")
+
+    def test_no_hint_on_mssql(self):
+        self.assertEqual(
+            _dialect_error_hint("SELECT TRY_CAST(x AS DATETIME) FROM t", "mssql"), "")
 
 
 class RemapOrderByTests(SimpleTestCase):

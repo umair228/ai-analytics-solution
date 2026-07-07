@@ -69,6 +69,33 @@ def execute_spec(datasource, raw_spec, database=None, max_rows=None):
         raise QueryError(str(exc)) from exc
 
 
+# SQL Server / T-SQL functions & types that SQLite (used for CSV / Excel / file
+# data sources) does not understand — the #1 cause of confusing syntax errors
+# when a T-SQL query is pointed at a file-backed source.
+_TSQL_ONLY = re.compile(
+    r"\b(try_cast|try_convert|datediff|dateadd|datepart|datename|getdate|"
+    r"sysdatetime|isnull|charindex|datetime2|nvarchar|iif|stuff)\b|\bconvert\s*\(",
+    re.I,
+)
+
+
+def _dialect_error_hint(sql, dialect):
+    """An actionable hint when a query fails because it uses another dialect's
+    syntax against this data source (T-SQL run on a SQLite/CSV source)."""
+    if dialect == "sqlite" and _TSQL_ONLY.search(sql or ""):
+        return (
+            "\n\nHint: this data source is a file/CSV, which is queried with "
+            "SQLite — it does not support SQL Server (T-SQL) syntax such as "
+            "TRY_CAST, DATEDIFF, CONVERT, ISNULL or the DATETIME type. Use SQLite "
+            "equivalents instead: date(x)/strftime('%Y-%m-%d', x) for dates, "
+            "(julianday(end) - julianday(start)) * 24.0 for hours between two "
+            "timestamps (or * 1440 for minutes), and CAST(x AS REAL) to treat a "
+            "text column as a number. Dates must be ISO 'YYYY-MM-DD HH:MM:SS' "
+            "for the date functions to work."
+        )
+    return ""
+
+
 def execute_raw_sql(datasource, sql, database=None, params=None, max_rows=None):
     """Execute a hand-written SQL statement after enforcing read-only rules.
 
@@ -86,7 +113,7 @@ def execute_raw_sql(datasource, sql, database=None, params=None, max_rows=None):
     except QueryError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise QueryError(str(exc)) from exc
+        raise QueryError(str(exc) + _dialect_error_hint(sql, engine.dialect.name)) from exc
 
 
 # ──────────────────────────────────────────────────────────────────────────
