@@ -1,5 +1,6 @@
 import time
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
@@ -122,7 +123,22 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
         database = request.data.get("database") or None
         mode = request.data.get("mode", "builder")
         raw_sql = request.data.get("raw_sql", "")
-        params = request.data.get("params") or None
+        # Declared parameter defaults merge UNDER explicit values so a
+        # parameterized query (":lab_id = '' OR …") runs without input.
+        declared = {p.get("name"): p.get("default")
+                    for p in (request.data.get("parameters") or [])
+                    if isinstance(p, dict) and p.get("name")
+                    and p.get("default") is not None}
+        params = {**declared, **(request.data.get("params") or {})}
+        # Ad-hoc runs are forgiving: any :param written in the SQL but left
+        # unbound defaults to '' so the query runs (the recommended
+        # ":p = '' OR col = :p" pattern then simply applies no filter) instead
+        # of crashing with "a value is required for bind parameter".
+        if mode == "raw":
+            from querybuilder.executor import sql_bind_params
+            for name in sql_bind_params(raw_sql):
+                params.setdefault(name, "")
+        params = params or None
         page_size = _clamp_max_rows(request.data.get("max_rows")) \
             or settings.DSE_QUERY_MAX_ROWS
         offset = max(0, int(request.data.get("offset") or 0))
@@ -177,6 +193,110 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                      detail={"rows": result["row_count"]})
         return Response(result)
 
+    # ---- export the FULL result as CSV (every row, no preview cap) ---------
+    @action(detail=False, methods=["post"], url_path="export")
+    def export(self, request):
+        """Stream a query's complete result as CSV — all rows, however many.
+
+        Rows are pulled from a server-side cursor and flushed in chunks, so a
+        million-row export stays memory-safe on the API and downloads
+        progressively in the browser instead of building a giant JSON payload.
+        """
+        import csv
+        import io
+
+        from django.http import StreamingHttpResponse
+        from sqlalchemy import text as sa_text
+
+        from connections.engine import get_engine
+
+        from .executor import assert_read_only
+
+        ds = self._get_datasource(request.data.get("datasource"))
+        if ds is None:
+            return _err("Data source not found or access denied.", status.HTTP_404_NOT_FOUND)
+        database = request.data.get("database") or None
+        mode = request.data.get("mode", "builder")
+        declared = {p.get("name"): p.get("default")
+                    for p in (request.data.get("parameters") or [])
+                    if isinstance(p, dict) and p.get("name")
+                    and p.get("default") is not None}
+        params = {**declared, **(request.data.get("params") or {})}
+        try:
+            if mode == "raw":
+                sql = request.data.get("raw_sql", "")
+                assert_read_only(sql)
+                stmt = sa_text(sql)
+                from .executor import sql_bind_params
+                for name in sql_bind_params(sql):
+                    params.setdefault(name, "")
+            else:
+                # unlimited: an export must not be truncated by the preview cap
+                # (or the spec's own LIMIT) — that would silently lose rows.
+                compiled = compile_spec(ds, request.data.get("spec") or {},
+                                        database, unlimited=True)
+                stmt = compiled.statement
+                params = {}
+        except (SpecError, CompileError, QueryError) as exc:
+            return _err(exc)
+
+        # Execute BEFORE streaming: a bad query / missing bind / unreachable DB
+        # must be a real 400, not a 200 whose CSV body is an error marker.
+        engine = get_engine(ds, database)
+        try:
+            conn = engine.connect()
+        except Exception as exc:  # noqa: BLE001
+            return _err(exc)
+        try:
+            result = conn.execution_options(stream_results=True).execute(stmt, params)
+            header = [str(c) for c in result.keys()]
+        except Exception as exc:  # noqa: BLE001
+            conn.close()
+            return _err(exc)
+
+        def csv_cell(v):
+            if v is None:
+                return ""
+            # Neutralize CSV formula injection (=cmd, +cmd, @cmd) without
+            # corrupting negative numbers, which arrive as real numerics.
+            if isinstance(v, str) and v[:1] in ("=", "+", "@", "\t"):
+                return "'" + v
+            return v
+
+        def stream(connection, res):
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+
+            def flush():
+                chunk = buf.getvalue()
+                buf.seek(0)
+                buf.truncate(0)
+                return chunk
+
+            try:
+                writer.writerow(header)
+                yield flush()
+                n = 0
+                for row in res:
+                    writer.writerow([csv_cell(v) for v in row])
+                    n += 1
+                    if n % 2000 == 0:
+                        yield flush()
+                tail = flush()
+                if tail:
+                    yield tail
+            except Exception as exc:  # noqa: BLE001 — headers already sent
+                yield f"\n# EXPORT FAILED: {exc}\n"
+            finally:
+                connection.close()
+
+        record_audit(request, AuditLog.Action.QUERY, target_type="DataSource",
+                     target_id=ds.id, summary=f"CSV export from '{ds.name}'")
+        resp = StreamingHttpResponse(stream(conn, result),
+                                     content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = 'attachment; filename="query-export.csv"'
+        return resp
+
     # ---- run a saved query --------------------------------------------------
     @action(detail=True, methods=["post"])
     def run(self, request, pk=None):
@@ -187,7 +307,8 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                 "You do not have access to this query's data source.",
                 status.HTTP_403_FORBIDDEN,
             )
-        params = request.data.get("params") or None
+        params = {**query.declared_param_defaults(),
+                  **(request.data.get("params") or {})} or None
         max_rows = _clamp_max_rows(request.data.get("max_rows"))
         t0 = time.monotonic()
         try:

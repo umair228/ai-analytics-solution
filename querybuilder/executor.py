@@ -16,6 +16,49 @@ class QueryError(Exception):
     """Raised when a query is rejected or fails to execute."""
 
 
+_BIND_RE = re.compile(r":([a-zA-Z_]\w*)")
+
+
+def sql_bind_params(sql: str) -> list:
+    """Distinct :name bind parameters in a SQL string (first-seen order).
+
+    Strips string literals and comments so a time literal like '12:30:00'
+    doesn't masquerade as params, and ignores ``::type`` casts."""
+    cleaned = re.sub(r"'(?:''|[^'])*'", "''", sql or "")
+    cleaned = re.sub(r"--[^\n]*", " ", cleaned)
+    cleaned = re.sub(r"/\*.*?\*/", " ", cleaned, flags=re.S)
+    out, seen = [], set()
+    for m in _BIND_RE.finditer(cleaned):
+        prev = cleaned[m.start() - 1] if m.start() > 0 else ""
+        if prev == ":" or prev.isalnum() or prev == "_":
+            continue  # "::type" cast or "word:col", not a bind parameter
+        name = m.group(1)
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def is_unknown_column_error(message: str) -> bool:
+    """True when a DB error says an identifier doesn't exist — across dialects:
+    SQLite "no such column", T-SQL "Invalid column name" / "could not be
+    bound", Postgres "column … does not exist", MySQL "Unknown column".
+    Used to detect stale cached column lists so filtering can self-heal."""
+    m = (message or "").lower()
+    return (
+        "no such column" in m
+        or "invalid column name" in m
+        or "could not be bound" in m
+        or "unknown column" in m
+        or ("column" in m and "does not exist" in m)
+        # Derived-table alias-list count mismatches — a stale cached column
+        # list on a duplicate-column query (T-SQL 8158/8159, PG equivalents).
+        or "than were specified in the column list" in m
+        or "column alias list" in m
+        or ("has" in m and "columns available but" in m)
+    )
+
+
 def assert_read_only(sql: str) -> bool:
     """Reject anything that is not a single read-only SELECT / WITH statement."""
     if not sql or not sql.strip():
@@ -455,8 +498,9 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
                          {**merged, "dse_lim": limit, "dse_off": offset})
         # COUNT(*) is expensive on large joins — skip it while paging (the caller
         # already has the total from the first page); compute it by default.
+        # Only an EXPLICIT False skips it (callers may pass the key as None).
         total = None
-        if spec.get("with_count", True):
+        if spec.get("with_count") is not False:
             _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
             total = int(count_rows[0][0] or 0)
         # Row values are positional, so use the dataset's authoritative output

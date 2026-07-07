@@ -150,7 +150,8 @@ class DatasetViewSet(viewsets.ModelViewSet):
                 from querybuilder.executor import execute_raw_sql, execute_spec
                 from querybuilder.models import QueryDefinition
                 q = dataset.query
-                merged = dataset.param_defaults or {}
+                merged = {**q.declared_param_defaults(),
+                          **(dataset.param_defaults or {})}
                 if q.mode == QueryDefinition.Mode.RAW:
                     result = execute_raw_sql(q.datasource, q.raw_sql,
                                              q.database or None,
@@ -166,25 +167,97 @@ class DatasetViewSet(viewsets.ModelViewSet):
 
         if live_params or live_filters:
             # Run fresh with the supplied params / filters; bypass the cache.
-            try:
-                from querybuilder.executor import (
-                    execute_raw_sql_filtered, execute_spec,
-                )
-                from querybuilder.models import QueryDefinition
-                q = dataset.query
-                merged = {**(dataset.param_defaults or {}), **(live_params or {})}
-                if q.mode == QueryDefinition.Mode.RAW:
-                    result = execute_raw_sql_filtered(
+            from querybuilder.executor import (
+                execute_raw_sql_filtered, execute_spec, is_unknown_column_error,
+            )
+            from querybuilder.models import QueryDefinition
+            q = dataset.query
+            merged = {**q.declared_param_defaults(),
+                      **(dataset.param_defaults or {}), **(live_params or {})}
+            # Only well-formed entries — a malformed filter must degrade, not 500.
+            filters = [f for f in (live_filters or [])
+                       if isinstance(f, dict) and f.get("column")]
+            is_raw = q.mode == QueryDefinition.Mode.RAW
+
+            def run(flts, cols):
+                if is_raw:
+                    return execute_raw_sql_filtered(
                         q.datasource, q.raw_sql, q.database or None,
-                        params=merged, filters=live_filters,
-                        columns=dataset.cached_columns or [],
+                        params=merged, filters=flts, columns=cols,
                         max_rows=limit,
                     )
-                else:
-                    result = execute_spec(q.datasource, q.spec, q.database or None)
-                return Response({**result, "last_refreshed_at": dataset.last_refreshed_at})
+                return execute_spec(q.datasource, q.spec, q.database or None,
+                                    max_rows=limit)
+
+            # An empty allow-list would silently drop every filter — populate it.
+            if filters and not dataset.cached_columns:
+                try:
+                    refresh_dataset(dataset)
+                except Exception as exc:  # noqa: BLE001
+                    return _error(exc)
+
+            def split(flts, cols):
+                kept = [f for f in flts if f["column"] in cols]
+                skip = sorted({str(f["column"]) for f in flts
+                               if f["column"] not in cols})
+                return kept, skip
+
+            columns = dataset.cached_columns or []
+            if is_raw:
+                kept, skipped = split(filters, columns)
+            else:
+                # Builder-spec queries can't take output filters — every filter
+                # is skipped, and saying so beats pretending the data is filtered.
+                kept, skipped = [], sorted({str(f["column"]) for f in filters})
+
+            # Filters were dropped but the query changed since the last refresh:
+            # the cache may simply be stale — heal it proactively and re-split
+            # (covers a NEW output column the stale cache didn't know about).
+            if is_raw and skipped and dataset.last_refreshed_at \
+                    and q.updated_at and q.updated_at > dataset.last_refreshed_at:
+                try:
+                    refresh_dataset(dataset)
+                    columns = dataset.cached_columns or []
+                    kept, skipped = split(filters, columns)
+                except Exception:  # noqa: BLE001 — proactive only; carry on
+                    pass
+
+            try:
+                result = run(kept, columns)
             except Exception as exc:  # noqa: BLE001
-                return _error(exc)
+                if not (is_raw and kept and is_unknown_column_error(str(exc))):
+                    return _error(exc)
+                # The cached column list was stale (the query changed since the
+                # last refresh): refresh it, drop filters whose columns are no
+                # longer in the output, retry once — a widget should degrade to
+                # "some filters skipped", never crash.
+                try:
+                    refresh_dataset(dataset)
+                except Exception:  # noqa: BLE001
+                    return _error(exc)
+                columns = dataset.cached_columns or []
+                kept, skipped = split(filters, columns)
+                try:
+                    result = run(kept, columns)
+                except Exception as exc2:  # noqa: BLE001
+                    return _error(exc2)
+
+            payload = {**result, "last_refreshed_at": dataset.last_refreshed_at}
+            if skipped:
+                payload["skipped_filters"] = skipped
+                payload["skipped_filters_hint"] = (
+                    ("This dataset is built from a visual-builder query, which "
+                     "only supports pre-aggregation query parameters — output "
+                     "filters cannot be applied to it. "
+                     if not is_raw else
+                     "These columns are not in the dataset's output (the query "
+                     "aggregates them away or no longer selects them), so the "
+                     "filters could not be applied. ")
+                    + "To filter BEFORE aggregation, add query parameters "
+                      "(e.g. :lab_id) to the query and re-add these filters from "
+                      "'Recommended · pre-aggregation' in Manage filters."
+                )
+            return Response(payload)
 
         if request.query_params.get("refresh") == "1":
             try:
@@ -212,7 +285,9 @@ class DatasetViewSet(viewsets.ModelViewSet):
                "filters": [...], "params": {...},
                "x", "y", "agg", "group_by", "column", "limit", "offset"}
         """
-        from querybuilder.executor import QueryError, execute_dataset_query
+        from querybuilder.executor import (
+            QueryError, execute_dataset_query, is_unknown_column_error,
+        )
         from querybuilder.models import QueryDefinition
 
         dataset = self.get_object()
@@ -236,20 +311,64 @@ class DatasetViewSet(viewsets.ModelViewSet):
         body = request.data or {}
         spec = {k: body.get(k)
                 for k in ("mode", "x", "y", "agg", "group_by", "x_bucket",
-                          "column", "limit", "offset")}
-        merged_params = {**(dataset.param_defaults or {}),
+                          "column", "limit", "offset", "with_count")}
+        merged_params = {**q.declared_param_defaults(),
+                         **(dataset.param_defaults or {}),
                          **(body.get("params") or {})}
-        try:
-            result = execute_dataset_query(
+        # Only well-formed entries — a malformed filter must degrade, not 500.
+        filters = [f for f in (body.get("filters") or [])
+                   if isinstance(f, dict) and f.get("column")]
+
+        def run(flts):
+            return execute_dataset_query(
                 q.datasource, q.raw_sql, q.database or None,
                 params=merged_params or None,
-                filters=body.get("filters") or [],
+                filters=flts,
                 columns=dataset.cached_columns or [],
                 spec=spec,
             )
+
+        def split(flts, cols):
+            kept = [f for f in flts if f["column"] in cols]
+            skip = sorted({str(f["column"]) for f in flts
+                           if f["column"] not in cols})
+            return kept, skip
+
+        columns = dataset.cached_columns or []
+        kept, skipped = split(filters, columns)
+
+        # Filters were dropped but the query changed since the last refresh —
+        # the cache may simply be stale: heal proactively and re-split (covers
+        # a NEW output column the stale cache didn't know about).
+        if skipped and dataset.last_refreshed_at and q.updated_at \
+                and q.updated_at > dataset.last_refreshed_at:
+            try:
+                refresh_dataset(dataset)
+                columns = dataset.cached_columns or []
+                kept, skipped = split(filters, columns)
+            except Exception:  # noqa: BLE001 — proactive only; carry on
+                pass
+
+        try:
+            result = run(kept)
         except QueryError as exc:
-            return _error(exc)
+            if not is_unknown_column_error(str(exc)):
+                return _error(exc)
+            # Stale cached columns (query edited since last refresh) — refresh,
+            # drop filters whose columns are gone, and retry once.
+            try:
+                refresh_dataset(dataset)
+            except Exception:  # noqa: BLE001
+                return _error(exc)
+            columns = dataset.cached_columns or []
+            kept, skipped = split(filters, columns)
+            try:
+                result = run(kept)
+            except QueryError as exc2:
+                return _error(exc2)
         result["source"] = "database"
+        if skipped:
+            result["skipped_filters"] = skipped
         return Response(result)
 
     @action(detail=True, methods=["get"], url_path="suggest-filters")

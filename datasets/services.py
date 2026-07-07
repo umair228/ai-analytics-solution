@@ -27,7 +27,8 @@ def refresh_dataset(dataset, params: dict | None = None):
     query = dataset.query
     datasource = query.datasource
     database = query.database or None
-    effective_params = {**(dataset.param_defaults or {}), **(params or {})}
+    effective_params = {**query.declared_param_defaults(),
+                        **(dataset.param_defaults or {}), **(params or {})}
 
     if query.mode == QueryDefinition.Mode.RAW:
         result = execute_raw_sql(
