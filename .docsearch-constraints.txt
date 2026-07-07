@@ -3,3 +3,9 @@
 numpy==1.26.4
 pandas==2.2.3
 torch==2.12.0
+# NeuralProphet 0.9.0 requires pytorch-lightning<2.5. It is a transitive dep, so
+# WITHOUT this pin a fresh install resolves 2.6.x, whose lr-finder reloads its
+# checkpoint via torch.load(weights_only=True) (the torch>=2.6 default) and dies
+# with "Unsupported global: neuralprophet.configure.ConfigSeasonality" — every
+# model train/retrain then fails. 2.4.0 is the known-good version used in dev.
+pytorch-lightning==2.4.0
