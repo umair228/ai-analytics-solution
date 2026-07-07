@@ -55,6 +55,23 @@ class QueryDefinition(TimeStampedModel):
     def __str__(self):
         return self.name
 
+    def declared_param_defaults(self) -> dict:
+        """Defaults declared on the query's parameters, as a bind dict.
+
+        Merged UNDER dataset/live params everywhere the query runs, so a
+        parameterized query (e.g. ``:lab_id = '' OR lab_id = :lab_id``) never
+        fails with "a value is required for bind parameter" when a dashboard
+        filter for that param is inactive.
+        """
+        out = {}
+        for p in self.parameters or []:
+            name = (p or {}).get("name")
+            # required params must stay LOUD when missing — auto-filling them
+            # would turn a clear bind error into silently wrong results.
+            if name and not p.get("required") and p.get("default") is not None:
+                out[name] = p.get("default")
+        return out
+
 
 class QueryRun(TimeStampedModel):
     """A single execution of a query — saved or ad-hoc."""

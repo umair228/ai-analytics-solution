@@ -131,8 +131,13 @@ def _col(tables, table_name, column_name):
         raise CompileError(f"Unknown column '{column_name}' on table '{table_name}'.")
 
 
-def compile_spec(datasource, raw_spec, database=None):
-    """Compile a query spec for a data source. Returns a CompiledQuery."""
+def compile_spec(datasource, raw_spec, database=None, unlimited=False):
+    """Compile a query spec for a data source. Returns a CompiledQuery.
+
+    ``unlimited=True`` skips the platform row cap AND the spec's own LIMIT —
+    used by the full-result CSV export, where truncation would silently lose
+    data. Interactive preview paths keep the cap.
+    """
     spec = validate_spec(raw_spec)
     engine = get_engine(datasource, database)
     dialect = engine.dialect
@@ -228,9 +233,10 @@ def compile_spec(datasource, raw_spec, database=None):
             order_cols.append(desc(col) if o["direction"] == "DESC" else asc(col))
         stmt = stmt.order_by(*order_cols)
 
-    # ---- LIMIT (always capped to the platform maximum) ----
-    max_rows = settings.DSE_QUERY_MAX_ROWS
-    stmt = stmt.limit(min(spec["limit"] or max_rows, max_rows))
+    # ---- LIMIT (capped to the platform maximum, unless exporting) ----
+    if not unlimited:
+        max_rows = settings.DSE_QUERY_MAX_ROWS
+        stmt = stmt.limit(min(spec["limit"] or max_rows, max_rows))
 
     # ---- compile to a human-readable SQL string for display ----
     try:

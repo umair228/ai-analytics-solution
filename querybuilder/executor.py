@@ -16,6 +16,49 @@ class QueryError(Exception):
     """Raised when a query is rejected or fails to execute."""
 
 
+_BIND_RE = re.compile(r":([a-zA-Z_]\w*)")
+
+
+def sql_bind_params(sql: str) -> list:
+    """Distinct :name bind parameters in a SQL string (first-seen order).
+
+    Strips string literals and comments so a time literal like '12:30:00'
+    doesn't masquerade as params, and ignores ``::type`` casts."""
+    cleaned = re.sub(r"'(?:''|[^'])*'", "''", sql or "")
+    cleaned = re.sub(r"--[^\n]*", " ", cleaned)
+    cleaned = re.sub(r"/\*.*?\*/", " ", cleaned, flags=re.S)
+    out, seen = [], set()
+    for m in _BIND_RE.finditer(cleaned):
+        prev = cleaned[m.start() - 1] if m.start() > 0 else ""
+        if prev == ":" or prev.isalnum() or prev == "_":
+            continue  # "::type" cast or "word:col", not a bind parameter
+        name = m.group(1)
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
+
+def is_unknown_column_error(message: str) -> bool:
+    """True when a DB error says an identifier doesn't exist — across dialects:
+    SQLite "no such column", T-SQL "Invalid column name" / "could not be
+    bound", Postgres "column … does not exist", MySQL "Unknown column".
+    Used to detect stale cached column lists so filtering can self-heal."""
+    m = (message or "").lower()
+    return (
+        "no such column" in m
+        or "invalid column name" in m
+        or "could not be bound" in m
+        or "unknown column" in m
+        or ("column" in m and "does not exist" in m)
+        # Derived-table alias-list count mismatches — a stale cached column
+        # list on a duplicate-column query (T-SQL 8158/8159, PG equivalents).
+        or "than were specified in the column list" in m
+        or "column alias list" in m
+        or ("has" in m and "columns available but" in m)
+    )
+
+
 def assert_read_only(sql: str) -> bool:
     """Reject anything that is not a single read-only SELECT / WITH statement."""
     if not sql or not sql.strip():
@@ -69,6 +112,33 @@ def execute_spec(datasource, raw_spec, database=None, max_rows=None):
         raise QueryError(str(exc)) from exc
 
 
+# SQL Server / T-SQL functions & types that SQLite (used for CSV / Excel / file
+# data sources) does not understand — the #1 cause of confusing syntax errors
+# when a T-SQL query is pointed at a file-backed source.
+_TSQL_ONLY = re.compile(
+    r"\b(try_cast|try_convert|datediff|dateadd|datepart|datename|getdate|"
+    r"sysdatetime|isnull|charindex|datetime2|nvarchar|iif|stuff)\b|\bconvert\s*\(",
+    re.I,
+)
+
+
+def _dialect_error_hint(sql, dialect):
+    """An actionable hint when a query fails because it uses another dialect's
+    syntax against this data source (T-SQL run on a SQLite/CSV source)."""
+    if dialect == "sqlite" and _TSQL_ONLY.search(sql or ""):
+        return (
+            "\n\nHint: this data source is a file/CSV, which is queried with "
+            "SQLite — it does not support SQL Server (T-SQL) syntax such as "
+            "TRY_CAST, DATEDIFF, CONVERT, ISNULL or the DATETIME type. Use SQLite "
+            "equivalents instead: date(x)/strftime('%Y-%m-%d', x) for dates, "
+            "(julianday(end) - julianday(start)) * 24.0 for hours between two "
+            "timestamps (or * 1440 for minutes), and CAST(x AS REAL) to treat a "
+            "text column as a number. Dates must be ISO 'YYYY-MM-DD HH:MM:SS' "
+            "for the date functions to work."
+        )
+    return ""
+
+
 def execute_raw_sql(datasource, sql, database=None, params=None, max_rows=None):
     """Execute a hand-written SQL statement after enforcing read-only rules.
 
@@ -86,7 +156,7 @@ def execute_raw_sql(datasource, sql, database=None, params=None, max_rows=None):
     except QueryError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise QueryError(str(exc)) from exc
+        raise QueryError(str(exc) + _dialect_error_hint(sql, engine.dialect.name)) from exc
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -428,8 +498,9 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
                          {**merged, "dse_lim": limit, "dse_off": offset})
         # COUNT(*) is expensive on large joins — skip it while paging (the caller
         # already has the total from the first page); compute it by default.
+        # Only an EXPLICIT False skips it (callers may pass the key as None).
         total = None
-        if spec.get("with_count", True):
+        if spec.get("with_count") is not False:
             _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
             total = int(count_rows[0][0] or 0)
         # Row values are positional, so use the dataset's authoritative output

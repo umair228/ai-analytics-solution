@@ -1,4 +1,5 @@
 """Executor tests: filter-WHERE compilation and full-data explore queries."""
+import json
 import os
 import sqlite3
 import tempfile
@@ -9,11 +10,13 @@ from django.test import SimpleTestCase, TestCase
 from connections.models import DataSource
 from querybuilder.executor import (
     QueryError,
+    _dialect_error_hint,
     _remap_order_by,
     _wrap_for_filter,
     build_filter_where,
     execute_dataset_query,
     execute_raw_sql_filtered,
+    sql_bind_params,
 )
 
 User = get_user_model()
@@ -61,6 +64,39 @@ class BuildFilterWhereTests(SimpleTestCase):
             [{"column": "VALUE", "type": "compare", "op": ">=", "value": 10}],
             self.COLS, _quote, resolve=lambda c: '"dse_c1"')
         self.assertEqual(where, '"dse_c1" >= :flt0')
+
+
+class BindParamTests(SimpleTestCase):
+    def test_detects_distinct_params_in_order(self):
+        sql = ("WHERE (:lab_id = '' OR lab_id = :lab_id) "
+               "AND received >= :received_from AND received <= :received_to")
+        self.assertEqual(sql_bind_params(sql),
+                         ["lab_id", "received_from", "received_to"])
+
+    def test_ignores_time_literals_and_casts(self):
+        # '12:30:00' is a string literal; ::text is a cast — neither is a bind.
+        self.assertEqual(sql_bind_params("SELECT '12:30:00', x::text FROM t"), [])
+        self.assertEqual(sql_bind_params("SELECT * FROM t WHERE t = '2024-01-01 08:00:00'"), [])
+
+    def test_ignores_comments(self):
+        self.assertEqual(sql_bind_params("SELECT 1 -- :nope\n/* :also_no */ FROM t"), [])
+
+
+class DialectHintTests(SimpleTestCase):
+    def test_hint_for_tsql_on_sqlite(self):
+        for q in ("SELECT TRY_CAST(x AS DATETIME) FROM t",
+                  "SELECT DATEDIFF(MINUTE, a, b) FROM t",
+                  "SELECT CONVERT(varchar, x) FROM t",
+                  "SELECT ISNULL(x, 0) FROM t"):
+            self.assertIn("SQLite", _dialect_error_hint(q, "sqlite"))
+            self.assertIn("julianday", _dialect_error_hint(q, "sqlite"))
+
+    def test_no_hint_for_plain_sql_on_sqlite(self):
+        self.assertEqual(_dialect_error_hint("SELECT date(x) FROM t", "sqlite"), "")
+
+    def test_no_hint_on_mssql(self):
+        self.assertEqual(
+            _dialect_error_hint("SELECT TRY_CAST(x AS DATETIME) FROM t", "mssql"), "")
 
 
 class RemapOrderByTests(SimpleTestCase):
@@ -242,6 +278,120 @@ class ExecuteDatasetQueryTests(TestCase):
                        "agg": "median"})
         with self.assertRaises(QueryError):
             self._run({"mode": "extent", "column": "NOPE"})
+
+
+class ExportAllTests(TestCase):
+    """The CSV export must stream EVERY row of the result — no preview cap."""
+
+    N_ROWS = 12345  # deliberately above any preview page size
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        fd, cls.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        conn = sqlite3.connect(cls.db_path)
+        conn.execute("CREATE TABLE big (n INTEGER, label TEXT)")
+        conn.executemany("INSERT INTO big VALUES (?, ?)",
+                         [(i, f"row-{i}") for i in range(cls.N_ROWS)])
+        conn.commit()
+        conn.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        os.unlink(cls.db_path)
+
+    def setUp(self):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        self.factory = APIRequestFactory()
+        self.force = force_authenticate
+        self.user = User.objects.create_superuser("exp-tester", "e@x.co", "x")
+        self.ds = DataSource.objects.create(
+            name="exp-sqlite", source_type="sqlite", owner=self.user,
+            options={"path": self.db_path})
+
+    def _post(self, body):
+        from querybuilder.views import QueryDefinitionViewSet
+        view = QueryDefinitionViewSet.as_view({"post": "export"})
+        req = self.factory.post("/x/", body, format="json")
+        self.force(req, user=self.user)
+        return view(req)
+
+    def test_streams_every_row(self):
+        resp = self._post({"datasource": self.ds.id, "mode": "raw",
+                           "raw_sql": "SELECT n, label FROM big ORDER BY n"})
+        body = b"".join(resp.streaming_content).decode()
+        lines = [l for l in body.strip().splitlines() if l]
+        self.assertEqual(lines[0], "n,label")
+        self.assertEqual(len(lines), self.N_ROWS + 1)  # header + ALL rows
+        self.assertEqual(lines[1], "0,row-0")
+        self.assertEqual(lines[-1], f"{self.N_ROWS - 1},row-{self.N_ROWS - 1}")
+
+    def test_rejects_writes(self):
+        resp = self._post({"datasource": self.ds.id, "mode": "raw",
+                           "raw_sql": "DELETE FROM big"})
+        self.assertEqual(resp.status_code, 400)
+
+
+class ExecuteUnboundParamsTests(TestCase):
+    """Running raw SQL with :params that were never declared must NOT crash —
+    the ad-hoc runner fills them with '' (the recommended OR-pattern then just
+    applies no filter)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        fd, cls.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        conn = sqlite3.connect(cls.db_path)
+        conn.execute("CREATE TABLE data (sample_id TEXT, lab_id TEXT, received_datetime TEXT)")
+        conn.executemany("INSERT INTO data VALUES (?, ?, ?)", [
+            ("S1", "LAB-GAS", "2025-01-05 08:00:00"),
+            ("S2", "LAB-OIL", "2025-02-02 10:00:00"),
+        ])
+        conn.commit()
+        conn.close()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        os.unlink(cls.db_path)
+
+    def setUp(self):
+        self.user = User.objects.create_superuser("param-tester", "p@x.co", "x")
+        self.ds = DataSource.objects.create(
+            name="param-sqlite", source_type="sqlite", owner=self.user,
+            options={"path": self.db_path})
+
+    def _execute(self, sql, parameters=None, params=None):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from querybuilder.views import QueryDefinitionViewSet
+        view = QueryDefinitionViewSet.as_view({"post": "execute"})
+        body = {"datasource": self.ds.id, "mode": "raw", "raw_sql": sql}
+        if parameters is not None:
+            body["parameters"] = parameters
+        if params is not None:
+            body["params"] = params
+        req = APIRequestFactory().post("/x/", body, format="json")
+        force_authenticate(req, user=self.user)
+        resp = view(req)
+        resp.render()
+        return resp, json.loads(resp.content)
+
+    SQL = ("SELECT lab_id, COUNT(*) AS n FROM data "
+           "WHERE (:lab_id = '' OR lab_id = :lab_id) GROUP BY lab_id ORDER BY lab_id")
+
+    def test_undeclared_params_default_to_empty_and_run(self):
+        resp, out = self._execute(self.SQL)  # no parameters declared at all
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(out["row_count"], 2)  # empty lab_id -> no filter
+
+    def test_supplied_param_value_filters(self):
+        resp, out = self._execute(self.SQL, params={"lab_id": "LAB-OIL"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(out["row_count"], 1)
+        self.assertEqual(out["rows"][0][0], "LAB-OIL")
 
 
 class DuplicateColumnQueryTests(TestCase):
