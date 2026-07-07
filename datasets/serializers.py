@@ -15,13 +15,13 @@ class DatasetSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "description", "query", "query_name", "datasource_name",
             "owner", "owner_username", "site", "visibility", "shared_with",
-            "cached_columns", "calculated_fields", "row_count",
+            "cached_columns", "calculated_fields", "row_count", "total_row_count",
             "last_refreshed_at", "last_error", "refresh_interval",
             "next_refresh_at", "param_defaults", "query_parameters",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "owner", "cached_columns", "row_count",
+            "id", "owner", "cached_columns", "row_count", "total_row_count",
             "last_refreshed_at", "last_error", "next_refresh_at",
             "created_at", "updated_at",
         ]

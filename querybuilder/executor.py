@@ -56,19 +56,20 @@ def _result_payload(result, sql, max_rows):
     }
 
 
-def execute_spec(datasource, raw_spec, database=None):
+def execute_spec(datasource, raw_spec, database=None, max_rows=None):
     """Compile and execute a query spec. Returns a result payload."""
     compiled = compile_spec(datasource, raw_spec, database)
     engine = get_engine(datasource, database)
     try:
         with engine.connect() as conn:
             result = conn.execute(compiled.statement)
-            return _result_payload(result, compiled.sql, settings.DSE_QUERY_MAX_ROWS)
+            return _result_payload(result, compiled.sql,
+                                   max_rows or settings.DSE_QUERY_MAX_ROWS)
     except Exception as exc:  # noqa: BLE001
         raise QueryError(str(exc)) from exc
 
 
-def execute_raw_sql(datasource, sql, database=None, params=None):
+def execute_raw_sql(datasource, sql, database=None, params=None, max_rows=None):
     """Execute a hand-written SQL statement after enforcing read-only rules.
 
     params: optional dict of named bind-parameters, e.g. {"start_date": "2024-01-01"}.
@@ -80,7 +81,8 @@ def execute_raw_sql(datasource, sql, database=None, params=None):
         with engine.connect() as conn:
             stmt = text(sql)
             result = conn.execute(stmt, params or {})
-            return _result_payload(result, sql, settings.DSE_QUERY_MAX_ROWS)
+            return _result_payload(result, sql,
+                                   max_rows or settings.DSE_QUERY_MAX_ROWS)
     except QueryError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -204,6 +206,32 @@ _AGG_SQL = {
 EXPLORE_MAX_GROUPS = 5000
 EXPLORE_MAX_PAGE = 10000
 
+# Dialect-specific date truncation for time-series bucketing. Expressions
+# yield sortable ISO prefixes (YYYY / YYYY-MM / YYYY-MM-DD).
+_BUCKET_SQL = {
+    "mssql": {
+        "day": "CONVERT(varchar(10), {x}, 23)",
+        "month": "CONVERT(varchar(7), {x}, 23)",
+        "year": "CONVERT(varchar(4), {x}, 23)",
+    },
+    "sqlite": {
+        "day": "strftime('%Y-%m-%d', {x})",
+        "month": "strftime('%Y-%m', {x})",
+        "year": "strftime('%Y', {x})",
+    },
+    "postgresql": {
+        "day": "to_char({x}, 'YYYY-MM-DD')",
+        "month": "to_char({x}, 'YYYY-MM')",
+        "year": "to_char({x}, 'YYYY')",
+    },
+}
+
+
+def _bucket_expr(dialect, x_sql, bucket):
+    """Date-truncation SQL for the dialect, or None when unsupported."""
+    tmpl = _BUCKET_SQL.get(dialect, {}).get(bucket)
+    return tmpl.format(x=x_sql) if tmpl else None
+
 
 def execute_dataset_query(datasource, sql, database=None, params=None,
                           filters=None, columns=None, spec=None):
@@ -266,6 +294,16 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
         lo, hi = jsonable_rows([tuple(rows[0])])[0] if rows else (None, None)
         return {"column": spec.get("column"), "min": lo, "max": hi}
 
+    if mode == "scalar":
+        agg = (spec.get("agg") or "count").lower()
+        if agg not in _AGG_SQL:
+            raise QueryError(f"Unsupported aggregation: {agg!r}")
+        y = safe_col(spec.get("y"), "y") if agg != "count" else ""
+        val = _AGG_SQL[agg].format(y=y)
+        _, rows = run(f"SELECT {val} FROM {sub}{where_sql}", merged)
+        value = jsonable_rows([tuple(rows[0])])[0][0] if rows else None
+        return {"value": value, "agg": agg}
+
     if mode == "aggregate":
         agg = (spec.get("agg") or "count").lower()
         if agg not in _AGG_SQL:
@@ -273,15 +311,24 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
         x = safe_col(spec.get("x"), "x")
         y = safe_col(spec.get("y"), "y") if agg != "count" else ""
         val = _AGG_SQL[agg].format(y=y)
+        # Optional time-series bucketing: group a date column by day/month/year
+        # (chronological order) instead of by raw timestamp.
+        bucket = (spec.get("x_bucket") or "").lower() or None
+        if bucket:
+            if bucket not in ("day", "month", "year"):
+                raise QueryError(f"Unsupported x_bucket: {bucket!r}")
+            x = _bucket_expr(dialect, x, bucket) or x
         limit = max(1, min(int(spec.get("limit") or 500), EXPLORE_MAX_GROUPS))
         group_by = spec.get("group_by")
+        order = "dse_label ASC" if bucket else "dse_value DESC"
         if group_by:
             g = safe_col(group_by, "group_by")
-            q = (f"SELECT {x}, {g}, {val} AS dse_value FROM {sub}{where_sql}"
-                 f"\nGROUP BY {x}, {g}\nORDER BY dse_value DESC")
+            q = (f"SELECT {x} AS dse_label, {g} AS dse_group, {val} AS dse_value "
+                 f"FROM {sub}{where_sql}"
+                 f"\nGROUP BY {x}, {g}\nORDER BY {order}")
         else:
-            q = (f"SELECT {x}, {val} AS dse_value FROM {sub}{where_sql}"
-                 f"\nGROUP BY {x}\nORDER BY dse_value DESC")
+            q = (f"SELECT {x} AS dse_label, {val} AS dse_value FROM {sub}{where_sql}"
+                 f"\nGROUP BY {x}\nORDER BY {order}")
         cols, rows = run(limited(q, limit),
                          {**merged, "dse_lim": limit + 1, "dse_off": 0})
         rows = jsonable_rows(rows)
@@ -291,7 +338,8 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
             data = [{"label": r[0], "group": r[1], "value": r[2]} for r in rows]
         else:
             data = [{"label": r[0], "value": r[1]} for r in rows]
-        return {"data": data, "row_count": len(data), "truncated": truncated}
+        return {"data": data, "row_count": len(data), "truncated": truncated,
+                "x_bucket": bucket}
 
     if mode == "rows":
         limit = max(1, min(int(spec.get("limit") or 1000), EXPLORE_MAX_PAGE))
@@ -315,7 +363,7 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
 
 
 def execute_raw_sql_filtered(datasource, sql, database=None, params=None,
-                             filters=None, columns=None):
+                             filters=None, columns=None, max_rows=None):
     """Run raw SQL with optional dashboard filters applied server-side.
 
     ``params``  — query bind-params (e.g. pre-aggregation date params).
@@ -324,18 +372,21 @@ def execute_raw_sql_filtered(datasource, sql, database=None, params=None,
     ``columns`` — the query's known output columns (the allow-list).
     """
     if not filters:
-        return execute_raw_sql(datasource, sql, database, params=params)
+        return execute_raw_sql(datasource, sql, database, params=params,
+                               max_rows=max_rows)
 
     assert_read_only(sql)
     engine = get_engine(datasource, database)
     quote = engine.dialect.identifier_preparer.quote
     where, fparams = build_filter_where(filters, columns, quote)
     if not where:
-        return execute_raw_sql(datasource, sql, database, params=params)
+        return execute_raw_sql(datasource, sql, database, params=params,
+                               max_rows=max_rows)
 
     body, order_by = _split_trailing_order_by(sql)
     wrapped = f"SELECT * FROM (\n{body}\n) AS dse_sub\nWHERE {where}"
     if order_by:
         wrapped = f"{wrapped}\n{order_by}"
     merged = {**(params or {}), **fparams}
-    return execute_raw_sql(datasource, wrapped, database, params=merged)
+    return execute_raw_sql(datasource, wrapped, database, params=merged,
+                           max_rows=max_rows)

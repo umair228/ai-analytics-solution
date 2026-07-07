@@ -143,6 +143,30 @@ class ExecuteDatasetQueryTests(TestCase):
                       "op": ">", "value": 25}])
         self.assertEqual(out["total_row_count"], 3)
 
+    def test_scalar(self):
+        out = self._run({"mode": "scalar", "y": "VALUE", "agg": "avg"})
+        self.assertAlmostEqual(out["value"], 31.1)
+        out = self._run(
+            {"mode": "scalar", "agg": "count"},
+            filters=[{"column": "PRODUCT", "type": "dropdown", "value": "Diesel"}])
+        self.assertEqual(out["value"], 3)
+
+    def test_aggregate_bucketed_by_month(self):
+        out = self._run({"mode": "aggregate", "x": "ENTERED_ON", "y": "VALUE",
+                         "agg": "sum", "x_bucket": "month"})
+        self.assertEqual(out["x_bucket"], "month")
+        # Chronological, day-collapsed buckets.
+        self.assertEqual([d["label"] for d in out["data"]],
+                         ["2022-08", "2023-01", "2023-08"])
+        self.assertEqual(out["data"][0]["value"], 60.0)
+
+    def test_aggregate_bucketed_by_year(self):
+        out = self._run({"mode": "aggregate", "x": "ENTERED_ON",
+                         "agg": "count", "x_bucket": "year"})
+        self.assertEqual(
+            {d["label"]: d["value"] for d in out["data"]},
+            {"2022": 3, "2023": 2})
+
     def test_rejects_unknown_identifiers(self):
         with self.assertRaises(QueryError):
             self._run({"mode": "aggregate", "x": "NOPE", "agg": "count"})

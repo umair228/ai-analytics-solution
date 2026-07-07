@@ -134,6 +134,36 @@ class DatasetViewSet(viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 live_filters = None
 
+        # ?limit= pulls more rows than the cached preview (bounded server-side).
+        limit = None
+        if request.query_params.get("limit"):
+            from querybuilder.executor import EXPLORE_MAX_PAGE
+            try:
+                limit = max(1, min(int(request.query_params["limit"]),
+                                   EXPLORE_MAX_PAGE))
+            except (TypeError, ValueError):
+                limit = None
+
+        if limit and not (live_params or live_filters):
+            # Fresh pull at the requested size, bypassing the capped cache.
+            try:
+                from querybuilder.executor import execute_raw_sql, execute_spec
+                from querybuilder.models import QueryDefinition
+                q = dataset.query
+                merged = dataset.param_defaults or {}
+                if q.mode == QueryDefinition.Mode.RAW:
+                    result = execute_raw_sql(q.datasource, q.raw_sql,
+                                             q.database or None,
+                                             params=merged or None,
+                                             max_rows=limit)
+                else:
+                    result = execute_spec(q.datasource, q.spec,
+                                          q.database or None, max_rows=limit)
+                return Response({**result,
+                                 "last_refreshed_at": dataset.last_refreshed_at})
+            except Exception as exc:  # noqa: BLE001
+                return _error(exc)
+
         if live_params or live_filters:
             # Run fresh with the supplied params / filters; bypass the cache.
             try:
@@ -148,6 +178,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
                         q.datasource, q.raw_sql, q.database or None,
                         params=merged, filters=live_filters,
                         columns=dataset.cached_columns or [],
+                        max_rows=limit,
                     )
                 else:
                     result = execute_spec(q.datasource, q.spec, q.database or None)
@@ -204,8 +235,8 @@ class DatasetViewSet(viewsets.ModelViewSet):
 
         body = request.data or {}
         spec = {k: body.get(k)
-                for k in ("mode", "x", "y", "agg", "group_by", "column",
-                          "limit", "offset")}
+                for k in ("mode", "x", "y", "agg", "group_by", "x_bucket",
+                          "column", "limit", "offset")}
         merged_params = {**(dataset.param_defaults or {}),
                          **(body.get("params") or {})}
         try:
