@@ -1,0 +1,30 @@
+# Keep host-only / dev-only files out of the image. Without this, `COPY . .`
+# bakes a local `.env` (Mac absolute paths, secrets) into the image, and
+# python-decouple then reads those paths instead of the container defaults —
+# e.g. FORECAST_DB pointing at a /Users/... warehouse that does not exist here.
+.env
+.env.*
+!.env.prod.example
+
+# Virtualenvs / caches / training side-output
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+lightning_logs/
+np_runtime/
+
+# VCS / editor / OS cruft
+.git/
+.gitignore
+.idea/
+.vscode/
+.DS_Store
+
+# Docs / local scratch that don't belong in the runtime image
+*.md
+!forecasting/warehouse/README.md
