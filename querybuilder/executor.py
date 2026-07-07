@@ -125,23 +125,96 @@ def _coerce_date_to(value: str) -> str:
     return f"{v} 23:59:59.997" if len(v) == 10 and v[4] == "-" else v
 
 
+# Dialects that reject duplicate column names in a derived table but support a
+# positional column-alias list on it (T-SQL / Postgres). SQLite & MySQL tolerate
+# duplicate subquery columns, so they use the plain wrapper.
+_ALIAS_LIST_DIALECTS = {"mssql", "postgresql"}
+# SQLAlchemy renders duplicate result-set columns as "name:1", "name:2" — a
+# reliable signal that the underlying query SELECTs a column more than once
+# (the literal duplicate is gone from cached_columns by the time we see it).
+_DUP_SUFFIX = re.compile(r":\d+$")
+
+
+def _wrap_for_filter(body, columns, quote, dialect="mssql"):
+    """Build a derived table to filter/aggregate over, robust to real-world SQL.
+
+    When the query outputs DUPLICATE column names (e.g. a SELECT listing
+    ``R.NAME`` twice) a derived table / CTE is invalid on strict dialects. There
+    we alias every column positionally (``dse_c0 … dse_cN``) so the subquery has
+    unique names; the caller relabels the result back to the true output names.
+
+    Returns ``(from_clause, name_to_sql, projection, aliased)``:
+      - ``from_clause`` — ``(<body>) AS dse_sub`` or ``… (dse_c0, dse_c1, …)``.
+      - ``name_to_sql`` — output-column name → the SQL to reference it inside the
+        wrapper (first occurrence wins on duplicates).
+      - ``projection`` — ``"*"`` normally, or the ordered alias list when aliased.
+      - ``aliased`` — True when positional aliases were used.
+    """
+    cols = [str(c) for c in (columns or [])]
+    has_dups = len(cols) != len(set(cols)) or any(_DUP_SUFFIX.search(c) for c in cols)
+    if has_dups and cols and dialect in _ALIAS_LIST_DIALECTS:
+        aliases = [f"dse_c{i}" for i in range(len(cols))]
+        alias_list = ", ".join(quote(a) for a in aliases)
+        from_clause = f"(\n{body}\n) AS dse_sub ({alias_list})"
+        name_to_sql = {}
+        for i, name in enumerate(cols):
+            name_to_sql.setdefault(name, quote(aliases[i]))
+        projection = ", ".join(quote(a) for a in aliases)  # caller relabels names
+        return from_clause, name_to_sql, projection, True
+    name_to_sql = {}
+    for name in cols:
+        name_to_sql.setdefault(name, quote(name))
+    return f"(\n{body}\n) AS dse_sub", name_to_sql, "*", False
+
+
+_ORDER_TERM_RE = re.compile(
+    r"^\s*(?:[A-Za-z_][\w$]*\s*\.\s*)*([A-Za-z_][\w$]*)\s*(asc|desc)?\s*$", re.I)
+
+
+def _remap_order_by(order_by, name_to_sql):
+    """Re-point a lifted trailing ORDER BY at the wrapper's columns.
+
+    Outside the derived table the inner table aliases (``R.``/``S.``) are out of
+    scope, so ``ORDER BY R.ENTERED_ON DESC`` must become the wrapper column.
+    Each term's table qualifier is stripped and matched to an output column; if
+    every term maps we rebuild the clause, otherwise we drop it (safe: ordering
+    a filtered preview is cosmetic, a bad ORDER BY would error the whole query).
+    """
+    if not order_by:
+        return ""
+    body = order_by[len("order by"):] if order_by[:8].lower() == "order by" else order_by
+    terms = []
+    for raw in body.split(","):
+        m = _ORDER_TERM_RE.match(raw)
+        if not m:
+            return ""  # expression / unparseable → drop the whole ORDER BY
+        col_sql = name_to_sql.get(m.group(1))
+        if not col_sql:
+            return ""  # ordering column isn't in the output → drop
+        terms.append(col_sql + (f" {m.group(2).upper()}" if m.group(2) else ""))
+    return "ORDER BY " + ", ".join(terms)
+
+
 _COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "=": "=", "!=": "<>"}
 
 
-def build_filter_where(filters, allowed_columns, quote) -> tuple[str, dict]:
+def build_filter_where(filters, allowed_columns, quote, resolve=None) -> tuple[str, dict]:
     """Build a parameterised WHERE fragment from dashboard filter specs.
 
     Only columns present in ``allowed_columns`` are honoured (guards against
     injecting arbitrary identifiers). Values are always bound, never inlined.
-    Returns ("a AND b", {params}) or ("", {}).
+    ``resolve(name)`` maps an output-column name to the SQL identifier to filter
+    on (e.g. a positional alias when the wrapper renames columns); defaults to
+    quoting the name as-is. Returns ("a AND b", {params}) or ("", {}).
     """
     allowed = set(allowed_columns or [])
+    resolve = resolve or (lambda c: quote(c))
     clauses, params = [], {}
     for i, f in enumerate(filters or []):
         col = (f or {}).get("column")
         if not col or col not in allowed:
             continue
-        qcol = quote(col)
+        qcol = resolve(col)
         ftype = f.get("type")
         pk = f"flt{i}"
 
@@ -255,16 +328,20 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
     allowed = set(columns or [])
     dialect = engine.dialect.name  # 'mssql' | 'sqlite' | 'postgresql' | ...
 
-    where, fparams = build_filter_where(filters, columns, quote)
     body, order_by = _split_trailing_order_by(sql)
-    sub = f"(\n{body}\n) AS dse_sub"
+    # Robust derived table: positional aliases when the query outputs duplicate
+    # column names (a subquery can't have them), plain wrapper otherwise.
+    sub, name_to_sql, projection, aliased = _wrap_for_filter(body, columns, quote, dialect)
+    resolve = lambda c: name_to_sql.get(c) or quote(c)  # noqa: E731
+    where, fparams = build_filter_where(filters, columns, quote, resolve=resolve)
+    order_by = _remap_order_by(order_by, name_to_sql)
     where_sql = f"\nWHERE {where}" if where else ""
     merged = {**(params or {}), **fparams}
 
     def safe_col(name, what):
         if not name or name not in allowed:
             raise QueryError(f"Unknown column for {what}: {name!r}")
-        return quote(name)
+        return resolve(name)
 
     def run(q, bind):
         try:
@@ -344,14 +421,18 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
     if mode == "rows":
         limit = max(1, min(int(spec.get("limit") or 1000), EXPLORE_MAX_PAGE))
         offset = max(0, int(spec.get("offset") or 0))
-        q = f"SELECT * FROM {sub}{where_sql}"
+        q = f"SELECT {projection} FROM {sub}{where_sql}"
         if order_by:
             q += f"\n{order_by}"
         cols, rows = run(limited(q, limit, offset),
                          {**merged, "dse_lim": limit, "dse_off": offset})
         _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
+        # Row values are positional, so use the dataset's authoritative output
+        # names — avoids the driver's dedup renaming (aliases / "name:1").
+        out_cols = list(columns) if columns and len(columns) == len(cols) \
+            else [str(c) for c in cols]
         return {
-            "columns": [str(c) for c in cols],
+            "columns": out_cols,
             "rows": jsonable_rows(rows),
             "row_count": len(rows),
             "offset": offset,
@@ -378,15 +459,27 @@ def execute_raw_sql_filtered(datasource, sql, database=None, params=None,
     assert_read_only(sql)
     engine = get_engine(datasource, database)
     quote = engine.dialect.identifier_preparer.quote
-    where, fparams = build_filter_where(filters, columns, quote)
+
+    body, order_by = _split_trailing_order_by(sql)
+    # Positional aliases when the query outputs duplicate column names (a derived
+    # table can't have them); the explicit projection restores the real names.
+    sub, name_to_sql, projection, _aliased = _wrap_for_filter(
+        body, columns, quote, engine.dialect.name)
+    resolve = lambda c: name_to_sql.get(c) or quote(c)  # noqa: E731
+    where, fparams = build_filter_where(filters, columns, quote, resolve=resolve)
     if not where:
         return execute_raw_sql(datasource, sql, database, params=params,
                                max_rows=max_rows)
 
-    body, order_by = _split_trailing_order_by(sql)
-    wrapped = f"SELECT * FROM (\n{body}\n) AS dse_sub\nWHERE {where}"
-    if order_by:
-        wrapped = f"{wrapped}\n{order_by}"
+    wrapped = f"SELECT {projection} FROM {sub}\nWHERE {where}"
+    remapped = _remap_order_by(order_by, name_to_sql)
+    if remapped:
+        wrapped = f"{wrapped}\n{remapped}"
     merged = {**(params or {}), **fparams}
-    return execute_raw_sql(datasource, wrapped, database, params=merged,
-                           max_rows=max_rows)
+    result = execute_raw_sql(datasource, wrapped, database, params=merged,
+                             max_rows=max_rows)
+    # Positional relabel to the true output names (the wrapper may have aliased
+    # them, and the driver dedups duplicates to "name:1").
+    if columns and len(columns) == len(result.get("columns", [])):
+        result["columns"] = list(columns)
+    return result
