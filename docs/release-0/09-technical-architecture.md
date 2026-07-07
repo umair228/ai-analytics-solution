@@ -1,6 +1,6 @@
 # Technical Architecture — DSE Release 0
 
-**Status:** Draft · **Owner:** Muhammad Naseem / Umair Khan · **AI/ML section review:** `[REVIEW: ML]` (Kulsoom) · **Extends:** `../../DIS_ENTERPRISE_ARCHITECTURE.md`
+**Status:** Draft · **Owner:** Umair Khan · **AI/ML section review:** `[REVIEW: ML]` (Kulsoom) · **Extends:** `../../DIS_ENTERPRISE_ARCHITECTURE.md`
 
 ## 1. System context
 DSE is an on‑premise analytics platform over LabWare LIMS data. Users work through a React SPA; a Django/DRF backend serves data access, an analytics engine, and a tool‑using AI agent backed by a **local** LLM. No third‑party inference at runtime.

@@ -1,6 +1,6 @@
 # Requirements & Design Document — DSE Release 0
 
-**Document status:** Draft · **Owner:** Muhammad Naseem · **ML methodology review:** `[REVIEW: ML]` (Kulsoom) · **Version:** 0.9
+**Document status:** Draft · **Owner:** Umair Khan · **ML methodology review:** `[REVIEW: ML]` (Umair Khan) · **Version:** 0.9
 
 ## 1. Purpose & scope
 Release 0 turns three previously-embedded analytics capabilities into first-class,

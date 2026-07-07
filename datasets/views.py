@@ -31,6 +31,37 @@ def _error(exc):
     return Response({"error": True, "detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+def _infer_output_filter_type(name: str, sample_values: list) -> str:
+    """Pick a filter control for a dataset output column from its name + a
+    sample of values (cached rows carry no SQL type, so we sniff the data)."""
+    from connections.introspection import (
+        FILTER_CATEGORY, FILTER_DATE, FILTER_NUMBER, FILTER_TEXT,
+        classify_filter_type,
+    )
+    import datetime as _dt
+
+    # Name-based hint first (catches date columns even when values are strings).
+    by_name = classify_filter_type("", name)
+    if by_name == FILTER_DATE:
+        return FILTER_DATE
+
+    non_null = [v for v in sample_values if v not in (None, "")]
+    if not non_null:
+        return by_name
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in non_null):
+        return FILTER_NUMBER
+    if all(isinstance(v, (_dt.date, _dt.datetime)) for v in non_null):
+        return FILTER_DATE
+    # Looks like an ISO date string?
+    if all(isinstance(v, str) and len(v) >= 8 and v[:4].isdigit() and v[4] in "-/"
+           for v in non_null):
+        return FILTER_DATE
+    # Low cardinality → dropdown, else free-text search.
+    if len({str(v) for v in non_null}) <= 25:
+        return FILTER_CATEGORY
+    return FILTER_TEXT
+
+
 class DatasetViewSet(viewsets.ModelViewSet):
     """Reusable, cached result sets backed by saved queries, with a
     pandas-powered statistics / aggregation / comparison / prediction engine."""
@@ -52,7 +83,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "list", "retrieve", "data", "refresh",
             "statistics", "aggregate", "compare",
             "forecast", "anomalies", "summary", "ask", "profile",
-            "correlation", "rolling",
+            "correlation", "rolling", "filter_options", "distinct_values",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
@@ -93,16 +124,30 @@ class DatasetViewSet(viewsets.ModelViewSet):
             except (ValueError, TypeError):
                 live_params = None
 
-        if live_params:
-            # Run fresh with the supplied params; bypass the cache.
+        raw_filters = request.query_params.get("filters")
+        live_filters = None
+        if raw_filters:
             try:
-                from querybuilder.executor import execute_raw_sql, execute_spec
+                parsed = json.loads(raw_filters)
+                live_filters = parsed if isinstance(parsed, list) else None
+            except (ValueError, TypeError):
+                live_filters = None
+
+        if live_params or live_filters:
+            # Run fresh with the supplied params / filters; bypass the cache.
+            try:
+                from querybuilder.executor import (
+                    execute_raw_sql_filtered, execute_spec,
+                )
                 from querybuilder.models import QueryDefinition
                 q = dataset.query
-                merged = {**(dataset.param_defaults or {}), **live_params}
+                merged = {**(dataset.param_defaults or {}), **(live_params or {})}
                 if q.mode == QueryDefinition.Mode.RAW:
-                    result = execute_raw_sql(q.datasource, q.raw_sql,
-                                            q.database or None, params=merged)
+                    result = execute_raw_sql_filtered(
+                        q.datasource, q.raw_sql, q.database or None,
+                        params=merged, filters=live_filters,
+                        columns=dataset.cached_columns or [],
+                    )
                 else:
                     result = execute_spec(q.datasource, q.spec, q.database or None)
                 return Response({**result, "last_refreshed_at": dataset.last_refreshed_at})
@@ -123,6 +168,108 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "rows": df_to_rows(df),
             "row_count": int(len(df)),
             "last_refreshed_at": dataset.last_refreshed_at,
+        })
+
+    @action(detail=True, methods=["get"], url_path="filter-options")
+    def filter_options(self, request, pk=None):
+        """Discover filterable columns for this dataset.
+
+        Walks the dataset's result columns *and* introspects the underlying
+        source tables in the live database, classifying each column into a
+        filter control (date-range / dropdown / number-range / text-search).
+        This is what lets the dashboard "go through the DB and set up filters".
+        """
+        from connections import introspection as I
+        from querybuilder.models import QueryDefinition
+
+        dataset = self.get_object()
+        q = dataset.query
+        ds = q.datasource
+        database = q.database or None
+
+        # 1) Columns the dataset already outputs — always safe to filter on
+        #    (applied server-side via a subquery wrapper). Type inferred from
+        #    the cached sample rows.
+        output_cols = []
+        cols = dataset.cached_columns or []
+        sample = (dataset.cached_rows or [])[:200]
+        for idx, name in enumerate(cols):
+            values = [r[idx] for r in sample if idx < len(r) and r[idx] is not None]
+            ftype = _infer_output_filter_type(name, values)
+            output_cols.append({
+                "column": name, "filter_type": ftype, "source": "output",
+            })
+
+        # 2) Columns discovered by introspecting the source tables (so users
+        #    can filter on dimensions like SAMPLE.LOGIN_DATE that aren't in the
+        #    aggregated output — wired through query parameters).
+        source_cols = []
+        tables = []
+        if q.mode == QueryDefinition.Mode.RAW and ds.source_type in I.SourceType.DATABASE_TYPES:
+            try:
+                for t in I.source_tables_from_sql(q.raw_sql):
+                    classified = I.classify_columns(
+                        ds, t["table"], schema=t["schema"], database=database)
+                    tables.append({"table": t["table"], "schema": t["schema"],
+                                   "column_count": len(classified)})
+                    for c in classified:
+                        c["schema"] = t["schema"]
+                        source_cols.append(c)
+            except Exception as exc:  # noqa: BLE001 — discovery is best-effort
+                return Response({
+                    "output_columns": output_cols, "source_columns": [],
+                    "tables": [], "params": q.parameters or [],
+                    "discovery_error": str(exc),
+                })
+
+        return Response({
+            "output_columns": output_cols,
+            "source_columns": source_cols,
+            "tables": tables,
+            "params": q.parameters or [],
+        })
+
+    @action(detail=True, methods=["get"], url_path="distinct-values")
+    def distinct_values(self, request, pk=None):
+        """Live distinct values / min-max for one column — populates a filter
+        control. ?column=NAME [&table=SAMPLE&schema=dbo] (table → source
+        introspection; omitted → derive from the dataset's cached rows)."""
+        from connections import introspection as I
+
+        dataset = self.get_object()
+        column = request.query_params.get("column")
+        if not column:
+            return _error("Query parameter 'column' is required.")
+        table = request.query_params.get("table")
+        q = dataset.query
+
+        if table:
+            try:
+                return Response(I.column_profile(
+                    q.datasource, table, column,
+                    schema=request.query_params.get("schema"),
+                    database=q.database or None,
+                ))
+            except Exception as exc:  # noqa: BLE001
+                return _error(exc)
+
+        # Fall back to distinct values from the cached output rows.
+        cols = dataset.cached_columns or []
+        if column not in cols:
+            return _error(f"Column '{column}' is not in this dataset.")
+        idx = cols.index(column)
+        seen = []
+        seen_set = set()
+        for r in dataset.cached_rows or []:
+            if idx < len(r) and r[idx] is not None:
+                key = str(r[idx])
+                if key not in seen_set:
+                    seen_set.add(key)
+                    seen.append(r[idx])
+        return Response({
+            "column": column, "filter_type": "dropdown",
+            "distinct_count": len(seen),
+            "values": sorted(seen, key=lambda v: str(v))[:200],
         })
 
     @action(detail=True, methods=["get"])

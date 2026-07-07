@@ -1,6 +1,6 @@
 # Use Cases / Demo Scripts — DSE Release 0
 
-**Status:** Draft · **Owner:** Kulsoom (verify each clicks through; add `[SCREENSHOT]`; these double as the customer demo script) · **Version:** 0.9
+**Status:** Draft · **Owner:** Umair Khan (verify each clicks through; add `[SCREENSHOT]`; these double as the customer demo script) · **Version:** 0.9
 
 Actors: **Analyst** (runs analyses), **Lab Manager** (consumes results/reports), **Admin** (access & scheduling). All actions are over the existing dataset access model.
 
