@@ -35,7 +35,9 @@ from datasets.services import refresh_dataset  # noqa: E402
 from querybuilder.models import QueryDefinition  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
-WAREHOUSE = BASE_DIR / "media" / "refinery_lims.sqlite3"
+# Committed warehouse (forecasting/warehouse/) preferred; legacy media/ fallback.
+_COMMITTED_WH = BASE_DIR / "forecasting" / "warehouse" / "refinery_lims.sqlite3"
+WAREHOUSE = _COMMITTED_WH if _COMMITTED_WH.exists() else BASE_DIR / "media" / "refinery_lims.sqlite3"
 DS_NAME = "Refinery LIMS"
 
 # ──────────────────────────────────────────────────────────────────────────
