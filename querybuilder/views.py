@@ -13,10 +13,18 @@ from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
 from .compiler import CompileError, compile_spec
-from .executor import QueryError, execute_raw_sql, execute_spec
+from .executor import EXPLORE_MAX_PAGE, QueryError, execute_raw_sql, execute_spec
 from .models import QueryDefinition, QueryRun
 from .serializers import QueryDefinitionSerializer
 from .spec import SpecError
+
+
+def _clamp_max_rows(value):
+    """Optional per-request row cap, bounded so a preview can't melt the browser."""
+    try:
+        return max(100, min(int(value), EXPLORE_MAX_PAGE)) if value else None
+    except (TypeError, ValueError):
+        return None
 
 
 class QueryRunSerializer(serializers.ModelSerializer):
@@ -103,12 +111,15 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
         database = request.data.get("database") or None
         mode = request.data.get("mode", "builder")
         params = request.data.get("params") or None
+        max_rows = _clamp_max_rows(request.data.get("max_rows"))
         t0 = time.monotonic()
         try:
             if mode == "raw":
-                result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database, params=params)
+                result = execute_raw_sql(ds, request.data.get("raw_sql", ""), database,
+                                         params=params, max_rows=max_rows)
             else:
-                result = execute_spec(ds, request.data.get("spec") or {}, database)
+                result = execute_spec(ds, request.data.get("spec") or {}, database,
+                                      max_rows=max_rows)
         except (SpecError, CompileError, QueryError) as exc:
             QueryRun.objects.create(
                 user=request.user, datasource=ds,
@@ -141,12 +152,15 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                 status.HTTP_403_FORBIDDEN,
             )
         params = request.data.get("params") or None
+        max_rows = _clamp_max_rows(request.data.get("max_rows"))
         t0 = time.monotonic()
         try:
             if query.mode == QueryDefinition.Mode.RAW:
-                result = execute_raw_sql(ds, query.raw_sql, query.database or None, params=params)
+                result = execute_raw_sql(ds, query.raw_sql, query.database or None,
+                                         params=params, max_rows=max_rows)
             else:
-                result = execute_spec(ds, query.spec, query.database or None)
+                result = execute_spec(ds, query.spec, query.database or None,
+                                      max_rows=max_rows)
         except (SpecError, CompileError, QueryError) as exc:
             QueryRun.objects.create(
                 query=query, user=request.user, datasource=ds,
