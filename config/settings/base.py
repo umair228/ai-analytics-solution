@@ -248,19 +248,37 @@ DSE_REPLICATION_FULL_HOUR = config("DSE_REPLICATION_FULL_HOUR", default=2, cast=
 # NeuralProphet time-series models.  It does NOT use the Django ORM, so this
 # DB is kept separate from the app-metadata DB (DATABASES["default"]).
 # --------------------------------------------------------------------------
+# Committed, in-image oil-&-gas demo warehouse (forecasting/warehouse/) — not
+# under media/, so it is never shadowed by the media Docker volume. Prefer it;
+# fall back to the legacy media/ location for older checkouts.
+_COMMITTED_WAREHOUSE = BASE_DIR / "forecasting" / "warehouse" / "refinery_lims.sqlite3"
+_LEGACY_WAREHOUSE = BASE_DIR / "media" / "refinery_lims.sqlite3"
+DEFAULT_LIMS_WAREHOUSE = str(
+    _COMMITTED_WAREHOUSE if _COMMITTED_WAREHOUSE.exists() else _LEGACY_WAREHOUSE
+)
+
 FORECAST_DB = {
     # ENGINE: "mssql" (production LabWare LIMS over pyodbc) or "sqlite"
     # (self-contained LIMS warehouse file — the refinery demo).
-    "ENGINE": config("DB_ENGINE", default="mssql"),
-    "DRIVER": config("DB_DRIVER", default="ODBC Driver 18 for SQL Server"),
-    "HOST": config("DB_HOST", default="127.0.0.1"),
-    "PORT": config("DB_PORT", default="1433"),
-    "NAME": config("DB_NAME", default="SMJMUN_DEV"),
-    "USER": config("DB_USER", default="SA"),
-    "PASSWORD": config("DB_PASSWORD", default=""),
-    # Path used only when ENGINE == "sqlite".
-    "PATH": config("DB_SQLITE_PATH",
-                   default=str(BASE_DIR / "media" / "refinery_lims.sqlite3")),
+    #
+    # Each key first honours a FORECAST_DB_* override, then falls back to the
+    # shared DB_* var. This lets forecasting stay on the sqlite refinery
+    # warehouse (which the pre-trained models were built from) while the rest
+    # of the app (datasets / doc-search NL->SQL) points DB_* at a live MSSQL
+    # LIMS — the exact split needed to run forecasting on the server the way it
+    # runs locally. Backward compatible: with no FORECAST_DB_* set, behaviour
+    # is unchanged.
+    "ENGINE": config("FORECAST_DB_ENGINE", default=config("DB_ENGINE", default="mssql")),
+    "DRIVER": config("FORECAST_DB_DRIVER",
+                     default=config("DB_DRIVER", default="ODBC Driver 18 for SQL Server")),
+    "HOST": config("FORECAST_DB_HOST", default=config("DB_HOST", default="127.0.0.1")),
+    "PORT": config("FORECAST_DB_PORT", default=config("DB_PORT", default="1433")),
+    "NAME": config("FORECAST_DB_NAME", default=config("DB_NAME", default="SMJMUN_DEV")),
+    "USER": config("FORECAST_DB_USER", default=config("DB_USER", default="SA")),
+    "PASSWORD": config("FORECAST_DB_PASSWORD", default=config("DB_PASSWORD", default="")),
+    # Path used only when ENGINE == "sqlite" (committed warehouse by default).
+    "PATH": config("FORECAST_DB_SQLITE_PATH",
+                   default=config("DB_SQLITE_PATH", default=DEFAULT_LIMS_WAREHOUSE)),
 }
 
 # Inventory transactions may live in their own LIMS database. Default to the
@@ -361,8 +379,7 @@ DOCSEARCH_DB = {
     "NAME": config("DB_NAME", default="SMJMUN_DEV"),
     "USER": config("DB_USER", default="SA"),
     "PASSWORD": config("DB_PASSWORD", default=""),
-    "PATH": config("DB_SQLITE_PATH",
-                   default=str(BASE_DIR / "media" / "refinery_lims.sqlite3")),
+    "PATH": config("DB_SQLITE_PATH", default=DEFAULT_LIMS_WAREHOUSE),
 }
 DOCSEARCH_DB_TIMEOUT = config("DOCSEARCH_DB_TIMEOUT", default=20, cast=int)
 

@@ -18,6 +18,7 @@ Run standalone:  .venv/bin/python -m seed_refinery.build_warehouse
 """
 import json
 import math
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -26,7 +27,13 @@ from pathlib import Path
 from .personnel import technician_names
 
 REF_PATH = Path(__file__).resolve().parent / "reference.json"
-WAREHOUSE = Path(__file__).resolve().parent.parent / "media" / "refinery_lims.sqlite3"
+# Committed, in-image location (not shadowed by the media volume) so the built
+# warehouse is the same file the app + server point at. Overridable for ad-hoc
+# builds via the FORECAST_WAREHOUSE_OUT env var.
+WAREHOUSE = Path(
+    os.environ.get("FORECAST_WAREHOUSE_OUT")
+    or (Path(__file__).resolve().parent.parent / "forecasting" / "warehouse" / "refinery_lims.sqlite3")
+)
 
 # --------------------------------------------------------------------------
 # Section canonicalisation — the parallel research agents used a few variant
