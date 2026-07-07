@@ -84,6 +84,7 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "statistics", "aggregate", "compare",
             "forecast", "anomalies", "summary", "ask", "profile",
             "correlation", "rolling", "filter_options", "distinct_values",
+            "explore", "suggest_filters",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
@@ -169,6 +170,127 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "row_count": int(len(df)),
             "last_refreshed_at": dataset.last_refreshed_at,
         })
+
+    @action(detail=True, methods=["post"])
+    def explore(self, request, pk=None):
+        """Server-side exploration over the FULL dataset result — never limited
+        by the cached-preview row cap. Filters become SQL predicates and the
+        database computes counts / extents / aggregations / row pages.
+
+        Body: {"mode": "count"|"extent"|"aggregate"|"rows",
+               "filters": [...], "params": {...},
+               "x", "y", "agg", "group_by", "column", "limit", "offset"}
+        """
+        from querybuilder.executor import QueryError, execute_dataset_query
+        from querybuilder.models import QueryDefinition
+
+        dataset = self.get_object()
+        q = dataset.query
+        if q is None or q.mode != QueryDefinition.Mode.RAW:
+            return Response(
+                {"error": True, "unsupported": True,
+                 "detail": "Full-data explore requires a raw-SQL dataset; "
+                           "the client falls back to the cached preview."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # The output-column allow-list comes from the cached result; populate
+        # it on first use so a never-refreshed dataset still works.
+        if not dataset.cached_columns:
+            try:
+                refresh_dataset(dataset)
+            except Exception as exc:  # noqa: BLE001
+                return _error(exc)
+
+        body = request.data or {}
+        spec = {k: body.get(k)
+                for k in ("mode", "x", "y", "agg", "group_by", "column",
+                          "limit", "offset")}
+        merged_params = {**(dataset.param_defaults or {}),
+                         **(body.get("params") or {})}
+        try:
+            result = execute_dataset_query(
+                q.datasource, q.raw_sql, q.database or None,
+                params=merged_params or None,
+                filters=body.get("filters") or [],
+                columns=dataset.cached_columns or [],
+                spec=spec,
+            )
+        except QueryError as exc:
+            return _error(exc)
+        result["source"] = "database"
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="suggest-filters")
+    def suggest_filters(self, request, pk=None):
+        """AI-recommended filters for this dataset.
+
+        Heuristics over the cached sample pick sensible candidates (a date
+        window, low-cardinality dimensions, key measures); when the LLM is
+        configured it selects/re-ranks them and explains why each is useful.
+        """
+        from connections.introspection import (
+            FILTER_CATEGORY, FILTER_DATE, FILTER_NUMBER,
+        )
+
+        dataset = self.get_object()
+        cols = dataset.cached_columns or []
+        sample = (dataset.cached_rows or [])[:500]
+
+        candidates = []
+        seen_date = False
+        for idx, name in enumerate(cols):
+            values = [r[idx] for r in sample
+                      if idx < len(r) and r[idx] not in (None, "")]
+            ftype = _infer_output_filter_type(name, values)
+            label = name.lower().replace("_", " ")
+            if ftype == FILTER_DATE and not seen_date:
+                seen_date = True
+                candidates.append({
+                    "column": name, "type": FILTER_DATE,
+                    "reason": "Narrow the analysis to a specific time window.",
+                })
+            elif ftype == FILTER_CATEGORY:
+                distinct = sorted({str(v) for v in values})
+                candidates.append({
+                    "column": name, "type": FILTER_CATEGORY,
+                    "options": distinct[:25],
+                    "reason": f"Slice by {label} ({len(distinct)} values).",
+                })
+            elif ftype == FILTER_NUMBER:
+                nums = [v for v in values
+                        if isinstance(v, (int, float)) and not isinstance(v, bool)]
+                if nums:
+                    candidates.append({
+                        "column": name, "type": FILTER_NUMBER,
+                        "min": min(nums), "max": max(nums),
+                        "reason": f"Restrict {label} to a value range.",
+                    })
+
+        suggestions, source = candidates, "heuristic"
+        try:
+            from ai.client import is_configured, suggest_dataset_filters
+            if candidates and is_configured():
+                from ai.context import build_dataset_context
+                picked = suggest_dataset_filters(
+                    build_dataset_context(dataset), candidates)
+                by_col = {c["column"]: c for c in candidates}
+                validated = []
+                for p in picked:
+                    base = by_col.get((p or {}).get("column"))
+                    if not base:
+                        continue
+                    merged = {**base}
+                    reason = str(p.get("reason") or "").strip()
+                    if reason:
+                        merged["reason"] = reason
+                    validated.append(merged)
+                if validated:
+                    suggestions, source = validated, "ai"
+        except Exception:  # noqa: BLE001 — AI is best-effort; heuristics stand
+            pass
+
+        return Response({"suggestions": suggestions[:6], "source": source})
 
     @action(detail=True, methods=["get"], url_path="filter-options")
     def filter_options(self, request, pk=None):

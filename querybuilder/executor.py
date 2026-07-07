@@ -123,6 +123,9 @@ def _coerce_date_to(value: str) -> str:
     return f"{v} 23:59:59.997" if len(v) == 10 and v[4] == "-" else v
 
 
+_COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "=": "=", "!=": "<>"}
+
+
 def build_filter_where(filters, allowed_columns, quote) -> tuple[str, dict]:
     """Build a parameterised WHERE fragment from dashboard filter specs.
 
@@ -140,7 +143,13 @@ def build_filter_where(filters, allowed_columns, quote) -> tuple[str, dict]:
         ftype = f.get("type")
         pk = f"flt{i}"
 
-        if ftype == "date-range":
+        if ftype == "compare":
+            op = _COMPARE_OPS.get(f.get("op"))
+            v = f.get("value")
+            if op and v not in (None, ""):
+                clauses.append(f"{qcol} {op} :{pk}")
+                params[pk] = v
+        elif ftype == "date-range":
             frm, to = f.get("from"), f.get("to")
             if frm:
                 clauses.append(f"{qcol} >= :{pk}_a")
@@ -166,15 +175,143 @@ def build_filter_where(filters, allowed_columns, quote) -> tuple[str, dict]:
             if values is None and f.get("value") not in (None, ""):
                 values = [f.get("value")]
             values = [v for v in (values or []) if v not in (None, "")]
+            negate = bool(f.get("not"))
             if len(values) == 1:
-                clauses.append(f"{qcol} = :{pk}")
+                clauses.append(f"{qcol} {'<>' if negate else '='} :{pk}")
                 params[pk] = values[0]
             elif len(values) > 1:
                 names = [f"{pk}_{j}" for j in range(len(values))]
                 placeholders = ", ".join(f":{n}" for n in names)
-                clauses.append(f"{qcol} IN ({placeholders})")
+                clauses.append(f"{qcol} {'NOT IN' if negate else 'IN'} ({placeholders})")
                 params.update({n: v for n, v in zip(names, values)})
     return " AND ".join(clauses), params
+
+
+# ──────────────────────────────────────────────────────────────────────────
+#  Full-data exploration — count / extent / aggregate / row pages computed by
+#  the database over the COMPLETE result set of a dataset's query, so charts
+#  and totals are never limited by the cached-preview row cap.
+# ──────────────────────────────────────────────────────────────────────────
+
+_AGG_SQL = {
+    "count": "COUNT(*)",
+    "count_distinct": "COUNT(DISTINCT {y})",
+    "sum": "SUM({y})",
+    "avg": "AVG({y})",
+    "min": "MIN({y})",
+    "max": "MAX({y})",
+}
+EXPLORE_MAX_GROUPS = 5000
+EXPLORE_MAX_PAGE = 10000
+
+
+def execute_dataset_query(datasource, sql, database=None, params=None,
+                          filters=None, columns=None, spec=None):
+    """Run an exploration query over the full result of ``sql``.
+
+    ``spec`` selects the shape:
+      {"mode": "count"}                              → {"total_row_count": N}
+      {"mode": "extent", "column": C}                → {"column", "min", "max"}
+      {"mode": "aggregate", "x": C, "y": C, "agg": A[, "group_by": C][, "limit": N]}
+                                                     → {"data": [{label, value[, group]}], ...}
+      {"mode": "rows"[, "limit": N][, "offset": N]}  → row page + total_row_count
+
+    Filters become bound WHERE predicates on a derived table; every identifier
+    is checked against ``columns`` (the dataset's output allow-list) and quoted.
+    """
+    spec = spec or {}
+    mode = spec.get("mode") or "rows"
+    assert_read_only(sql)
+    engine = get_engine(datasource, database)
+    quote = engine.dialect.identifier_preparer.quote
+    allowed = set(columns or [])
+    dialect = engine.dialect.name  # 'mssql' | 'sqlite' | 'postgresql' | ...
+
+    where, fparams = build_filter_where(filters, columns, quote)
+    body, order_by = _split_trailing_order_by(sql)
+    sub = f"(\n{body}\n) AS dse_sub"
+    where_sql = f"\nWHERE {where}" if where else ""
+    merged = {**(params or {}), **fparams}
+
+    def safe_col(name, what):
+        if not name or name not in allowed:
+            raise QueryError(f"Unknown column for {what}: {name!r}")
+        return quote(name)
+
+    def run(q, bind):
+        try:
+            with engine.connect() as conn:
+                result = conn.execute(text(q), bind)
+                return list(result.keys()), result.fetchall()
+        except QueryError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise QueryError(str(exc)) from exc
+
+    def limited(q, limit, offset=0):
+        """Dialect-correct row limiting appended to a finished query."""
+        if dialect == "mssql":
+            if "ORDER BY" not in q.upper().rsplit(")", 1)[-1]:
+                q += "\nORDER BY (SELECT NULL)"
+            return q + "\nOFFSET :dse_off ROWS FETCH NEXT :dse_lim ROWS ONLY"
+        return q + "\nLIMIT :dse_lim OFFSET :dse_off"
+
+    if mode == "count":
+        _, rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
+        return {"total_row_count": int(rows[0][0] or 0)}
+
+    if mode == "extent":
+        c = safe_col(spec.get("column"), "extent")
+        _, rows = run(f"SELECT MIN({c}), MAX({c}) FROM {sub}{where_sql}", merged)
+        lo, hi = jsonable_rows([tuple(rows[0])])[0] if rows else (None, None)
+        return {"column": spec.get("column"), "min": lo, "max": hi}
+
+    if mode == "aggregate":
+        agg = (spec.get("agg") or "count").lower()
+        if agg not in _AGG_SQL:
+            raise QueryError(f"Unsupported aggregation: {agg!r}")
+        x = safe_col(spec.get("x"), "x")
+        y = safe_col(spec.get("y"), "y") if agg != "count" else ""
+        val = _AGG_SQL[agg].format(y=y)
+        limit = max(1, min(int(spec.get("limit") or 500), EXPLORE_MAX_GROUPS))
+        group_by = spec.get("group_by")
+        if group_by:
+            g = safe_col(group_by, "group_by")
+            q = (f"SELECT {x}, {g}, {val} AS dse_value FROM {sub}{where_sql}"
+                 f"\nGROUP BY {x}, {g}\nORDER BY dse_value DESC")
+        else:
+            q = (f"SELECT {x}, {val} AS dse_value FROM {sub}{where_sql}"
+                 f"\nGROUP BY {x}\nORDER BY dse_value DESC")
+        cols, rows = run(limited(q, limit),
+                         {**merged, "dse_lim": limit + 1, "dse_off": 0})
+        rows = jsonable_rows(rows)
+        truncated = len(rows) > limit
+        rows = rows[:limit]
+        if group_by:
+            data = [{"label": r[0], "group": r[1], "value": r[2]} for r in rows]
+        else:
+            data = [{"label": r[0], "value": r[1]} for r in rows]
+        return {"data": data, "row_count": len(data), "truncated": truncated}
+
+    if mode == "rows":
+        limit = max(1, min(int(spec.get("limit") or 1000), EXPLORE_MAX_PAGE))
+        offset = max(0, int(spec.get("offset") or 0))
+        q = f"SELECT * FROM {sub}{where_sql}"
+        if order_by:
+            q += f"\n{order_by}"
+        cols, rows = run(limited(q, limit, offset),
+                         {**merged, "dse_lim": limit, "dse_off": offset})
+        _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
+        return {
+            "columns": [str(c) for c in cols],
+            "rows": jsonable_rows(rows),
+            "row_count": len(rows),
+            "offset": offset,
+            "limit": limit,
+            "total_row_count": int(count_rows[0][0] or 0),
+        }
+
+    raise QueryError(f"Unknown explore mode: {mode!r}")
 
 
 def execute_raw_sql_filtered(datasource, sql, database=None, params=None,

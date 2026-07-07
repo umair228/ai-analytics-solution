@@ -7,8 +7,8 @@ PY    = $(VENV)/python
 check:        ## Django system check
 	$(PY) manage.py check
 
-test:         ## Deterministic unit + golden + authz tests (analytics, agent loop, NL->SQL, docsearch/RAG authz)
-	$(PY) manage.py test analytics ai docsearch -v1
+test:         ## Deterministic unit + golden + authz tests (analytics, agent loop, NL->SQL, docsearch/RAG authz, executor)
+	$(PY) manage.py test analytics ai docsearch querybuilder -v1
 
 eval:         ## ASTM/ISO retrieval eval (needs the doc index built)
 	$(PY) manage.py eval_astm

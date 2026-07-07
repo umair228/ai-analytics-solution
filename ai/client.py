@@ -17,6 +17,7 @@ __all__ = [
     "run_chat",
     "generate_insights",
     "suggest_widgets",
+    "suggest_dataset_filters",
 ]
 
 SYSTEM_PROMPT = (
@@ -124,14 +125,59 @@ def suggest_widgets(dataset_context) -> list:
     return _parse_widgets(text)
 
 
+_FILTERS_PROMPT = (
+    "The candidate filters below were derived from the dataset's columns. "
+    "Pick the 3-6 that would be MOST useful for exploring this dataset — the "
+    "ones an analyst would actually reach for first — and order them by "
+    "usefulness. For each, write a one-sentence reason grounded in this "
+    "specific dataset (mention what slicing by it reveals).\n\n"
+    "CANDIDATE FILTERS (JSON):\n{candidates}\n\n"
+    'Return a JSON object of the exact form {{"filters": [ ... ]}} and nothing '
+    "else. Each item must have keys: column (exact name from the candidates), "
+    "type (copy it from the candidate), reason. Output JSON only — no markdown."
+)
+
+
+def suggest_dataset_filters(dataset_context, candidates) -> list:
+    """Select and explain the most useful filters for a dataset. Returns a
+    list of {column, type, reason} dicts drawn from ``candidates``."""
+    provider = get_provider()
+    if not provider.configured:
+        raise AINotConfigured(provider.not_configured_message())
+    slim = [{k: c[k] for k in ("column", "type", "reason") if k in c}
+            for c in candidates]
+    prompt = (f"{dataset_context}\n\n"
+              + _FILTERS_PROMPT.format(candidates=json.dumps(slim)))
+    text = provider.chat(
+        system_blocks=_system_blocks(None),
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=700,
+        response_format="json",
+    )
+    return _parse_list(text, ("filters", "suggestions"))
+
+
 def _parse_widgets(text) -> list:
     """Robustly pull the widget list out of a model response, tolerating JSON
     objects ({"widgets":[...]}), bare arrays, and markdown-fenced output."""
+    return _parse_list(text, ("widgets", "suggestions"))
+
+
+def _parse_list(text, keys) -> list:
+    """Pull a list out of a model response: a JSON object keyed by any of
+    ``keys``, a bare array, or either embedded in markdown-fenced output."""
     text = (text or "").strip()
+
+    def from_obj(data):
+        for k in keys:
+            if isinstance(data, dict) and data.get(k):
+                return data[k]
+        return []
+
     try:
         data = json.loads(text)
         if isinstance(data, dict):
-            return data.get("widgets") or data.get("suggestions") or []
+            return from_obj(data)
         if isinstance(data, list):
             return data
     except Exception:  # noqa: BLE001
@@ -149,7 +195,7 @@ def _parse_widgets(text) -> list:
         try:
             data = json.loads(text[start:end])
             if isinstance(data, dict):
-                return data.get("widgets") or data.get("suggestions") or []
+                return from_obj(data)
         except Exception:  # noqa: BLE001
             pass
     return []
