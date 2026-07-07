@@ -426,7 +426,12 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
             q += f"\n{order_by}"
         cols, rows = run(limited(q, limit, offset),
                          {**merged, "dse_lim": limit, "dse_off": offset})
-        _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
+        # COUNT(*) is expensive on large joins — skip it while paging (the caller
+        # already has the total from the first page); compute it by default.
+        total = None
+        if spec.get("with_count", True):
+            _, count_rows = run(f"SELECT COUNT(*) FROM {sub}{where_sql}", merged)
+            total = int(count_rows[0][0] or 0)
         # Row values are positional, so use the dataset's authoritative output
         # names — avoids the driver's dedup renaming (aliases / "name:1").
         out_cols = list(columns) if columns and len(columns) == len(cols) \
@@ -437,7 +442,7 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
             "row_count": len(rows),
             "offset": offset,
             "limit": limit,
-            "total_row_count": int(count_rows[0][0] or 0),
+            "total_row_count": total,
         }
 
     raise QueryError(f"Unknown explore mode: {mode!r}")
