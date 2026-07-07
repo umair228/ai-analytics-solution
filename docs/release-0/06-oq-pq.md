@@ -1,6 +1,6 @@
 # Operational & Performance Qualification (OQ / PQ) — DSE Release 0
 
-**Status:** Draft · **Owner:** Zia Arshad (OQ = Part A, PQ = Part B — execute the protocols + record results) · **ML thresholds review:** `[REVIEW: ML]` (Kulsoom) · **System:** `[SITE]`
+**Status:** Draft · **Owner:** Umair Khan (OQ = Part A, PQ = Part B — execute the protocols + record results) · **ML thresholds review:** `[REVIEW: ML]` (Kulsoom) · **System:** `[SITE]`
 **Purpose:** demonstrate that, once installed (see IQ), DSE R0 **operates per specification** (OQ) and **performs acceptably on real lab data** (PQ).
 
 ---

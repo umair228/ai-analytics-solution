@@ -1,6 +1,6 @@
 """Server-side report export from an AnswerEnvelope (DIS_TalkToData_Plan.md §6).
 
-Every export carries the provenance footer (exact SQL, path, model, freshness) so
+Every export carries the provenance footer (exact SQL, path, freshness) so
 a regulated-lab reader can reproduce the number. CSV / XLSX / HTML are always
 available; PDF needs WeasyPrint (falls back to a clear, catchable error so callers
 can offer HTML instead).
@@ -32,14 +32,17 @@ def _rows(envelope):
 
 def _provenance_lines(envelope):
     p = envelope.get("provenance") or {}
-    order = ["path", "freshness", "data_as_of", "datasource", "model", "agent_steps",
+    order = ["path", "freshness", "data_as_of", "datasource", "agent_steps",
              "sql", "generated_at", "user_id"]
+    # "model" is deliberately excluded: reports are end-user facing and must not
+    # name the underlying LLM.
+    hidden = {"model"}
     out = []
     for k in order:
         if p.get(k) not in (None, ""):
             out.append((k, p[k]))
     for k, v in p.items():
-        if k not in dict(out) and v not in (None, ""):
+        if k not in hidden and k not in dict(out) and v not in (None, ""):
             out.append((k, v))
     return out
 
