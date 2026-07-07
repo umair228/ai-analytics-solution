@@ -41,12 +41,28 @@ def refresh_dataset(dataset, params: dict | None = None):
     dataset.cached_columns = result["columns"]
     dataset.cached_rows = result["rows"]
     dataset.row_count = result["row_count"]
+
+    # The cache is a preview (capped at DSE_QUERY_MAX_ROWS) — also record the
+    # query's TRUE row count so UIs can show full-data totals. Best-effort.
+    dataset.total_row_count = dataset.row_count
+    if result.get("truncated") and query.mode == QueryDefinition.Mode.RAW:
+        try:
+            from querybuilder.executor import execute_dataset_query
+            counted = execute_dataset_query(
+                datasource, query.raw_sql, database,
+                params=effective_params or None,
+                columns=result["columns"], spec={"mode": "count"},
+            )
+            dataset.total_row_count = counted["total_row_count"]
+        except Exception:  # noqa: BLE001
+            dataset.total_row_count = None
+
     dataset.last_refreshed_at = now
     dataset.last_error = ""
     dataset.schedule_next_refresh(from_time=now)
     dataset.save(
         update_fields=[
-            "cached_columns", "cached_rows", "row_count",
+            "cached_columns", "cached_rows", "row_count", "total_row_count",
             "last_refreshed_at", "last_error", "next_refresh_at", "updated_at",
         ]
     )

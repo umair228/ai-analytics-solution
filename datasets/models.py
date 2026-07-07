@@ -45,6 +45,9 @@ class Dataset(TimeStampedModel):
     cached_columns = models.JSONField(default=list, blank=True)
     cached_rows = models.JSONField(default=list, blank=True)
     row_count = models.IntegerField(null=True, blank=True)
+    # True COUNT(*) of the full query result in the source database — the
+    # cached rows above are only a preview capped at DSE_QUERY_MAX_ROWS.
+    total_row_count = models.BigIntegerField(null=True, blank=True)
     last_refreshed_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True)
 
