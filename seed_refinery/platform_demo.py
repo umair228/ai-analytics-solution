@@ -466,6 +466,15 @@ REPORTS = [
      "stores@refinery-lab.com,lab.supervisor@refinery-lab.com", "monthly"),
 ]
 
+
+def alert_report_dataset_keys():
+    """The minimal set of dataset keys the alerts + reports attach to.
+
+    A DatasetAlert / DatasetReport requires a dataset FK, so these datasets
+    cannot be skipped even in an "alerts only" seed. Currently 8 of the 26.
+    """
+    return {a[1] for a in ALERTS} | {r[1] for r in REPORTS}
+
 # Realistic triggered values per alert, so the notification feed reads like real
 # breaches instead of one repeated number. Condition symbols mirror
 # datasets.services._COND_LABELS so a seeded event is byte-identical to one the
@@ -539,13 +548,19 @@ def _seed_alert_events(alert_objs, admin, n_events, days, now, log):
 
 # ──────────────────────────────────────────────────────────────────────────
 def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
-                  event_days=21, now=None):
-    """Seed the whole Refinery LIMS demo platform. Returns a counts dict.
+                  event_days=21, now=None, with_dashboards=True,
+                  dataset_keys=None):
+    """Seed the Refinery LIMS demo platform. Returns a counts dict.
 
     ``admin`` — the User to own everything (defaults to the first admin, else the
     first user). ``log`` — a callable taking one string (self.stdout.write /
     print); defaults to silent. Safe to re-run: prior refinery queries, datasets,
     dashboards, alerts, events and reports are cleared first.
+
+    ``dataset_keys`` — if given, only these dataset keys are seeded (e.g.
+    ``alert_report_dataset_keys()`` for an alerts/notifications/reports-only
+    seed). ``with_dashboards`` — set False to skip the dashboards; dashboards are
+    only built when the FULL dataset set is seeded (they reference all keys).
     """
     log = log or (lambda *_a: None)
 
@@ -584,18 +599,25 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
     )
     log(f"Connection: {ds.name} -> {WAREHOUSE}")
 
-    # Idempotency: clear this data source's prior queries/datasets and the
-    # refinery dashboards/alerts/reports (events cascade off the alerts).
+    # Idempotency: clear THIS demo's prior objects only. Everything is scoped to
+    # the refinery data source or the admin owner so a re-run can never touch a
+    # different user's same-named alert/report/dashboard (deleting an alert would
+    # cascade-delete that user's whole event history). Demo alerts/reports also
+    # hang off the demo datasets, so the Dataset delete already cascades them —
+    # the explicit owner-scoped deletes are a defensive backstop.
     Dataset.objects.filter(query__datasource=ds).delete()
     QueryDefinition.objects.filter(datasource=ds).delete()
     Dashboard.objects.filter(name__in=[d[0] for d in DASHBOARDS], owner=admin).delete()
-    DatasetAlert.objects.filter(name__in=[a[0] for a in ALERTS]).delete()
-    DatasetReport.objects.filter(name__in=[r[0] for r in REPORTS]).delete()
+    DatasetAlert.objects.filter(name__in=[a[0] for a in ALERTS], owner=admin).delete()
+    DatasetReport.objects.filter(name__in=[r[0] for r in REPORTS], owner=admin).delete()
 
     # --- Saved queries + datasets ----------------------------------------
+    seed_keys = None if dataset_keys is None else set(dataset_keys)
     log("\n=== Queries & Datasets ===")
     datasets = {}
     for key, name, desc, sql in QUERIES:
+        if seed_keys is not None and key not in seed_keys:
+            continue
         query = QueryDefinition.objects.create(
             name=name, description=desc, datasource=ds,
             mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
@@ -617,23 +639,33 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
         datasets[key] = dataset
 
     # --- Dashboards -------------------------------------------------------
+    # Dashboards reference every dataset key, so they are only built when the
+    # full dataset set is seeded (skipped for an alerts-only seed).
     log("\n=== Dashboards ===")
-    for name, desc, widgets in DASHBOARDS:
-        dash = Dashboard.objects.create(
-            name=name, description=desc, owner=admin, visibility="shared",
-        )
-        for order, w in enumerate(widgets):
-            Widget.objects.create(
-                dashboard=dash, title=w["title"], widget_type=w["kind"],
-                dataset=datasets[w["ds"]], config=w["config"],
-                x=w["x"], y=w["y"], w=w["w"], h=w["h"], order=order,
+    n_dash = 0
+    if with_dashboards and seed_keys is None:
+        for name, desc, widgets in DASHBOARDS:
+            dash = Dashboard.objects.create(
+                name=name, description=desc, owner=admin, visibility="shared",
             )
-        log(f"  {name:42s} {len(widgets)} widgets")
+            for order, w in enumerate(widgets):
+                Widget.objects.create(
+                    dashboard=dash, title=w["title"], widget_type=w["kind"],
+                    dataset=datasets[w["ds"]], config=w["config"],
+                    x=w["x"], y=w["y"], w=w["w"], h=w["h"], order=order,
+                )
+            log(f"  {name:42s} {len(widgets)} widgets")
+            n_dash += 1
+    else:
+        log("  (skipped)")
 
     # --- Alerts -----------------------------------------------------------
     log("\n=== Alerts ===")
     alert_objs = {}
     for name, key, column, agg, cond, threshold in ALERTS:
+        if key not in datasets:  # its backing dataset wasn't seeded
+            log(f"  (skipped '{name}': dataset '{key}' not seeded)")
+            continue
         alert_objs[name] = DatasetAlert.objects.create(
             name=name, dataset=datasets[key], column=column, aggregation=agg,
             condition=cond, threshold=threshold, is_active=True,
@@ -652,19 +684,23 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
 
     # --- Reports ----------------------------------------------------------
     log("\n=== Reports ===")
+    n_reports = 0
     for name, key, emails, schedule in REPORTS:
+        if key not in datasets:
+            continue
         DatasetReport.objects.create(
             name=name, dataset=datasets[key], recipient_emails=emails,
             schedule=schedule, is_active=True, owner=admin,
         )
-    log(f"  {len(REPORTS)} reports")
+        n_reports += 1
+    log(f"  {n_reports} reports")
 
     return {
         "connection": ds.name,
-        "datasets": len(QUERIES),
-        "dashboards": len(DASHBOARDS),
-        "alerts": len(ALERTS),
+        "datasets": len(datasets),
+        "dashboards": n_dash,
+        "alerts": len(alert_objs),
         "events": n_ev,
         "unread": unread,
-        "reports": len(REPORTS),
+        "reports": n_reports,
     }

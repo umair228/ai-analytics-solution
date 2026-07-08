@@ -34,6 +34,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            "--alerts-only", action="store_true",
+            help="Seed ONLY alerts, notifications and reports (plus the minimal "
+                 "datasets they attach to — a FK is required). No dashboards, no "
+                 "extra datasets.")
+        parser.add_argument(
             "--no-users", action="store_true",
             help="Skip the org/site/user roster (seed_lab); seed only the "
                  "platform. Use when the users already exist.")
@@ -73,14 +78,25 @@ class Command(BaseCommand):
             call_command("seed_lab", **seed_lab_kwargs)
 
         # 2) Platform: connection, datasets, dashboards, alerts, events, reports
-        from seed_refinery.platform_demo import seed_platform
+        from seed_refinery.platform_demo import (
+            alert_report_dataset_keys, seed_platform,
+        )
 
-        self.stdout.write(self.style.MIGRATE_HEADING(
-            "\nSeeding datasets, dashboards, alerts and notifications…"))
+        platform_kwargs = {}
+        if o["alerts_only"]:
+            platform_kwargs["with_dashboards"] = False
+            platform_kwargs["dataset_keys"] = alert_report_dataset_keys()
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                "\nSeeding alerts, notifications and reports "
+                "(+ their backing datasets only)…"))
+        else:
+            self.stdout.write(self.style.MIGRATE_HEADING(
+                "\nSeeding datasets, dashboards, alerts and notifications…"))
         counts = seed_platform(
             log=self.stdout.write,
             rich_events=not o["no_events"],
             n_events=max(0, o["events"]),
+            **platform_kwargs,
         )
 
         # 3) Summary --------------------------------------------------------
