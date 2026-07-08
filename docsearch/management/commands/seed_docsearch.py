@@ -107,11 +107,13 @@ class Command(BaseCommand):
                 "(run 'manage.py seed_lab' or 'manage.py bootstrap' first)."))
             return
 
-        approved = skipped = 0
+        approved = skipped = superseded = 0
         for dest in paths:
             rec = ingest.ingest_document_file(dest, created_by=admin, source_file=dest.name)
             if rec.status == KnowledgeRecord.Status.DUPLICATE:
-                rec.delete()          # already present — don't leave a dup row
+                # Identical content already ingested — drop the fresh dup row and
+                # leave the existing approved record (and index) untouched.
+                rec.delete()
                 skipped += 1
                 continue
             if rec.validation.get("errors"):
@@ -122,6 +124,20 @@ class Command(BaseCommand):
             # reindex=False: we rebuild once at the end (or the caller does).
             ingest.approve_record(rec, reviewed_by=admin, reindex=False)
             approved += 1
-        self.stdout.write(self.style.SUCCESS(
-            f"Knowledge Base: {approved} approved, {skipped} already-present/"
-            f"skipped (owner: {admin.username})."))
+            # New/changed content for this filename: supersede any PRIOR approved
+            # or pending record with the same doc_id so re-seeding an EDITED doc
+            # doesn't leave stale, frozen passages in the index (content-hash
+            # dedupe alone can't catch this — the hash changed).
+            stale = (KnowledgeRecord.objects
+                     .filter(source_type=KnowledgeRecord.Source.DOCUMENT,
+                             doc_id=dest.name, created_by=admin,
+                             status__in=[KnowledgeRecord.Status.APPROVED,
+                                         KnowledgeRecord.Status.PENDING])
+                     .exclude(id=rec.id))
+            superseded += stale.count()
+            stale.delete()
+        msg = (f"Knowledge Base: {approved} approved, {skipped} already-present/"
+               f"skipped (owner: {admin.username}).")
+        if superseded:
+            msg += f" Superseded {superseded} stale record(s) for edited doc(s)."
+        self.stdout.write(self.style.SUCCESS(msg))
