@@ -584,13 +584,17 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
     )
     log(f"Connection: {ds.name} -> {WAREHOUSE}")
 
-    # Idempotency: clear this data source's prior queries/datasets and the
-    # refinery dashboards/alerts/reports (events cascade off the alerts).
+    # Idempotency: clear THIS demo's prior objects only. Everything is scoped to
+    # the refinery data source or the admin owner so a re-run can never touch a
+    # different user's same-named alert/report/dashboard (deleting an alert would
+    # cascade-delete that user's whole event history). Demo alerts/reports also
+    # hang off the demo datasets, so the Dataset delete already cascades them —
+    # the explicit owner-scoped deletes are a defensive backstop.
     Dataset.objects.filter(query__datasource=ds).delete()
     QueryDefinition.objects.filter(datasource=ds).delete()
     Dashboard.objects.filter(name__in=[d[0] for d in DASHBOARDS], owner=admin).delete()
-    DatasetAlert.objects.filter(name__in=[a[0] for a in ALERTS]).delete()
-    DatasetReport.objects.filter(name__in=[r[0] for r in REPORTS]).delete()
+    DatasetAlert.objects.filter(name__in=[a[0] for a in ALERTS], owner=admin).delete()
+    DatasetReport.objects.filter(name__in=[r[0] for r in REPORTS], owner=admin).delete()
 
     # --- Saved queries + datasets ----------------------------------------
     log("\n=== Queries & Datasets ===")
