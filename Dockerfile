@@ -33,4 +33,9 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"]
+# --timeout 300 matches nginx proxy_read_timeout: a Document-Search / Knowledge
+# Base upload rebuilds the whole index synchronously (re-embeds every chunk), and
+# the first one also loads/downloads the embed model — 120s was too short and the
+# worker was killed mid-upload. Seeding via `manage.py seed_docsearch` avoids the
+# request path entirely; this keeps interactive uploads working too.
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput && gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300"]

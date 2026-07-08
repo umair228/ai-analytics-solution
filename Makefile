@@ -2,7 +2,7 @@
 VENV ?= .venv/bin
 PY    = $(VENV)/python
 
-.PHONY: check test eval eval-domain ci build up down seed-demo seed-users
+.PHONY: check test eval eval-domain ci build up down seed-demo seed-users seed-docs
 
 check:        ## Django system check
 	$(PY) manage.py check
@@ -12,6 +12,9 @@ seed-demo:    ## Seed the full oil & gas demo (users, datasets, dashboards, aler
 
 seed-users:   ## Seed only the refinery org/site/section-labs and user roster
 	$(PY) manage.py seed_lab $(ARGS)
+
+seed-docs:    ## Seed demo reference docs (ISO/IEC 17025) into Document Search + reindex
+	$(PY) manage.py seed_docsearch $(ARGS)
 
 test:         ## Deterministic unit + golden + authz tests (analytics, agent loop, NL->SQL, docsearch/RAG authz, executor, filter-heal)
 	$(PY) manage.py test analytics ai docsearch querybuilder datasets -v1
