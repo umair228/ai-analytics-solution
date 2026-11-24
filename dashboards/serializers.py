@@ -22,6 +22,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     lab_name = serializers.CharField(source="lab.name", read_only=True, default=None)
     datasource_names = serializers.SerializerMethodField()
     freshness = serializers.SerializerMethodField()
+    can_edit = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -29,9 +30,20 @@ class DashboardSerializer(serializers.ModelSerializer):
             "id", "name", "description", "owner", "owner_username", "site",
             "lab", "lab_name", "visibility", "shared_with", "filters", "widgets",
             "widget_count",
-            "datasource_names", "freshness", "created_at", "updated_at",
+            "datasource_names", "freshness", "can_edit", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
+
+    def get_can_edit(self, obj):
+        """May the requesting user change this board's widgets? The same rule the widget
+        API enforces (WidgetViewSet._ensure_access), so the page only offers editing
+        controls that will work: seeing a board is not editing it."""
+        from core.access import can_edit
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated):
+            return False
+        return bool(can_edit(obj, user) or obj.shared_with.filter(pk=user.pk).exists())
 
     def get_datasource_names(self, obj):
         """Distinct source databases this dashboard's widgets read from."""
