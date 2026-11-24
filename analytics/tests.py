@@ -339,3 +339,21 @@ class NLToSQLGoldenTests(SimpleTestCase):
     def test_blank_question_rejected(self):
         with self.assertRaises(semantic.SemanticError):
             semantic.answer_question(self._df(), "   ")
+
+
+class ColumnStatisticsFlagTests(SimpleTestCase):
+    """A flag column (SQL Server bit -> booleans) must not 500 the statistics endpoint."""
+
+    def test_boolean_flags_are_described_as_zero_one(self):
+        import pandas as pd
+
+        from analytics.engine import column_statistics
+
+        df = pd.DataFrame({"is_excluded": [True, False, False, True],
+                           "n": [1, 2, 3, 4]})
+        stats = {s["column"]: s for s in column_statistics(df)["statistics"]}
+        flag = stats["is_excluded"]
+        self.assertEqual(flag["type"], "numeric")
+        self.assertEqual((flag["mean"], flag["min"], flag["max"]), (0.5, 0.0, 1.0))
+        self.assertEqual((flag["p25"], flag["p75"]), (0.0, 1.0))
+        self.assertEqual(stats["n"]["median"], 2.5)

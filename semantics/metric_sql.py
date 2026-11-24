@@ -38,10 +38,22 @@ Everything else in a metric is plain ANSI and needs no help.
 from __future__ import annotations
 
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-MACRO_RE = re.compile(r"\{\{\s*(\w+)\s*:\s*(.+?)\s*\}\}", re.DOTALL)
+# An INNERMOST macro: its argument holds no other macro. Rendering substitutes these
+# repeatedly, so macros compose — {{month:{{local:created_at}}}} buckets the local time.
+MACRO_RE = re.compile(r"\{\{\s*(\w+)\s*:\s*((?:(?!\{\{).)+?)\s*\}\}", re.DOTALL)
+_NAME_RE = re.compile(r"\{\{\s*(\w+)\s*:")
 
-MACROS = ("num", "table", "days_ago", "hours_between")
+MACROS = ("num", "table", "days_ago", "hours_between",
+          # dates (P1): buckets, local time, calendar-day differences
+          "day", "week", "month", "local", "days_between",
+          # row scope: "(1 = 1)" for an all-scope caller, a key filter otherwise
+          "scope")
+
+# Macros whose rendering depends on the semantic layer's `timezone:`.
+TIMEZONE_MACROS = ("local",)
 
 # Same numeric guard as replication.sql_dialect.safe_float, deliberately: a value
 # is either a number everywhere in DIS or nowhere. LabWare entries like "<0.05",
@@ -155,6 +167,149 @@ def hours_between(start: str, end: str, dialect: str) -> str:
     return f"((julianday({end}) - julianday({start})) * 24.0)"
 
 
+def fixed_offset_minutes(tz_name: str) -> int | None:
+    """The zone's UTC offset in minutes when it never changes (no DST), else None.
+
+    Riyadh is UTC+3 all year, so local time is a fixed shift: SWITCHOFFSET on MSSQL,
+    which is about nine times cheaper than AT TIME ZONE on the PMSv2 copy. A zone with
+    DST needs a real time-zone conversion, which not every dialect can do.
+    """
+    zone = ZoneInfo(tz_name)
+    jan = datetime(2025, 1, 15, 12, tzinfo=zone).utcoffset()
+    jul = datetime(2025, 7, 15, 12, tzinfo=zone).utcoffset()
+    return int(jan.total_seconds() // 60) if jan == jul else None
+
+
+def _offset_text(minutes: int) -> str:
+    sign = "-" if minutes < 0 else "+"
+    hours, mins = divmod(abs(minutes), 60)
+    return f"{sign}{hours:02d}:{mins:02d}"
+
+
+def local_time(expr: str, dialect: str, tz: str | None, tz_mssql: str = "") -> str | None:
+    """``expr`` (a UTC timestamp; naive values are read as UTC) as local wall-clock time
+    in ``tz``. None when the dialect cannot express it — the caller leaves the macro
+    intact so the database rejects it loudly rather than answering in UTC."""
+    if not tz:
+        return None
+    d = (dialect or "").lower()
+    offset = fixed_offset_minutes(tz)
+    if d == "mssql":
+        if offset is not None:
+            return (f"CAST(SWITCHOFFSET(CAST({expr} AS datetimeoffset), "
+                    f"'{_offset_text(offset)}') AS datetime2)")
+        if not tz_mssql:
+            return None        # AT TIME ZONE needs the Windows zone name
+        return f"CAST(CAST({expr} AS datetimeoffset) AT TIME ZONE '{tz_mssql}' AS datetime2)"
+    if d == "postgres":
+        if offset is not None:
+            return f"(CAST({expr} AS timestamp) + INTERVAL '{offset} minutes')"
+        return f"((CAST({expr} AS timestamp) AT TIME ZONE 'UTC') AT TIME ZONE '{tz}')"
+    if d == "sqlite":
+        return None if offset is None else f"datetime({expr}, '{offset:+d} minutes')"
+    if d == "mysql":
+        if offset is not None:
+            return f"DATE_ADD({expr}, INTERVAL {offset} MINUTE)"
+        return f"CONVERT_TZ({expr}, '+00:00', '{tz}')"
+    if d == "oracle":
+        if offset is not None:
+            return f"({expr} + NUMTODSINTERVAL({offset}, 'MINUTE'))"
+        return f"CAST(FROM_TZ(CAST({expr} AS TIMESTAMP), 'UTC') AT TIME ZONE '{tz}' AS TIMESTAMP)"
+    if d == "databricks":
+        return f"from_utc_timestamp({expr}, '{tz}')"
+    if d == "snowflake":
+        return f"CONVERT_TIMEZONE('UTC', '{tz}', {expr})"
+    return None if offset is None else f"datetime({expr}, '{offset:+d} minutes')"
+
+
+def day_bucket(expr: str, dialect: str) -> str:
+    """The calendar date of ``expr``."""
+    d = (dialect or "").lower()
+    return {"mssql": f"CAST({expr} AS date)", "postgres": f"CAST({expr} AS date)",
+            "mysql": f"DATE({expr})", "oracle": f"TRUNC({expr})",
+            "databricks": f"to_date({expr})", "snowflake": f"TO_DATE({expr})",
+            }.get(d, f"date({expr})")
+
+
+def week_bucket(expr: str, dialect: str) -> str:
+    """The Monday that starts the ISO week of ``expr``, as a date.
+
+    MSSQL's weekday numbering depends on the session's @@DATEFIRST; adding it back
+    makes "days since Monday" the same under every language setting.
+    """
+    d = (dialect or "").lower()
+    if d == "mssql":
+        return (f"DATEADD(day, -((DATEPART(weekday, {expr}) + @@DATEFIRST + 5) % 7), "
+                f"CAST({expr} AS date))")
+    if d == "postgres":
+        return f"CAST(date_trunc('week', {expr}) AS date)"
+    if d == "mysql":
+        return f"DATE_SUB(DATE({expr}), INTERVAL WEEKDAY({expr}) DAY)"
+    if d == "oracle":
+        return f"TRUNC({expr}, 'IW')"
+    if d == "databricks":
+        return f"CAST(date_trunc('WEEK', {expr}) AS DATE)"
+    if d == "snowflake":
+        return f"CAST(DATE_TRUNC('week', {expr}) AS DATE)"
+    return f"date({expr}, '-6 days', 'weekday 1')"       # the Monday on or before
+
+
+def month_bucket(expr: str, dialect: str) -> str:
+    """The first day of the month of ``expr``, as a date."""
+    d = (dialect or "").lower()
+    if d == "mssql":
+        return f"DATEFROMPARTS(YEAR({expr}), MONTH({expr}), 1)"
+    if d == "postgres":
+        return f"CAST(date_trunc('month', {expr}) AS date)"
+    if d == "mysql":
+        return f"DATE(DATE_FORMAT({expr}, '%Y-%m-01'))"
+    if d == "oracle":
+        return f"TRUNC({expr}, 'MM')"
+    if d == "databricks":
+        return f"trunc({expr}, 'MM')"
+    if d == "snowflake":
+        return f"CAST(DATE_TRUNC('month', {expr}) AS DATE)"
+    return f"date({expr}, 'start of month')"
+
+
+def days_between(start: str, end: str, dialect: str) -> str:
+    """Whole calendar days from ``start`` to ``end`` (dates, not 24-hour periods)."""
+    d = (dialect or "").lower()
+    if d in ("mssql", "snowflake"):
+        return f"DATEDIFF(day, {start}, {end})"
+    if d == "postgres":
+        return f"(CAST({end} AS date) - CAST({start} AS date))"
+    if d == "mysql":
+        return f"DATEDIFF({end}, {start})"
+    if d == "oracle":
+        return f"(TRUNC({end}) - TRUNC({start}))"
+    if d == "databricks":
+        return f"datediff({end}, {start})"
+    return f"CAST(julianday(date({end})) - julianday(date({start})) AS INTEGER)"
+
+
+_SCOPE_KEY_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def scope_filter(column: str, scope) -> str:
+    """Row scope for a metric on a project-scoped view.
+
+    ``scope`` None means an all-scope caller: the filter is a tautology, and the
+    macro's job is only to mark *where* a scope applies, so the loader can refuse a
+    metric on a scoped view that has no such marker. A list restricts the rows to
+    those keys (an empty list matches nothing).
+    """
+    if scope is None:
+        return "(1 = 1)"
+    keys = [str(k) for k in scope]
+    if not keys:
+        return "(1 = 0)"
+    bad = [k for k in keys if not _SCOPE_KEY_RE.match(k)]
+    if bad:
+        raise ValueError(f"unsafe scope key(s): {bad[:3]}")
+    return f"({column} IN ({', '.join(repr(k) for k in keys)}))"
+
+
 def schema_for(datasource) -> str:
     """The schema to qualify metric tables with.
 
@@ -180,12 +335,48 @@ def unknown_macros(sql: str) -> list[str]:
     through to the LLM — the failure looks like "the metric didn't match" rather
     than "the metric is broken".
     """
-    return sorted({m.group(1) for m in MACRO_RE.finditer(sql or "")
+    return sorted({m.group(1) for m in _NAME_RE.finditer(sql or "")
                    if m.group(1) not in MACROS})
 
 
-def render(sql: str, datasource) -> str:
-    """Render portable metric SQL for the dialect of ``datasource``."""
+def tables_read(sql: str) -> list[str]:
+    """The names inside ``{{table:…}}`` macros: what a metric reads, for the scope
+    and classification checks at load time."""
+    return sorted({m.group(2).strip() for m in MACRO_RE.finditer(sql or "")
+                   if m.group(1) == "table"})
+
+
+def _split_pair(arg: str) -> tuple[str, str]:
+    """Split "a, b" at the first comma outside parentheses and quotes, so the
+    arguments of a two-argument macro may themselves be rendered macros."""
+    depth, quote = 0, None
+    for i, ch in enumerate(arg):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return arg[:i].strip(), arg[i + 1:].strip()
+    return arg.strip(), ""
+
+
+def uses_macro(sql: str, name: str) -> bool:
+    return any(m.group(1) == name for m in _NAME_RE.finditer(sql or ""))
+
+
+def render(sql: str, datasource, *, timezone: str | None = None, timezone_mssql: str = "",
+           scope=None) -> str:
+    """Render portable metric SQL for the dialect of ``datasource``.
+
+    ``timezone`` is the semantic layer's IANA zone (``{{local:…}}``); ``scope`` is
+    None for an all-scope caller or the keys a scoped caller may see
+    (``{{scope:…}}``). Innermost macros are substituted first, so they compose.
+    """
     dialect = (getattr(datasource, "source_type", "") or "").lower()
     schema = schema_for(datasource)
 
@@ -198,8 +389,27 @@ def render(sql: str, datasource) -> str:
         if kind == "days_ago":
             return days_ago(arg, dialect)
         if kind == "hours_between":
-            start, _, end = arg.partition(",")
-            return hours_between(start.strip(), end.strip(), dialect)
+            start, end = _split_pair(arg)
+            return hours_between(start, end, dialect)
+        if kind == "days_between":
+            start, end = _split_pair(arg)
+            return days_between(start, end, dialect)
+        if kind == "day":
+            return day_bucket(arg, dialect)
+        if kind == "week":
+            return week_bucket(arg, dialect)
+        if kind == "month":
+            return month_bucket(arg, dialect)
+        if kind == "local":
+            rendered = local_time(arg, dialect, timezone, timezone_mssql)
+            return m.group(0) if rendered is None else rendered
+        if kind == "scope":
+            return scope_filter(arg, scope)
         return m.group(0)  # unknown — left intact so it fails loudly, not silently
 
-    return MACRO_RE.sub(_sub, sql or "").strip()
+    text = sql or ""
+    while True:
+        rendered = MACRO_RE.sub(_sub, text)
+        if rendered == text:
+            return rendered.strip()
+        text = rendered

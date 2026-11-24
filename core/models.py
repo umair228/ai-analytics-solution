@@ -48,6 +48,10 @@ class AuditLog(models.Model):
         LOCKOUT = "LOCKOUT", "Account locked (repeated failures)"
         UNLOCK = "UNLOCK", "Account unlocked"
         DENIED = "DENIED", "Access denied"
+        # Data leaving the platform, written fail-closed by core.audit.record_audit_strict:
+        # a file downloaded or built in the browser (EXPORT), a report emailed (SEND).
+        EXPORT = "EXPORT", "Export (file downloaded)"
+        SEND = "SEND", "Send (report emailed)"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

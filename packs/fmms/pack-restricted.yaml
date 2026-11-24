@@ -1,0 +1,87 @@
+# PMSv2 Management Reporting: RESTRICTED values (cost and bid-confidential).
+# Reads rpt_fin.* only, through the "PMSv2 Reporting - Restricted" DataSource, whose login
+# (dis_rpt_fin) is the only one granted rpt_fin. Objects are PRIVATE: share them explicitly
+# with the client's cost-cleared / bid-confidential lists (DEC-04), never with everyone.
+#
+#   manage.py seed_domain_pack --pack packs/fmms/pack-restricted.yaml --refresh
+pack: fmms-restricted
+version: 1
+datasources:
+  restricted: "PMSv2 Reporting - Restricted"
+visibility: private
+share_with_group: ""
+
+datasets:
+  - key: fin_kpis
+    name: "FIN · Restricted value KPIs (SAR)"
+    description: "Value KPIs in SAR (reporting currency; per-revision 3.75 peg)."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT kpi_id, kpi_name, value_sar, value_text, data_as_of_riyadh
+      FROM rpt_fin.exec_summary_fin
+  - key: fin_pipeline_by_position
+    name: "FIN · Pipeline value by funnel position (SAR, outliers excluded)"
+    description: "Current-revision value per funnel position; implausible SAR/t outliers are excluded and listed separately."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT funnel_position_label AS funnel_position, COUNT(*) AS rfqs,
+             CAST(SUM(value_sar) AS decimal(18,0)) AS value_sar
+      FROM rpt_fin.com_rfq_value
+      WHERE is_excluded = 0 AND is_outlier = 0 AND value_sar IS NOT NULL
+      GROUP BY funnel_position_label
+  - key: fin_value_outliers
+    name: "FIN · Bid values flagged as implausible"
+    description: "RFQs whose value per tonne is outside the plausible range (data-quality review)."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT rfq_number, funnel_position_label AS funnel_position, client_code, currency,
+             CAST(value_sar AS decimal(18,0)) AS value_sar, CAST(sar_per_ton AS decimal(18,0)) AS sar_per_ton,
+             value_status
+      FROM rpt_fin.com_rfq_value
+      WHERE is_outlier = 1
+      ORDER BY value_sar DESC
+  - key: fin_contract_values
+    name: "FIN · Contract value vs baseline estimate"
+    description: "BRD §10.4 Contract Value vs Baseline, per project (SAR)."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT project_number, origin, contract_currency,
+             CAST(contract_value_orig AS decimal(18,0)) AS contract_value_orig,
+             CAST(contract_value_sar AS decimal(18,0)) AS contract_value_sar,
+             CAST(baseline_selling_price_sar AS decimal(18,0)) AS baseline_selling_price_sar,
+             CAST(baseline_cost_sar AS decimal(18,0)) AS baseline_cost_sar,
+             contract_value_status
+      FROM rpt_fin.prj_contract_value
+      WHERE is_excluded = 0
+      ORDER BY contract_value_sar DESC
+  - key: fin_estimation_comparison
+    name: "FIN · Estimation comparison (revision deltas)"
+    description: "BRD §10.4 Estimation Comparison: every revision of RFQs revised more than once (SAR)."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT rfq_number, revision_number, revision_seq, status_label AS status,
+             CASE WHEN is_current = 1 THEN 'current' WHEN is_baseline = 1 THEN 'baseline' ELSE '' END AS role,
+             currency, CAST(final_selling_price_sar AS decimal(18,0)) AS selling_price_sar,
+             CAST(final_cost_sar AS decimal(18,0)) AS cost_sar, CAST(margin_pct AS decimal(6,1)) AS margin_pct,
+             CAST(delta_vs_previous_sar AS decimal(18,0)) AS delta_vs_previous_sar,
+             CAST(delta_vs_first_sar AS decimal(18,0)) AS delta_vs_first_sar
+      FROM rpt_fin.com_estimation_comparison
+      WHERE revisions_of_rfq > 1 AND is_excluded = 0
+      ORDER BY rfq_number, revision_seq
+
+dashboards:
+  - key: commercial_values
+    name: "Commercial Values (restricted)"
+    description: "Pipeline, contract and estimation values in SAR. Cost-cleared and bid-confidential lists only."
+    filters: []
+    widgets:
+      - {title: "Value KPIs (SAR)", type: table, dataset: fin_kpis, config: {}, layout: {x: 0, y: 0, w: 12, h: 4}}
+      - {title: "Pipeline value by funnel position (SAR, outliers excluded)", type: bar, dataset: fin_pipeline_by_position, config: {category_field: funnel_position, value_field: value_sar, rollup: none}, layout: {x: 0, y: 4, w: 7, h: 7}}
+      - {title: "Bid values flagged as implausible", type: table, dataset: fin_value_outliers, config: {}, layout: {x: 7, y: 4, w: 5, h: 7}}
+      - {title: "Contract value vs baseline estimate", type: table, dataset: fin_contract_values, config: {}, layout: {x: 0, y: 11, w: 12, h: 7}}
+      - {title: "Estimation comparison (revision deltas)", type: table, dataset: fin_estimation_comparison, config: {}, layout: {x: 0, y: 18, w: 12, h: 8}}

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 class Freshness:
     """How current the data behind an answer is."""
 
-    kind: str = "live"                     # live | replica | stale | unknown
+    kind: str = "live"                     # live | replica | snapshot | stale | unknown
     data_as_of: str | None = None          # ISO-8601; None for a live source
     stale_tables: list = field(default_factory=list)
     detail: str = ""
@@ -44,8 +44,74 @@ class Freshness:
         }
 
 
+SNAPSHOT_MAX_AGE_HOURS = 26     # a nightly copy older than this missed a night
+_SNAPSHOT_CACHE_SECONDS = 300
+
+
+def _snapshot(datasource) -> Freshness | None:
+    """Freshness of a source that is a periodically RESTORED COPY of a system.
+
+    A copy declares ``options["freshness_sql"]``: one read-only query returning when
+    its data was taken (PMSv2: the nightly backup time, Riyadh). Such a source is not
+    "live" — its numbers describe the moment of the backup — so answers and tiles say
+    "snapshot, as of …", and "stale" once it is older than
+    ``options["freshness_max_age_hours"]`` (default 26: one missed night). Naive
+    timestamps are local time in DIS_REPORT_TZ, as the export stamps read them.
+    Returns None for a source without the option.
+    """
+    options = getattr(datasource, "options", None) or {}
+    sql = str(options.get("freshness_sql") or "").strip()
+    if not sql:
+        return None
+    from datetime import datetime
+    from datetime import timezone as dt_timezone
+    from zoneinfo import ZoneInfo
+
+    from django.conf import settings
+    from django.core.cache import cache
+
+    restore_id = str(options.get("restore_id") or "")
+    key = f"freshness-snapshot:{datasource.pk}:{restore_id}"
+    value = cache.get(key)
+    if value is None:
+        try:
+            from querybuilder.executor import assert_read_only, execute_raw_sql
+
+            assert_read_only(sql)
+            rows = execute_raw_sql(datasource, sql, max_rows=1).get("rows") or []
+            value = rows[0][0] if rows and rows[0] else ""
+        except Exception:  # noqa: BLE001 - never fail an answer over its own metadata
+            return Freshness(kind="unknown", detail="The source's freshness query failed.")
+        cache.set(key, value if value is not None else "", _SNAPSHOT_CACHE_SECONDS)
+    if value in (None, ""):
+        return Freshness(kind="unknown",
+                         detail="The source did not report when its data was taken.")
+    try:
+        when = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except ValueError:
+        return Freshness(kind="snapshot", data_as_of=str(value),
+                         detail="A restored copy of the source system.")
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=ZoneInfo(getattr(settings, "DIS_REPORT_TZ", "UTC")))
+    hours = (datetime.now(dt_timezone.utc) - when).total_seconds() / 3600.0
+    max_age = float(options.get("freshness_max_age_hours") or SNAPSHOT_MAX_AGE_HOURS)
+    taken = f"{when:%Y-%m-%d %H:%M} {when.tzname() or ''}".strip()
+    if hours > max_age:
+        return Freshness(
+            kind="stale", data_as_of=when.isoformat(),
+            detail=(f"A restored copy taken {hours:.0f} h ago, at {taken}: more than "
+                    f"{max_age:g} h, so the scheduled refresh is overdue."))
+    return Freshness(
+        kind="snapshot", data_as_of=when.isoformat(),
+        detail=(f"A restored copy of the source system, as of {taken}"
+                + (f"; restore {restore_id}" if restore_id else "") + "."))
+
+
 def describe(datasource) -> Freshness:
     """Freshness of ``datasource`` — cheap enough to call on every question."""
+    snapshot = _snapshot(datasource)
+    if snapshot is not None:
+        return snapshot
     try:
         from .models import ReplicationState
         states = list(ReplicationState.objects.filter(target=datasource))

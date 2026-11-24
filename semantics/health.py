@@ -22,12 +22,15 @@ from django.core.cache import cache
 from querybuilder.executor import QueryError, assert_read_only
 from texttosql.execution import execute_with_deadline
 
-from .layer import get_semantic_layer
-from .metric_sql import render as render_sql
+from .access import cleared_classes
+from .layer import get_semantic_layer, render_for
 
 logger = logging.getLogger(__name__)
 
 CACHE_TTL = 60  # seconds
+# A restored snapshot changes only when it is promoted, and the promotion changes its
+# restore_id — which is part of the cache key — so its tiles can be kept far longer.
+SNAPSHOT_CACHE_TTL = 6 * 3600
 
 
 def _scalar(payload, unit="count"):
@@ -49,8 +52,27 @@ def _scalar(payload, unit="count"):
 
 
 def _grade(value, tile):
-    """good | warn | bad | none — never invent a threshold nobody agreed to."""
-    if value is None or tile.target is None or tile.direction == "neutral":
+    """good | warn | bad | none — never invent a threshold nobody agreed to.
+
+    Explicit ``warn``/``critical`` bands (agreed by the KPI owner) win; otherwise the
+    tile grades against ``target`` with the default bands; with neither, it is shown
+    but not graded.
+    """
+    if value is None or tile.direction == "neutral":
+        return "none"
+    warn, critical = getattr(tile, "warn", None), getattr(tile, "critical", None)
+    if warn is not None or critical is not None:
+        lower = tile.direction == "lower_better"
+
+        def at_or_beyond(v, band):
+            return v >= band if lower else v <= band
+
+        if critical is not None and at_or_beyond(value, critical):
+            return "bad"
+        if warn is not None and at_or_beyond(value, warn):
+            return "warn"
+        return "good"
+    if tile.target is None:
         return "none"
     if tile.direction == "lower_better":
         if value <= tile.target:
@@ -61,14 +83,20 @@ def _grade(value, tile):
     return "warn" if value >= tile.target * 0.75 else "bad"
 
 
-def _run_tile(datasource, tile) -> dict:
+def _run_tile(datasource, tile, layer=None, cleared=frozenset()) -> dict:
     out = {
         "key": tile.key, "label": tile.label, "description": tile.description,
         "unit": tile.unit, "direction": tile.direction, "target": tile.target,
-        "value": None, "grade": "none", "error": "", "sql": "",
+        "warn": getattr(tile, "warn", None), "critical": getattr(tile, "critical", None),
+        "value": None, "grade": "none", "error": "", "sql": "", "restricted": False,
     }
+    if not set(getattr(tile, "classes", None) or ()) <= set(cleared):
+        # Classified (cost / bid-confidential) and this viewer is not cleared: say so,
+        # and do not run the SQL at all.
+        out["restricted"] = True
+        return out
     try:
-        sql = render_sql(tile.sql, datasource)
+        sql = render_for(layer or get_semantic_layer(datasource), tile.sql, datasource)
         assert_read_only(sql)
         out["sql"] = sql
         payload = execute_with_deadline(datasource, sql)
@@ -125,9 +153,13 @@ def lab_health(user, datasource_id=None) -> dict:
             "tiles": [],
         }
 
-    # Cache per (datasource, role) — the tile SET depends on the role, so a shared
-    # key would serve a section head the lab manager's tiles.
-    key = f"lab-health:{datasource.id}:{role}"
+    # Cache per (datasource, snapshot, role, clearance): the tile SET depends on the
+    # role and the VALUES shown depend on clearance, so a shared key would serve a
+    # section head the lab manager's tiles, or an uncleared viewer a cost figure.
+    cleared = cleared_classes(user)
+    restore_id = str((getattr(datasource, "options", None) or {}).get("restore_id") or "")
+    key = (f"lab-health:{datasource.id}:{restore_id or 'live'}:{role}:"
+           f"{','.join(sorted(cleared))}")
     cached = cache.get(key)
     if cached is not None:
         return cached
@@ -137,8 +169,8 @@ def lab_health(user, datasource_id=None) -> dict:
         "configured": True,
         "datasource": {"id": datasource.id, "name": datasource.name},
         "role": role,
-        "tiles": [_run_tile(datasource, t) for t in tiles],
+        "tiles": [_run_tile(datasource, t, layer, cleared) for t in tiles],
         **fresh.as_provenance(),
     }
-    cache.set(key, result, CACHE_TTL)
+    cache.set(key, result, SNAPSHOT_CACHE_TTL if restore_id else CACHE_TTL)
     return result

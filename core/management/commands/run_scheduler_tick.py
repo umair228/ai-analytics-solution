@@ -27,6 +27,7 @@ So `send_scheduled_reports` checks `last_sent_at`, `run_scheduled_refreshes` che
 import logging
 import time
 
+from django.conf import settings
 from django.core.management import call_command, get_commands, load_command_class
 from django.core.management.base import BaseCommand
 
@@ -66,13 +67,26 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No periodic commands found — nothing to do."))
             return
 
+        # A deployment may switch a periodic job off (DIS_SCHEDULER_SKIP), e.g. the lab
+        # brief on a reporting-only deployment. That is a decision, so it is logged on every
+        # tick — never a silent omission — and a name that matches nothing is a typo to flag.
+        skip = {s for s in (getattr(settings, "DIS_SCHEDULER_SKIP", None) or ()) if s}
+        unknown = sorted(skip - {name for name, _ in commands})
+        if unknown:
+            self.stderr.write(self.style.WARNING(
+                f"DIS_SCHEDULER_SKIP names no periodic command: {', '.join(unknown)}"))
+
         if opts["dry_run"]:
             self.stdout.write("This tick would run:")
             for name, kwargs in commands:
-                self.stdout.write(f"  {name} {kwargs or ''}".rstrip())
+                note = "  (skipped: DIS_SCHEDULER_SKIP)" if name in skip else ""
+                self.stdout.write(f"  {name} {kwargs or ''}".rstrip() + note)
             return
 
         for name, kwargs in commands:
+            if name in skip:
+                self.stdout.write(f"- {name} (skipped: DIS_SCHEDULER_SKIP)")
+                continue
             started = time.monotonic()
             try:
                 call_command(name, **kwargs)

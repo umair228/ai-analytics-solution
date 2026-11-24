@@ -98,7 +98,9 @@ def match_certified_metric(layer, question):
 
     best = None
     best_specificity = -1
-    for metric in layer.metrics:
+    # Only certified/live metrics answer as certified; drafts and deprecated ones are
+    # documentation until their owner signs them off (the KPI lifecycle, P5).
+    for metric in (m for m in layer.metrics if getattr(m, "offered", True)):
         for syn in metric.synonyms:
             sn = _norm(syn)
             if not sn or sn not in qn:                          # contiguous phrase hit

@@ -1,0 +1,540 @@
+# PMSv2 Management Reporting: the certified semantic layer over the rpt.* views.
+#
+#   manage.py load_semantic_layer --datasource "PMSv2 Reporting"     (finds this file by
+#                                                                    the datasource: field)
+#   manage.py check_metric_parity --datasource "PMSv2 Reporting"
+#
+# The data traps (Riyadh dates, revision chains, the P6 latest-draft basis, demo/test
+# exclusions, currency) are solved ONCE in the rpt views (fmms-deploy/reporting); these
+# metrics are thin, certified one-liners over them with the certified filter
+# is_excluded = 0. Money is not here: rpt_fin is read only through the restricted source.
+#
+# Every table carries the classification the reporting layer gives it (rpt.view_catalog,
+# checked at load); every metric on a project-scoped view carries {{scope:project_key}},
+# a tautology for today's all-scope managers and the project filter from R3.
+#
+# Thresholds: none, except the freshness rule agreed in DEC-05 (red once the copy is
+# older than 26 h). A KPI owner agrees a threshold before it is added; none is invented.
+# Status: parity_checked (matches the reporting layer's own figures); a KPI becomes
+# certified when its owner signs it off.
+datasource: PMSv2 Reporting
+timezone: Asia/Riyadh
+
+notes: |
+  PMSv2 reporting views, refreshed nightly from a verified backup (see rpt.v_data_as_of).
+  Always filter is_excluded = 0 (the certified filter; is_demo_or_test and
+  is_legacy_shell explain why a row is excluded or flagged).
+  Dates ending _on / _date are Riyadh calendar dates; _utc columns are UTC.
+  project_key is the join key to dim_project; project_number is what users quote.
+  P6 figures are on the latest draft schedule (no approved revision exists yet).
+
+classification:
+  required: true
+  catalog: {table: view_catalog, name: view_name, scope: scope_class, classes: classes}
+
+parity:
+  sql: "SELECT value FROM {{table:exec_summary}} WHERE kpi_id = :kpi_id"
+  # The reporting layer stores KPI values as decimal(18,3) (percentages already rounded
+  # to 0.1), so a recomputed ratio or median may differ in the last stored decimal.
+  tolerance: {count: 0, percent: 0, days: 0.0005, hours: 0.0005, ratio: 0.0005}
+
+tables:
+  dim_project:
+    description: One row per project, with its status, origin and readiness flags.
+    synonyms: [project, projects, job]
+    scope: scoped:project
+    columns:
+      project_key: {description: Join key for every project-scoped view}
+      project_number: {description: The project number users quote, synonyms: [project no]}
+      status: {description: Project status code, encoding: "active, on_hold, closed, ..."}
+      is_excluded: {description: "1 = left out by the certified filter"}
+  eng_document_register:
+    description: One row per engineering document with its pipeline state and overdue flag.
+    synonyms: [document, documents, drawing, deliverable, dms]
+    scope: scoped:project
+    columns:
+      pipeline_state: {description: Where the document is, encoding: "not_started, with_engineering, internal_review, pm_approval, additional_approval, gm_approval, with_client, done"}
+      is_overdue: {description: "1 = the submission date has passed and it is not done"}
+      credit: {description: Progress credit 0..1 (ENG-01)}
+      is_drawing: {description: "1 = a drawing"}
+      is_afc: {description: "1 = approved for construction"}
+      is_excluded: {description: "1 = left out by the certified filter"}
+  eng_sdrl_status:
+    description: One row per document at its 601 (SDRL) stage, bucketed by outcome.
+    scope: scoped:project
+  eng_transmittal_register:
+    description: One row per transmittal (external, internal, vendor).
+    synonyms: [transmittal, transmittals]
+    scope: scoped:project
+  eng_transmittal_response:
+    description: One row per transmittal item, with the client's response and turnaround.
+    scope: scoped:project
+    columns:
+      turnaround_days: {description: Days from issue to the client's return}
+  eng_revision_fact:
+    description: One row per document revision, current or superseded.
+    synonyms: [revision, revisions]
+    scope: scoped:project
+  eng_bom_coverage:
+    description: One row per BOM line with its take-off coverage.
+    synonyms: [bom, mto, take-off]
+    scope: scoped:project
+  com_rfq_register:
+    description: One row per RFQ with its funnel position and outcome flags (no values).
+    synonyms: [rfq, rfqs, bid, bids, inquiry, enquiry]
+    scope: all_scope_only
+    columns:
+      funnel_position: {description: Position in the bid funnel}
+      is_open_in_stage: {description: "1 = open in a BD stage"}
+      is_awarded: {description: "1 = awarded"}
+      is_excluded: {description: "1 = left out by the certified filter"}
+  gov_approval_step:
+    description: One row per approval step across modules, with pending age and deadline.
+    synonyms: [approval, approvals, pending]
+    scope: all_scope_only
+  prj_gate_status:
+    description: One row per project gate, with its review state.
+    synonyms: [gate, gates, stage gate]
+    scope: scoped:project
+  p6_schedule_status:
+    description: One row per P6 project, with the schedule revision used and its data date.
+    synonyms: [schedule, p6]
+    scope: scoped:project
+  p6_resource_hours:
+    description: One row per P6 resource assignment (selected revision), budget/actual/earned hours.
+    synonyms: [hours, manhours, labour]
+    scope: scoped:project
+  sys_audit_daily:
+    description: Audit events per day, app, model and action.
+    scope: all_scope_only
+  sys_active_users_monthly:
+    description: Active users and logins per month.
+    synonyms: [adoption, users]
+    scope: all_scope_only
+  dq_data_readiness:
+    description: Data-readiness checks, one row per check (and project where relevant).
+    scope: all_scope_only
+  dq_module_liveness:
+    description: One row per PMSv2 module, with whether it holds data yet.
+    synonyms: [modules, liveness]
+    scope: all_scope_only
+  v_data_as_of:
+    description: When the data on every board was taken (the nightly backup), and how old it is.
+    synonyms: [freshness, data as of]
+    scope: dim:public
+
+joins:
+  - {left: eng_document_register, right: dim_project, on: [[project_key, project_key]]}
+  - {left: prj_gate_status, right: dim_project, on: [[project_key, project_key]]}
+  - {left: p6_schedule_status, right: dim_project, on: [[project_key, project_key]]}
+
+metrics:
+  # ------------------------------------------------------------ engineering (BRD 4.9.3)
+  - key: eng_progress_pct
+    kpi_id: ENG-01
+    name: Engineering progress (%)
+    synonyms: [engineering progress, document progress]
+    unit: percent
+    direction: higher_better
+    owner: Engineering Manager
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(credit) / NULLIF(COUNT(*), 0), 1)
+      FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_sdrl_eligible
+    kpi_id: ENG-04
+    name: Documents at the SDRL (601) stage
+    unit: count
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT COUNT(*) FROM {{table:eng_sdrl_status}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_drawings_in_draft
+    kpi_id: ENG-05
+    name: Drawings in draft
+    unit: count
+    direction: lower_better
+    owner: Engineering Manager
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(CASE WHEN is_drawing = 1 AND pipeline_state IN ('not_started', 'with_engineering')
+                      THEN 1 ELSE 0 END)
+      FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_afc_pct
+    kpi_id: ENG-06
+    name: Drawings approved for construction (%)
+    unit: percent
+    direction: higher_better
+    owner: Engineering Manager
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(is_afc) / NULLIF(SUM(is_drawing), 0), 1)
+      FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_overdue_documents
+    kpi_id: ENG-07
+    name: Overdue documents
+    synonyms: [overdue documents, late documents]
+    unit: count
+    direction: lower_better
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(is_overdue) FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_client_response_rate
+    kpi_id: ENG-11
+    name: External transmittal items responded (%)
+    unit: percent
+    direction: higher_better
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(is_responded) / NULLIF(COUNT(*), 0), 1)
+      FROM {{table:eng_transmittal_response}}
+      WHERE is_excluded = 0 AND transmittal_type = 'external' AND issued_date IS NOT NULL
+        AND {{scope:project_key}}
+  - key: eng_client_turnaround_median
+    kpi_id: ENG-12
+    name: Client turnaround, median days
+    unit: days
+    direction: lower_better
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT DISTINCT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY turnaround_days) OVER ()
+      FROM {{table:eng_transmittal_response}}
+      WHERE is_excluded = 0 AND transmittal_type = 'external' AND issued_date IS NOT NULL
+        AND is_responded = 1 AND return_date IS NOT NULL AND {{scope:project_key}}
+  - key: eng_with_client
+    kpi_id: ENG-13
+    name: Documents with the client
+    synonyms: [with client, pending client]
+    unit: count
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT COUNT(*) FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND pipeline_state = 'with_client' AND {{scope:project_key}}
+  - key: eng_external_transmittals
+    kpi_id: ENG-25
+    name: External transmittals issued
+    unit: count
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(CASE WHEN transmittal_type = 'external' THEN 1 ELSE 0 END)
+      FROM {{table:eng_transmittal_register}}
+      WHERE is_excluded = 0 AND is_draft = 0 AND issued_date IS NOT NULL AND {{scope:project_key}}
+  - key: eng_superseded_revisions
+    kpi_id: ENG-30
+    name: Superseded revisions
+    unit: count
+    owner: Document Control
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(is_superseded) FROM {{table:eng_revision_fact}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: mto_pcs_coverage_pct
+    kpi_id: MTO-01
+    name: BOM take-off coverage, PCS lines (%)
+    unit: percent
+    direction: higher_better
+    owner: Engineering Manager
+    brd_ref: BRD 4.9.3
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(CASE WHEN bom_unit = 'PCS' THEN covered_qty_parity END)
+                   / NULLIF(SUM(CASE WHEN bom_unit = 'PCS' THEN bom_qty END), 0), 1)
+      FROM {{table:eng_bom_coverage}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_migration_replay_pct
+    kpi_id: ENG-31
+    name: Revisions created by the migration replay (%)
+    unit: percent
+    owner: PMO
+    brd_ref: Data readiness
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT affected_pct FROM {{table:dq_data_readiness}}
+      WHERE check_code = 'eng_migration_replay_revisions'
+
+  # ------------------------------------------------------------- commercial (BRD 4.1.6)
+  - key: com_rfqs_received
+    kpi_id: COM-01
+    name: RFQs received
+    synonyms: [rfqs received, number of rfqs]
+    unit: count
+    owner: BD Manager
+    brd_ref: BRD 4.1.6
+    status: parity_checked
+    observe: true
+    sql: SELECT COUNT(*) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+  - key: com_rfqs_in_funnel
+    kpi_id: COM-03
+    name: RFQs in the funnel (all positions)
+    unit: count
+    owner: BD Manager
+    brd_ref: BRD 4.1.6
+    status: parity_checked
+    observe: true
+    sql: SELECT COUNT(*) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+  - key: com_rfqs_awarded
+    kpi_id: COM-09
+    name: RFQs awarded
+    unit: count
+    direction: higher_better
+    owner: BD Manager
+    brd_ref: BRD 4.1.6
+    status: parity_checked
+    observe: true
+    sql: SELECT SUM(is_awarded) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+  - key: com_rfqs_open_in_stage
+    kpi_id: COM-11
+    name: RFQs open in a BD stage
+    synonyms: [open rfqs, open bids]
+    unit: count
+    owner: BD Manager
+    brd_ref: BRD 4.1.6
+    status: parity_checked
+    observe: true
+    sql: SELECT SUM(is_open_in_stage) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+  - key: com_rfqs_pending_approval
+    kpi_id: COM-16
+    name: RFQs waiting for a BD approval
+    synonyms: [pending bd approvals, rfqs pending approval]
+    unit: count
+    direction: lower_better
+    owner: BD Manager
+    brd_ref: BRD 4.1.6
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT COUNT(DISTINCT rfq_key) FROM {{table:gov_approval_step}}
+      WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_current_round = 1
+        AND rfq_key IS NOT NULL AND is_excluded = 0
+  - key: com_rfq_register_rows
+    kpi_id: COM-30
+    name: RFQ Summary register rows
+    unit: count
+    owner: BD Manager
+    brd_ref: RFQ Summary register
+    status: parity_checked
+    observe: true
+    sql: SELECT COUNT(*) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+
+  # -------------------------------------------------- projects and planning (BRD 4.2.9)
+  - key: prj_active_projects
+    kpi_id: PRJ-01
+    name: Active projects
+    synonyms: [active projects, number of projects]
+    unit: count
+    owner: PMO
+    brd_ref: BRD 4.2.9
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)
+      FROM {{table:dim_project}} WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: prj_gates_passed_pct
+    kpi_id: PRJ-05
+    name: Gates passed on active projects (%)
+    unit: percent
+    direction: higher_better
+    owner: PMO
+    brd_ref: BRD 4.2.9
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(is_passed) / NULLIF(COUNT(*), 0), 1)
+      FROM {{table:prj_gate_status}}
+      WHERE is_excluded = 0 AND project_status = 'active' AND {{scope:project_key}}
+  - key: prj_kpi_ready_pct
+    kpi_id: PRJ-11
+    name: Projects with KPI-ready master data (%)
+    unit: percent
+    direction: higher_better
+    owner: PMO
+    brd_ref: Data readiness
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT 100.0 - affected_pct FROM {{table:dq_data_readiness}}
+      WHERE check_code = 'prj_not_kpi_ready'
+  - key: pln_projects_on_draft_schedule
+    kpi_id: PLN-01
+    name: P6 projects reported on the latest draft schedule
+    unit: count
+    direction: lower_better
+    owner: Planning Manager
+    brd_ref: Capacity pack (plan side)
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(CASE WHEN revision_basis = 'latest_draft_unapproved' THEN 1 ELSE 0 END)
+      FROM {{table:p6_schedule_status}}
+      WHERE is_excluded = 0 AND revision_basis <> 'none' AND {{scope:project_key}}
+  - key: pln_labour_hours_spent_pct
+    kpi_id: PLN-12
+    name: Labour hours spent of budget (%)
+    unit: percent
+    owner: Planning Manager
+    brd_ref: Capacity pack (plan side)
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT ROUND(100.0 * SUM(actual_hours) / NULLIF(SUM(budget_hours), 0), 1)
+      FROM {{table:p6_resource_hours}}
+      WHERE is_excluded = 0 AND is_p6_duplicate = 0 AND resource_type = 'labor'
+        AND {{scope:project_key}}
+  - key: pro_labour_performance_factor
+    kpi_id: PRO-11
+    name: Labour performance factor (earned / actual hours)
+    unit: ratio
+    direction: higher_better
+    owner: Planning Manager
+    brd_ref: Capacity pack (plan side)
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(earned_hours) / NULLIF(SUM(COALESCE(actual_hours, 0)), 0)
+      FROM {{table:p6_resource_hours}}
+      WHERE is_excluded = 0 AND is_p6_duplicate = 0 AND resource_type = 'labor'
+        AND has_resource = 1 AND is_dummy_resource = 0 AND {{scope:project_key}}
+
+  # ------------------------------------------------- process and adoption (BRD 1.3, 4.9.9)
+  - key: prc_pending_approval_steps
+    kpi_id: PRC-03
+    name: Approval steps pending (all modules)
+    synonyms: [pending approvals, approval backlog]
+    unit: count
+    direction: lower_better
+    owner: PMO
+    brd_ref: BRD 1.3 (bottlenecks)
+    status: parity_checked
+    observe: true
+    sql: SELECT COUNT(*) FROM {{table:gov_approval_step}} WHERE is_pending = 1
+  - key: adp_active_users_latest_month
+    kpi_id: ADP-01
+    name: Active users, latest month
+    synonyms: [active users, adoption]
+    unit: count
+    direction: higher_better
+    owner: PMO
+    brd_ref: BRD 4.9.9
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT active_users FROM {{table:sys_active_users_monthly}}
+      WHERE activity_month = (SELECT MAX(activity_month) FROM {{table:sys_active_users_monthly}})
+  - key: adp_export_events
+    kpi_id: ADP-04
+    name: Export events recorded by PMSv2
+    unit: count
+    owner: PMO
+    brd_ref: BRD 4.9.9 (audit)
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT COALESCE(SUM(CASE WHEN action = 'export' THEN events END), 0)
+      FROM {{table:sys_audit_daily}} WHERE action IN ('export', 'download')
+  - key: dq_modules_with_data
+    kpi_id: DQ-LIVE
+    name: PMSv2 modules holding data
+    synonyms: [modules live, module liveness]
+    unit: count
+    direction: higher_better
+    owner: PMO
+    brd_ref: Data readiness
+    status: parity_checked
+    observe: true
+    sql: |
+      SELECT SUM(CASE WHEN data_status = 'HAS_DATA' THEN 1 ELSE 0 END)
+      FROM {{table:dq_module_liveness}}
+
+health:
+  - key: data_freshness_hours
+    label: Hours since the backup
+    description: Age of the restored copy behind every number here. Red once it is older than 26 h (DEC-05).
+    unit: hours
+    direction: lower_better
+    critical: 26
+    sql: SELECT hours_since_backup FROM {{table:v_data_as_of}}
+  - key: eng_progress
+    label: Engineering progress
+    description: ENG-01 — document progress credit over all documents.
+    unit: percent
+    direction: higher_better
+    sql: |
+      SELECT ROUND(100.0 * SUM(credit) / NULLIF(COUNT(*), 0), 1)
+      FROM {{table:eng_document_register}} WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_overdue
+    label: Overdue documents
+    description: ENG-07 — submission date passed and not done.
+    unit: count
+    direction: lower_better
+    sql: |
+      SELECT SUM(is_overdue) FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: eng_with_client
+    label: Documents with the client
+    description: ENG-13 — issued and awaiting the client's response.
+    unit: count
+    direction: lower_better
+    sql: |
+      SELECT COUNT(*) FROM {{table:eng_document_register}}
+      WHERE is_excluded = 0 AND pipeline_state = 'with_client' AND {{scope:project_key}}
+  - key: com_open_rfqs
+    label: RFQs open in BD
+    description: COM-11 — RFQs open in a BD stage.
+    unit: count
+    direction: neutral
+    sql: SELECT SUM(is_open_in_stage) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
+  - key: com_pending_approval
+    label: RFQs waiting for approval
+    description: COM-16 — RFQs with a pending BD approval step.
+    unit: count
+    direction: lower_better
+    sql: |
+      SELECT COUNT(DISTINCT rfq_key) FROM {{table:gov_approval_step}}
+      WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_current_round = 1
+        AND rfq_key IS NOT NULL AND is_excluded = 0
+  - key: prc_pending_steps
+    label: Approvals pending
+    description: PRC-03 — approval steps pending across all modules.
+    unit: count
+    direction: lower_better
+    sql: SELECT COUNT(*) FROM {{table:gov_approval_step}} WHERE is_pending = 1
+  - key: prj_active
+    label: Active projects
+    description: PRJ-01 — projects with status active.
+    unit: count
+    direction: neutral
+    sql: |
+      SELECT SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)
+      FROM {{table:dim_project}} WHERE is_excluded = 0 AND {{scope:project_key}}

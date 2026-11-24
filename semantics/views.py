@@ -22,8 +22,8 @@ from connections.access import visible_datasources
 from connections.models import DataSource
 
 from .health import lab_health
-from .layer import get_semantic_layer
-from .metric_sql import render as render_metric
+from .layer import get_semantic_layer, render_for
+
 
 
 # One definition, in connections/access.py. This was copy-pasted into four apps.
@@ -107,8 +107,12 @@ def layer_detail(request, pk):
             "description": m.description,
             "row_limit": m.row_limit,
             "synonyms": m.synonyms,
+            # KPI metadata (P5): what the number is, who owns it, how it is judged.
+            "kpi_id": m.kpi_id, "unit": m.unit, "direction": m.direction,
+            "owner": m.owner, "brd_ref": m.brd_ref, "thresholds": m.thresholds,
+            "status": m.status, "classes": m.classes, "scoped": m.scoped,
             "sql_authored": m.sql,
-            "sql_rendered": render_metric(m.sql, ds),
+            "sql_rendered": render_for(layer, m.sql, ds),
         }
         for m in sorted(layer.metrics, key=lambda m: m.key)
     ]
@@ -124,9 +128,12 @@ def layer_detail(request, pk):
             "unit": h.unit,
             "direction": h.direction,
             "target": h.target,
+            "warn": h.warn,
+            "critical": h.critical,
+            "classes": h.classes,
             "roles": h.roles,
             "sql_authored": h.sql,
-            "sql_rendered": render_metric(h.sql, ds),
+            "sql_rendered": render_for(layer, h.sql, ds),
         }
         for h in sorted(layer.health, key=lambda h: (h.position, h.key))
     ]

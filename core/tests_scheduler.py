@@ -63,6 +63,23 @@ class SchedulerTickTests(SimpleTestCase):
             f"the tick it does not run, and nothing will tell you.",
         )
 
+    def test_a_deployment_can_switch_a_job_off_and_it_is_logged(self):
+        from io import StringIO
+        from unittest import mock
+
+        from django.core.management import call_command
+        from django.test import override_settings
+
+        with override_settings(DIS_SCHEDULER_SKIP=["send_lab_brief", "no_such_job"]), \
+                mock.patch("core.management.commands.run_scheduler_tick.call_command") as run:
+            out, err = StringIO(), StringIO()
+            call_command("run_scheduler_tick", stdout=out, stderr=err)
+        ran = {c.args[0] for c in run.call_args_list}
+        self.assertNotIn("send_lab_brief", ran)
+        self.assertIn("send_scheduled_reports", ran)
+        self.assertIn("- send_lab_brief (skipped: DIS_SCHEDULER_SKIP)", out.getvalue())
+        self.assertIn("names no periodic command: no_such_job", err.getvalue())
+
     def test_production_scheduler_invokes_the_tick(self):
         """The compose file must call the tick — not name commands by hand, which is how they got
         forgotten. Skipped when the deploy repo is not checked out alongside this one."""

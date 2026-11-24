@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -28,7 +30,13 @@ from .serializers import AlertEventSerializer, DatasetAlertSerializer, DatasetRe
 from .services import refresh_dataset
 
 
+logger = logging.getLogger(__name__)
+
+
 def _error(exc):
+    # Django's request log records only "Bad Request: <path>"; keep the reason server-side too,
+    # so a failure a widget silently recovers from (cached-rows fallback) can still be diagnosed.
+    logger.warning("dataset request failed: %s: %s", type(exc).__name__, str(exc)[:500])
     return Response({"error": True, "detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -83,10 +91,19 @@ class DatasetViewSet(viewsets.ModelViewSet):
             "statistics", "aggregate", "compare",
             "forecast", "anomalies", "summary", "ask", "profile",
             "correlation", "rolling", "filter_options", "distinct_values",
-            "explore", "suggest_filters",
+            "explore", "suggest_filters", "export",
         ):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
+
+    def perform_content_negotiation(self, request, force=False):
+        # On the export action ``?format=`` names the FILE type (xlsx/pdf/csv),
+        # not a DRF renderer — default negotiation would 404 it. Error bodies
+        # stay JSON; the file itself is a plain HttpResponse.
+        if getattr(self, "action", None) == "export":
+            renderers = self.get_renderers()
+            return renderers[0], renderers[0].media_type
+        return super().perform_content_negotiation(request, force)
 
     def perform_create(self, serializer):
         dataset = serializer.save()
@@ -123,6 +140,95 @@ class DatasetViewSet(viewsets.ModelViewSet):
         record_audit(request, AuditLog.Action.QUERY, target_type="Dataset",
                      target_id=dataset.id, summary=f"Refreshed dataset '{dataset.name}'")
         return Response(DatasetSerializer(dataset).data)
+
+    @action(detail=True, methods=["get"])
+    def export(self, request, pk=None, format=None):
+        """Download the dataset's FULL result as an audited file.
+
+        GET ?format=xlsx|pdf|csv (default xlsx)
+            [&params={"name": "value"}]   query parameters (URL-encoded JSON)
+            [&filters=[...]]              dashboard filters
+
+        ``params`` and ``filters`` mean what they mean on ``data`` (so a table
+        widget exports exactly what it shows); malformed JSON is a 400 here
+        rather than ignored, so a file never silently covers more data than
+        asked for. Runs the complete query server-side (not the cached
+        preview). Access is the same as viewing the dataset. More rows than
+        DIS_EXPORT_MAX_ROWS (DIS_EXPORT_PDF_MAX_ROWS for PDF) → 413.
+        Fail-closed audit: the AuditLog row (action EXPORT) is committed
+        before the file is released; if it cannot be written the response is
+        a 500 and no file.
+        """
+        import json
+        import logging
+
+        from django.http import HttpResponse
+
+        from core.audit import EXPORT, AuditWriteError, record_audit_strict
+        from core.report_render import FORMATS
+        from querybuilder.executor import QueryError
+
+        from .exports import ExportTooLarge, export_dataset, user_label
+
+        log = logging.getLogger(__name__)
+        if request.method == "HEAD":  # a probe must not run (and audit) an export
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        dataset = self.get_object()
+        fmt = (request.query_params.get("format") or format or "xlsx").lower()
+        if fmt not in FORMATS:
+            return _error(f"Unsupported export format '{fmt}'. "
+                          f"Use one of: {', '.join(FORMATS)}.")
+
+        def json_arg(name, kind):
+            raw = request.query_params.get(name)
+            if not raw:
+                return None
+            try:
+                value = json.loads(raw)
+            except (TypeError, ValueError):
+                value = ...  # not JSON at all
+            if value is None:  # JSON null = not given, as on ``data``
+                return None
+            if not isinstance(value, kind):
+                raise ValueError(f"'{name}' must be a JSON "
+                                 f"{'object' if kind is dict else 'array'}.")
+            return value
+
+        try:
+            params = json_arg("params", dict)
+            filters = json_arg("filters", list)
+        except ValueError as exc:
+            return _error(exc)
+
+        try:
+            out = export_dataset(dataset, fmt, generated_by=user_label(request.user),
+                                 params=params, filters=filters)
+        except ExportTooLarge as exc:
+            return Response({"error": True, "detail": str(exc),
+                             "row_limit": exc.limit, "format": fmt},
+                            status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        except QueryError as exc:
+            return _error(exc)
+        except Exception as exc:  # noqa: BLE001 — a render bug is a server error
+            log.exception("Export of dataset %s as %s failed", dataset.pk, fmt)
+            return Response({"error": True, "detail": f"Export failed: {exc}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            record_audit_strict(
+                EXPORT, request=request, target_type="Dataset", target_id=dataset.id,
+                summary=(f"Exported dataset '{dataset.name}' as {fmt} "
+                         f"({out.row_count} rows)"),
+                detail=out.audit_detail(dataset),
+            )
+        except AuditWriteError:
+            return Response({"detail": "Export not audited; nothing was exported."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        response = HttpResponse(out.content, content_type=out.content_type)
+        response["Content-Disposition"] = f'attachment; filename="{out.filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(detail=True, methods=["get"])
     def data(self, request, pk=None):
@@ -302,90 +408,16 @@ class DatasetViewSet(viewsets.ModelViewSet):
                "filters": [...], "params": {...},
                "x", "y", "agg", "group_by", "column", "limit", "offset"}
         """
-        from querybuilder.executor import (
-            QueryError, execute_dataset_query, is_unknown_column_error,
-        )
-        from querybuilder.models import QueryDefinition
+        from .explore import ExploreUnsupported, run_explore
 
-        dataset = self.get_object()
-        q = dataset.query
-        if q is None or q.mode != QueryDefinition.Mode.RAW:
-            return Response(
-                {"error": True, "unsupported": True,
-                 "detail": "Full-data explore requires a raw-SQL dataset; "
-                           "the client falls back to the cached preview."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # The output-column allow-list comes from the cached result; populate
-        # it on first use so a never-refreshed dataset still works.
-        if not dataset.cached_columns:
-            try:
-                refresh_dataset(dataset)
-            except Exception as exc:  # noqa: BLE001
-                return _error(exc)
-
-        body = request.data or {}
-        spec = {k: body.get(k)
-                for k in ("mode", "x", "y", "agg", "group_by", "x_bucket",
-                          "column", "limit", "offset", "with_count")}
-        merged_params = {**q.declared_param_defaults(),
-                         **(dataset.param_defaults or {}),
-                         **(body.get("params") or {})}
-        # Only well-formed entries — a malformed filter must degrade, not 500.
-        filters = [f for f in (body.get("filters") or [])
-                   if isinstance(f, dict) and f.get("column")]
-
-        def run(flts):
-            return execute_dataset_query(
-                q.datasource, q.raw_sql, q.database or None,
-                params=merged_params or None,
-                filters=flts,
-                columns=dataset.cached_columns or [],
-                spec=spec,
-            )
-
-        def split(flts, cols):
-            kept = [f for f in flts if f["column"] in cols]
-            skip = sorted({str(f["column"]) for f in flts
-                           if f["column"] not in cols})
-            return kept, skip
-
-        columns = dataset.cached_columns or []
-        kept, skipped = split(filters, columns)
-
-        # Filters were dropped but the query changed since the last refresh —
-        # the cache may simply be stale: heal proactively and re-split (covers
-        # a NEW output column the stale cache didn't know about).
-        if skipped and dataset.last_refreshed_at and q.updated_at \
-                and q.updated_at > dataset.last_refreshed_at:
-            try:
-                refresh_dataset(dataset)
-                columns = dataset.cached_columns or []
-                kept, skipped = split(filters, columns)
-            except Exception:  # noqa: BLE001 — proactive only; carry on
-                pass
-
+        dataset = self.get_object()      # the access check: visibility, sharing, admin
         try:
-            result = run(kept)
-        except QueryError as exc:
-            if not is_unknown_column_error(str(exc)):
-                return _error(exc)
-            # Stale cached columns (query edited since last refresh) — refresh,
-            # drop filters whose columns are gone, and retry once.
-            try:
-                refresh_dataset(dataset)
-            except Exception:  # noqa: BLE001
-                return _error(exc)
-            columns = dataset.cached_columns or []
-            kept, skipped = split(filters, columns)
-            try:
-                result = run(kept)
-            except QueryError as exc2:
-                return _error(exc2)
-        result["source"] = "database"
-        if skipped:
-            result["skipped_filters"] = skipped
+            result = run_explore(dataset, request.data or {})
+        except ExploreUnsupported as exc:
+            return Response({"error": True, "unsupported": True, "detail": str(exc)},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001 — QueryError, or a failed refresh
+            return _error(exc)
         return Response(result)
 
     @action(detail=True, methods=["get"], url_path="suggest-filters")
