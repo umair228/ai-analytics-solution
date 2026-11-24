@@ -23,6 +23,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     datasource_names = serializers.SerializerMethodField()
     freshness = serializers.SerializerMethodField()
     can_edit = serializers.SerializerMethodField()
+    is_demo = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -30,7 +31,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "id", "name", "description", "owner", "owner_username", "site",
             "lab", "lab_name", "visibility", "shared_with", "filters", "widgets",
             "widget_count", "position", "nav_group",
-            "datasource_names", "freshness", "can_edit", "created_at", "updated_at",
+            "datasource_names", "freshness", "is_demo", "can_edit", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
 
@@ -53,6 +54,16 @@ class DashboardSerializer(serializers.ModelSerializer):
             if ds and ds.query_id and ds.query.datasource_id:
                 names.add(ds.query.datasource.name)
         return sorted(names)
+
+    def get_is_demo(self, obj):
+        """True when any widget reads a source flagged ``options["demo"]`` (generated
+        demonstration data): the board then says so, so nobody takes it for real."""
+        for w in obj.widgets.all():
+            ds = getattr(w, "dataset", None)
+            source = ds.query.datasource if ds and ds.query_id and ds.query.datasource_id else None
+            if source is not None and (source.options or {}).get("demo"):
+                return True
+        return False
 
     def get_freshness(self, obj):
         """How current the board's numbers are, in one line for its header.
