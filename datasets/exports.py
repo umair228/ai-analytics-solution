@@ -85,7 +85,8 @@ def user_label(user) -> str:
 
 def _clean_filters(filters) -> list:
     """Only well-formed entries — a malformed filter must not 500 an export."""
-    return [f for f in (filters or []) if isinstance(f, dict) and f.get("column")]
+    from querybuilder.executor import filter_columns
+    return [f for f in (filters or []) if filter_columns(f)]
 
 
 def run_full_query(dataset, *, params=None, filters=None, max_rows: int) -> dict:
@@ -109,10 +110,8 @@ def run_full_query(dataset, *, params=None, filters=None, max_rows: int) -> dict
 
     if query.mode == QueryDefinition.Mode.RAW:
         def split(columns):
-            kept = [f for f in filters if f["column"] in columns]
-            skipped = sorted({str(f["column"]) for f in filters
-                              if f["column"] not in columns})
-            return kept, skipped
+            from querybuilder.executor import split_filters
+            return split_filters(filters, columns)
 
         def run(kept, columns):
             return execute_raw_sql_filtered(
@@ -146,7 +145,8 @@ def run_full_query(dataset, *, params=None, filters=None, max_rows: int) -> dict
     else:
         # Visual-builder queries take no output filters; run the full spec
         # (its own LIMIT kept, the preview cap dropped).
-        kept, skipped = [], sorted({str(f["column"]) for f in filters})
+        from querybuilder.executor import filter_columns
+        kept, skipped = [], sorted({c for f in filters for c in filter_columns(f)})
         result = execute_spec(query.datasource, query.spec, query.database or None,
                               max_rows=max_rows, full=True)
     result.update(params=merged, filters=kept, skipped_filters=skipped)

@@ -19,7 +19,7 @@ from django.core.cache import cache
 SNAPSHOT_TTL = 26 * 3600      # a promotion changes the key long before this matters
 
 SPEC_KEYS = ("mode", "x", "y", "agg", "group_by", "x_bucket", "column", "limit",
-             "offset", "with_count")
+             "offset", "with_count", "sort")
 
 
 class ExploreUnsupported(Exception):
@@ -64,8 +64,8 @@ def run_explore(dataset, body: dict, *, use_cache: bool = True) -> dict:
                      **(dataset.param_defaults or {}),
                      **(body.get("params") or {})}
     # Only well-formed entries — a malformed filter must degrade, not 500.
-    filters = [f for f in (body.get("filters") or [])
-               if isinstance(f, dict) and f.get("column")]
+    from querybuilder.executor import filter_columns, split_filters
+    filters = [f for f in (body.get("filters") or []) if filter_columns(f)]
 
     def run(flts):
         return execute_dataset_query(
@@ -77,9 +77,7 @@ def run_explore(dataset, body: dict, *, use_cache: bool = True) -> dict:
         )
 
     def split(flts, cols):
-        kept = [f for f in flts if f["column"] in cols]
-        skip = sorted({str(f["column"]) for f in flts if f["column"] not in cols})
-        return kept, skip
+        return split_filters(flts, cols)
 
     columns = dataset.cached_columns or []
     kept, skipped = split(filters, columns)

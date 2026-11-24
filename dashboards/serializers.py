@@ -29,7 +29,7 @@ class DashboardSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "description", "owner", "owner_username", "site",
             "lab", "lab_name", "visibility", "shared_with", "filters", "widgets",
-            "widget_count", "position",
+            "widget_count", "position", "nav_group",
             "datasource_names", "freshness", "can_edit", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]

@@ -856,6 +856,104 @@ datasets:
             GROUP BY a.approver_role, a.waiting, a.bin_order) g
       ORDER BY role_total DESC, approver_role, bin_order
 
+  # ---- Registers: whole lists, filtered by their charts, paged by the database -----
+  - key: reg_documents
+    name: "REG · Document register"
+    description: "Every reported document with its project, stage, status, revision, dates and lateness."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT r.document_number, r.project_number,
+             CONCAT(r.project_number, N' · ', p.project_name) AS project,
+             r.doc_type_label AS document_type, r.pipeline_state_label AS stage,
+             r.active_status_label AS status, r.active_revision_label AS revision,
+             r.revisions, r.target_date,
+             CASE WHEN r.is_overdue = 1 THEN r.days_overdue END AS days_overdue,
+             CASE WHEN r.is_done = 1 THEN 'Done' WHEN r.is_overdue = 0 THEN 'Not overdue'
+                  ELSE b.overdue_bin_label END AS lateness,
+             r.stage_age_days AS days_in_stage, r.with_client_since,
+             r.retarget_count AS times_retargeted,
+             CASE WHEN r.is_drawing = 1 THEN 'Yes' ELSE 'No' END AS drawing,
+             CASE WHEN r.is_afc = 1 THEN 'Yes' ELSE 'No' END AS approved_for_construction
+      FROM rpt.eng_document_register r
+      LEFT JOIN rpt.dim_project p ON p.project_key = r.project_key
+      LEFT JOIN (SELECT DISTINCT overdue_bin, overdue_bin_label FROM rpt.eng_overdue_aging) b
+             ON b.overdue_bin = r.overdue_bin
+      WHERE r.is_excluded = 0
+      ORDER BY project_number, document_number
+
+  - key: reg_transmittals
+    name: "REG · Transmittal register"
+    description: "Every issued transmittal with its project, who it went to, its status and whether the client still has it."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT t.transmittal_number, t.project_number,
+             CONCAT(t.project_number, N' · ', p.project_name) AS project,
+             t.transmittal_type_label AS sent_to, t.status_label AS status,
+             t.issued_date, t.items,
+             CASE WHEN t.is_awaiting_client = 1 THEN 'Yes' ELSE 'No' END AS awaiting_client,
+             CASE WHEN t.is_entered_late = 1 THEN 'Yes' ELSE 'No' END AS entered_late,
+             t.transmittal_key
+      FROM rpt.eng_transmittal_register t
+      LEFT JOIN rpt.dim_project p ON p.project_key = t.project_key
+      WHERE t.is_excluded = 0 AND t.is_draft = 0
+      ORDER BY issued_date DESC, transmittal_key
+
+  - key: reg_approvals
+    name: "REG · Approval register"
+    description: "Every approval step, pending or decided: module, what it is for, step, who it waits for, status and days. Roles only, never people."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT s.module_label AS module,
+             COALESCE(s.rfq_number, p.project_number, '—') AS reference, p.project_name,
+             s.step_name AS step, CASE
+               WHEN s.approver_role IS NULL THEN 'Not assigned'
+               WHEN s.approver_role = 'planner' THEN 'Planner'
+               WHEN s.approver_role = 'bd' THEN 'Business development'
+               WHEN s.approver_role = 'bd_coordinator' THEN 'BD coordinator'
+               WHEN s.approver_role = 'bd_manager' THEN 'BD manager'
+               WHEN s.approver_role = 'estimator' THEN 'Estimator'
+               WHEN s.approver_role = 'engineering_manager' THEN 'Engineering manager'
+               WHEN s.approver_role = 'project_manager' THEN 'Project manager'
+               WHEN s.approver_role = 'finance' THEN 'Finance'
+               WHEN s.approver_role = 'qc_manager' THEN 'QC manager'
+               WHEN s.approver_role = 'composite' THEN 'Several roles together'
+               WHEN s.approver_role = 'attr:record.estimation_engineer_id' THEN 'Assigned estimation engineer'
+               WHEN s.approver_role LIKE 'attr:record.%' THEN 'The person assigned on the record'
+               ELSE UPPER(LEFT(s.approver_role, 1)) + REPLACE(SUBSTRING(s.approver_role, 2, 200), '_', ' ')
+             END AS waiting_for,
+             s.step_status_label AS status,
+             s.pending_on AS waiting_since, s.acted_on AS decided_on,
+             CASE WHEN s.is_pending = 1 THEN s.age_days ELSE s.step_cycle_days END AS days,
+             CASE WHEN s.is_pending = 0 THEN 'Not waiting'
+                  WHEN s.age_bin = 'd0_2' THEN '0-2 days' WHEN s.age_bin = 'd3_7' THEN '3-7 days'
+                  WHEN s.age_bin = 'd8_30' THEN '8-30 days' ELSE 'over 30 days' END AS waiting,
+             s.step_key
+      FROM rpt.gov_approval_step s
+      LEFT JOIN rpt.dim_project p ON p.project_key = s.object_project_key
+      WHERE s.is_excluded = 0
+      ORDER BY days DESC, step_key
+
+  - key: reg_enquiries
+    name: "REG · Enquiry register"
+    description: "Every enquiry (RFQ): client code, category, where it is in the bid process and its dates."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT rfq_number, client_code,
+             UPPER(LEFT(fabrication_category, 1)) + REPLACE(SUBSTRING(fabrication_category, 2, 200), '_', ' ') AS category,
+             UPPER(LEFT(rfq_type, 1)) + REPLACE(SUBSTRING(rfq_type, 2, 200), '_', ' ') AS rfq_type,
+             funnel_position_label AS funnel_position, current_stage_label AS current_stage,
+             CASE WHEN is_open_live = 1 THEN 'Open' ELSE 'Closed' END AS open_or_closed,
+             received_on, bid_deadline_riyadh AS bid_deadline, submission_date,
+             probability_pct, open_stage_age_days AS days_in_stage, opco,
+             CASE WHEN is_demo_or_test = 1 THEN 'Proposed exclusion' ELSE '' END AS data_flag
+      FROM rpt.com_rfq_register
+      WHERE is_excluded = 0
+      ORDER BY received_on DESC, rfq_number
+
   # ---- Project View: one project at a time (parameter :project = its number) -------
   # The same definitions as the certified metrics (ENG-01, ENG-07, ENG-13, ENG-12,
   # ENG-06, PLN-12, PRO-11), filtered to one project before anything is counted.
@@ -1315,6 +1413,42 @@ dashboards:
 # with the backup time. Recipients are NOT in this file: pass seed_domain_pack --recipients or
 # set them on the Reports page. Classified content (rpt_fin, pack-restricted.yaml) is never
 # attached to an email: it is link-only (DEC-07), so that pack schedules no reports.
+  # ======================================================================== REGISTERS
+  # Each register is a whole list: charts at the top count it by stage, type, lateness
+  # or project and filter it when clicked; search, sort, columns and the Excel download
+  # all run in the database, so the list can be any size.
+  - key: register_documents
+    name: "Documents"
+    nav_group: Registers
+    position: 100
+    description: "Every document: filter by stage, lateness, type or project; search; sort; download."
+    widgets:
+      - {title: "Document register", type: register, dataset: reg_documents, config: {noun: documents, key_field: document_number, page_size: 50, search: [document_number, project, document_type, status], dimensions: [{field: stage, label: "Stage", order: ["Not started", "With engineering", "PM approval", "With client", "Approved, awaiting close", "Other (vendor / subcontract / internal issue)", "Done"]}, {field: lateness, label: "Lateness", order: ["Not overdue", "8-14 days", "15-30 days", "More than 30 days", "Done"], tones: {"8-14 days": watch, "15-30 days": serious, "More than 30 days": act, "Done": good}}, {field: document_type, label: "Type", limit: 8}, {field: project, label: "Project", limit: 8}], columns: [{field: document_number, label: "Document"}, {field: project, label: "Project"}, {field: document_type, label: "Type"}, {field: stage, label: "Stage"}, {field: status, label: "Status"}, {field: revision, label: "Revision"}, {field: target_date, label: "Target date"}, {field: days_overdue, label: "Days overdue"}, {field: lateness, label: "Lateness"}, {field: days_in_stage, label: "Days in stage"}, {field: revisions, label: "Revisions"}, {field: times_retargeted, label: "Times retargeted"}, {field: drawing, label: "Drawing"}, {field: approved_for_construction, label: "Approved for construction"}], hidden: [status, days_in_stage, revisions, times_retargeted, drawing, approved_for_construction], project_field: project_number}, layout: {x: 0, y: 0, w: 12, h: 40}}
+
+  - key: register_transmittals
+    name: "Transmittals"
+    nav_group: Registers
+    position: 110
+    description: "Every issued transmittal: filter by who it went to, status or project; search; sort; download."
+    widgets:
+      - {title: "Transmittal register", type: register, dataset: reg_transmittals, config: {noun: transmittals, key_field: transmittal_number, page_size: 50, search: [transmittal_number, project, sent_to], dimensions: [{field: sent_to, label: "Sent to"}, {field: status, label: "Status"}, {field: awaiting_client, label: "Still with the client", order: ["Yes", "No"]}, {field: project, label: "Project", limit: 8}], columns: [{field: transmittal_number, label: "Transmittal"}, {field: project, label: "Project"}, {field: sent_to, label: "Sent to"}, {field: status, label: "Status"}, {field: issued_date, label: "Issued"}, {field: items, label: "Items"}, {field: awaiting_client, label: "With the client"}, {field: entered_late, label: "Entered late"}], project_field: project_number}, layout: {x: 0, y: 0, w: 12, h: 40}}
+
+  - key: register_approvals
+    name: "Approvals"
+    nav_group: Registers
+    position: 120
+    description: "Every approval step, waiting or decided: filter by status, module, role or how long; search; sort; download."
+    widgets:
+      - {title: "Approval register", type: register, dataset: reg_approvals, config: {noun: approval steps, key_field: step_key, page_size: 50, search: [reference, project_name, step, module, waiting_for], dimensions: [{field: status, label: "Status"}, {field: waiting, label: "Waiting", order: ["0-2 days", "3-7 days", "8-30 days", "over 30 days", "Not waiting"], tones: {"8-30 days": watch, "over 30 days": act}}, {field: module, label: "Module"}, {field: waiting_for, label: "Waiting for", limit: 8}], columns: [{field: module, label: "Module"}, {field: reference, label: "For"}, {field: project_name, label: "Project name"}, {field: step, label: "Step"}, {field: waiting_for, label: "Waiting for"}, {field: status, label: "Status"}, {field: waiting_since, label: "Since"}, {field: decided_on, label: "Decided"}, {field: days, label: "Days"}, {field: waiting, label: "Waiting"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+
+  - key: register_enquiries
+    name: "Enquiries"
+    nav_group: Registers
+    position: 130
+    description: "Every enquiry (RFQ): filter by bid stage, category, open or closed; search; sort; download."
+    widgets:
+      - {title: "Enquiry register", type: register, dataset: reg_enquiries, config: {noun: enquiries, key_field: rfq_number, page_size: 50, search: [rfq_number, client_code, current_stage, category], dimensions: [{field: funnel_position, label: "Bid stage"}, {field: open_or_closed, label: "Open or closed", order: ["Open", "Closed"]}, {field: category, label: "Category"}, {field: rfq_type, label: "Type"}], columns: [{field: rfq_number, label: "RFQ"}, {field: client_code, label: "Client"}, {field: category, label: "Category"}, {field: rfq_type, label: "Type"}, {field: funnel_position, label: "Bid stage"}, {field: current_stage, label: "Current step"}, {field: open_or_closed, label: "Open"}, {field: received_on, label: "Received"}, {field: bid_deadline, label: "Bid deadline"}, {field: submission_date, label: "Submitted"}, {field: probability_pct, label: "Probability %"}, {field: days_in_stage, label: "Days in stage"}, {field: data_flag, label: "Data flag"}], hidden: [data_flag]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+
 reports:
   # The Executive Overview itself, as a PDF, every week (created off: an administrator
   # adds the recipients on the Reports page or with seed_domain_pack --recipients).
