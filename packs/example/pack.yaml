@@ -1,0 +1,52 @@
+# A tiny, runnable domain pack (see packs/README.md). Its data lives in
+# packs/example/orders.sql; the tests install it against that data.
+pack: example
+version: 1
+datasources:
+  default: "Example Source"          # must already exist (by exact name)
+visibility: shared
+share_with_group: ""                 # e.g. "Report viewers" to share with a Django group
+
+datasets:
+  - key: orders_by_status
+    name: "EX-01 Orders by status"
+    description: "Order count and value per status."
+    datasource: default
+    sql: |
+      SELECT status,
+             COUNT(*)        AS orders,
+             SUM(amount)     AS order_value,
+             MAX(updated_at) AS data_as_of
+      FROM orders
+      GROUP BY status
+      ORDER BY status
+    refresh: daily
+
+  - key: orders_by_region
+    name: "EX-02 Orders by region"
+    description: "Orders per region; the optional status parameter narrows it."
+    datasource: default
+    sql: |
+      SELECT region, COUNT(*) AS orders, SUM(amount) AS order_value
+      FROM orders
+      WHERE (:status = '' OR status = :status)
+      GROUP BY region
+      ORDER BY region
+    parameters:
+      - {name: status, type: text, default: "", required: false}
+    refresh: manual
+
+dashboards:
+  - key: overview
+    name: "Example · Overview"
+    description: "Orders at a glance."
+    filters: []
+    widgets:
+      - {title: "Orders", type: kpi, dataset: orders_by_status,
+         config: {value_field: orders, rollup: sum}, layout: {x: 0, y: 0, w: 3, h: 4}}
+      - {title: "Order value", type: kpi, dataset: orders_by_status,
+         config: {value_field: order_value, rollup: sum}, layout: {x: 3, y: 0, w: 3, h: 4}}
+      - {title: "Orders by status", type: bar, dataset: orders_by_status,
+         config: {category_field: status, value_field: orders}, layout: {x: 6, y: 0, w: 6, h: 6}}
+      - {title: "Orders by region", type: table, dataset: orders_by_region,
+         config: {}, layout: {x: 0, y: 6, w: 12, h: 6}}

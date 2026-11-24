@@ -1,0 +1,735 @@
+# PMSv2 Management Reporting pack (Release 1).
+# Every dataset is a thin SELECT over the certified rpt.* views on the nightly restored copy;
+# all data traps (Riyadh dates, revisions, P6 latest-draft label, exclusions, currency) live in
+# those views (fmms-deploy/reporting), never here. Money is NOT in this pack: see
+# pack-restricted.yaml (rpt_fin.*, restricted DataSource, private visibility).
+#
+#   manage.py seed_domain_pack --pack packs/fmms/pack.yaml --refresh
+pack: fmms
+version: 1
+datasources:
+  default: "PMSv2 Reporting"
+visibility: shared
+share_with_group: ""
+
+datasets:
+  # ---------------------------------------------------------------- freshness (every board)
+  - key: data_freshness
+    name: "PMSv2 · Data as of"
+    description: "Backup time of the restored copy every number on the boards comes from (Riyadh)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT data_as_of_label, freshness_status, hours_since_backup, snapshot_date
+      FROM rpt.v_data_as_of
+
+  - key: mgt_kpi_summary
+    name: "MGT · Weekly KPI summary"
+    description: "Every Release-1 KPI on one page with readiness and caveats (the weekly management pack)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT kpi_id, kpi_name, value_text AS value, unit, readiness, boards, caveat
+      FROM rpt.exec_summary
+      ORDER BY sort_order
+
+  # ---------------------------------------------------------------- KPI tiles (rpt.exec_summary)
+  - key: kpi_eng01
+    name: "KPI · ENG-01 Engineering progress %"
+    description: "Document-control credit progress across the portfolio (601 close = 50%, 602 close = 100%)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-01'"
+  - key: kpi_eng06
+    name: "KPI · ENG-06 AFC drawing coverage %"
+    description: "Drawings approved for construction / all drawings."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-06'"
+  - key: kpi_eng07
+    name: "KPI · ENG-07 Overdue documents"
+    description: "Not-done documents past their target date (business dates)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-07'"
+  - key: kpi_eng11
+    name: "KPI · ENG-11 Client submissions responded %"
+    description: "External transmittal items with a client response."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-11'"
+  - key: kpi_eng12
+    name: "KPI · ENG-12 Client turnaround (median days)"
+    description: "Issued date to client return date, median days."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-12'"
+  - key: kpi_eng13
+    name: "KPI · ENG-13 Documents with client"
+    description: "Documents currently awaiting the client."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-13'"
+  - key: kpi_eng25
+    name: "KPI · ENG-25 External transmittals issued"
+    description: "External transmittals issued (all history)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-25'"
+  - key: kpi_eng30
+    name: "KPI · ENG-30 Superseded revisions"
+    description: "Document revisions superseded by a later revision."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-30'"
+  - key: kpi_mto01
+    name: "KPI · MTO-01 BOM take-off coverage % (PCS)"
+    description: "BOM quantity covered by MTO take-off, PCS lines only (never summed across units)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'MTO-01'"
+  - key: kpi_com01
+    name: "KPI · COM-01 RFQs received"
+    description: "RFQs received (includes test RFQs until the exclusion list is confirmed)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'COM-01'"
+  - key: kpi_com09
+    name: "KPI · COM-09 Bids awarded"
+    description: "RFQs awarded (won or PO received)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'COM-09'"
+  - key: kpi_com11
+    name: "KPI · COM-11 Open RFQs"
+    description: "RFQs still open in the bid flow."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'COM-11'"
+  - key: kpi_com16
+    name: "KPI · COM-16 Pending BD approvals"
+    description: "RFQs waiting on a BD approval step (no deadlines are configured yet)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'COM-16'"
+  - key: kpi_com_test_rfqs
+    name: "KPI · RFQs flagged as test (pending confirmation)"
+    description: "Test-titled or placeholder-client RFQs proposed for exclusion (DEC-16)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT COUNT(*) AS value FROM rpt.com_rfq_register WHERE is_demo_or_test = 1"
+  - key: kpi_prj01
+    name: "KPI · PRJ-01 Active projects"
+    description: "Active projects (53 are migrated shells without dates or value)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRJ-01'"
+  - key: kpi_prj05
+    name: "KPI · PRJ-05 Gates passed %"
+    description: "Gate instances passed / all gate instances."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRJ-05'"
+  - key: kpi_prj11
+    name: "KPI · PRJ-11 Projects KPI-ready %"
+    description: "Projects with a contract value and a planned end date."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRJ-11'"
+  - key: kpi_pln01
+    name: "KPI · PLN-01 P6 projects without an approved revision"
+    description: "Schedules reported on the latest draft (labelled) because no revision is approved."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PLN-01'"
+  - key: kpi_pln12
+    name: "KPI · PLN-12 P6 labour hours consumed % (latest draft)"
+    description: "Actual labour hours / budget labour hours on the latest P6 draft."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PLN-12'"
+  - key: kpi_pro11
+    name: "KPI · PRO-11 Productivity factor (P6 basis)"
+    description: "Earned labour hours / actual labour hours on the latest P6 draft (PF basis is DEC-20)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRO-11'"
+  - key: kpi_prc03
+    name: "KPI · PRC-03 Pending approval steps"
+    description: "Approval steps currently waiting for action."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRC-03'"
+  - key: kpi_prc05
+    name: "KPI · PRC-05 Pending at the top bottleneck role"
+    description: "Pending steps held by the role with the most pending steps (roles, never people)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'PRC-05'"
+  - key: kpi_adp01
+    name: "KPI · ADP-01 Active users this month"
+    description: "Distinct users with activity this month (telemetry and audit)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ADP-01'"
+  - key: kpi_adp04
+    name: "KPI · ADP-04 Audited export events (PMSv2)"
+    description: "Export events audited in PMSv2."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ADP-04'"
+  - key: kpi_eng31
+    name: "KPI · ENG-31 Revisions from the migration replay %"
+    description: "Share of DMS revisions entered by the 10-12 Nov 2026 migration (disclosure)."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'ENG-31'"
+  - key: kpi_dqlive
+    name: "KPI · Modules live (holding data)"
+    description: "PMSv2 modules whose key tables hold data."
+    datasource: default
+    refresh: daily
+    sql: "SELECT value, unit, caveat FROM rpt.exec_summary WHERE kpi_id = 'DQ-LIVE'"
+
+  # ---------------------------------------------------------------- engineering & document control
+  - key: eng_progress_by_project
+    name: "ENG · Engineering progress by project"
+    description: "Credit-based progress % and document count per project (top 15 by documents)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT TOP 15 project_number,
+             CAST(100.0 * SUM(credit) / NULLIF(COUNT(*), 0) AS decimal(5,1)) AS progress_pct,
+             COUNT(*) AS documents
+      FROM rpt.eng_document_register
+      WHERE is_excluded = 0
+      GROUP BY project_number
+      ORDER BY COUNT(*) DESC
+  - key: eng_pipeline
+    name: "ENG · Document pipeline (where documents are)"
+    description: "Documents by pipeline state."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT pipeline_state_label AS pipeline_state, COUNT(*) AS documents
+      FROM rpt.eng_document_register
+      WHERE is_excluded = 0
+      GROUP BY pipeline_state_label
+  - key: eng_overdue_aging
+    name: "ENG · Overdue documents by age"
+    description: "Overdue documents in ageing bins (target date, Riyadh business date)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT overdue_bin_label AS overdue_age, MIN(bin_order) AS bin_order, SUM(documents) AS documents
+      FROM rpt.eng_overdue_aging
+      WHERE is_excluded = 0 AND overdue_bin <> 'not_overdue'
+      GROUP BY overdue_bin_label
+      ORDER BY MIN(bin_order)
+  - key: eng_transmittals_monthly
+    name: "ENG · Transmittals issued per month"
+    description: "Issued (non-draft) transmittals by month and type since January 2025."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT issued_month,
+             SUM(CASE WHEN transmittal_type = 'external' THEN 1 ELSE 0 END) AS [External (client)],
+             SUM(CASE WHEN transmittal_type = 'internal' THEN 1 ELSE 0 END) AS [Internal],
+             SUM(CASE WHEN transmittal_type = 'vendor'   THEN 1 ELSE 0 END) AS [Vendor],
+             SUM(CASE WHEN transmittal_type NOT IN ('external', 'internal', 'vendor') THEN 1 ELSE 0 END) AS [Other]
+      FROM rpt.eng_transmittal_register
+      WHERE is_draft = 0 AND is_excluded = 0 AND issued_month >= '2025-01-01'
+      GROUP BY issued_month
+      ORDER BY issued_month
+  - key: eng_turnaround_monthly
+    name: "ENG · Client turnaround by return month"
+    description: "Median and average days from issue to client return, by return month since January 2025."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT DISTINCT return_month,
+             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY turnaround_days)
+                  OVER (PARTITION BY return_month) AS decimal(6,1)) AS median_days,
+             COUNT(*) OVER (PARTITION BY return_month) AS responses
+      FROM rpt.eng_transmittal_response
+      WHERE is_responded = 1 AND turnaround_days IS NOT NULL AND is_excluded = 0
+        AND return_month >= '2025-01-01'
+      ORDER BY return_month
+  - key: eng_sdrl_601
+    name: "ENG · SDRL submission status (NMR 601)"
+    description: "Documents requiring stage 601 by submission bucket."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT bucket_label AS submission_status, COUNT(*) AS documents
+      FROM rpt.eng_sdrl_status
+      WHERE nmr_stage = '601' AND is_excluded = 0
+      GROUP BY bucket_label
+  - key: eng_with_client_by_project
+    name: "ENG · Documents with client by project"
+    description: "Documents awaiting the client and their median age, per project."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT DISTINCT TOP 15 project_number,
+             COUNT(*) OVER (PARTITION BY project_number) AS documents_with_client,
+             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY with_client_age_days)
+                  OVER (PARTITION BY project_number) AS decimal(6,1)) AS median_age_days
+      FROM rpt.eng_document_register
+      WHERE pipeline_state_label = 'With client' AND is_excluded = 0
+      ORDER BY documents_with_client DESC
+  - key: eng_overdue_register
+    name: "ENG · Overdue document register"
+    description: "Every overdue document with stage and days overdue (export for the full list)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT project_number, document_number, doc_type_label AS document_type,
+             pipeline_state_label AS pipeline_state, active_status_label AS current_status,
+             active_revision_label AS revision, target_date, days_overdue, overdue_bin
+      FROM rpt.eng_document_register
+      WHERE is_overdue = 1 AND is_excluded = 0
+      ORDER BY days_overdue DESC
+  - key: eng_bom_coverage_units
+    name: "ENG · BOM take-off coverage by unit"
+    description: "BOM quantity and MTO-covered quantity per unit (never summed across units)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT bom_unit, COUNT(*) AS bom_lines, SUM(bom_qty) AS bom_qty,
+             SUM(covered_qty_parity) AS covered_qty,
+             CAST(100.0 * SUM(covered_qty_parity) / NULLIF(SUM(bom_qty), 0) AS decimal(5,1)) AS coverage_pct
+      FROM rpt.eng_bom_coverage
+      WHERE is_excluded = 0
+      GROUP BY bom_unit
+      ORDER BY COUNT(*) DESC
+
+  # ---------------------------------------------------------------- commercial & bids (no money)
+  - key: com_rfqs_monthly
+    name: "COM · RFQs received per month"
+    description: "RFQs received by month (Riyadh)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT received_month, COUNT(*) AS rfqs
+      FROM rpt.com_rfq_register
+      WHERE is_excluded = 0
+      GROUP BY received_month
+      ORDER BY received_month
+  - key: com_funnel
+    name: "COM · Bid funnel by position"
+    description: "RFQs by business position in the bid funnel."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT funnel_position_label AS funnel_position, COUNT(*) AS rfqs
+      FROM rpt.com_rfq_register
+      WHERE is_excluded = 0
+      GROUP BY funnel_position_label
+  - key: com_outcomes
+    name: "COM · Bid inquiry outcomes"
+    description: "Received, quoted, awarded, converted, declined, cancelled and lost."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT v.outcome, v.rfqs
+      FROM (SELECT COUNT(*) AS received, SUM(CAST(is_quoted AS int)) AS quoted,
+                   SUM(CAST(is_awarded AS int)) AS awarded, SUM(CAST(is_converted AS int)) AS converted,
+                   SUM(CAST(is_declined AS int)) AS declined, SUM(CAST(is_cancelled AS int)) AS cancelled,
+                   SUM(CAST(is_lost AS int)) AS lost
+            FROM rpt.com_rfq_register WHERE is_excluded = 0) s
+      CROSS APPLY (VALUES (1, 'Received', s.received), (2, 'Quoted', s.quoted), (3, 'Awarded', s.awarded),
+                          (4, 'Converted to project', s.converted), (5, 'Declined', s.declined),
+                          (6, 'Cancelled', s.cancelled), (7, 'Lost', s.lost)) AS v(sort_order, outcome, rfqs)
+      ORDER BY v.sort_order
+  - key: com_open_ageing
+    name: "COM · Open RFQs by stage and age"
+    description: "Open RFQs per current stage with the median days in that stage."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT DISTINCT open_stage_label AS stage,
+             COUNT(*) OVER (PARTITION BY open_stage_label) AS open_rfqs,
+             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY open_stage_age_days)
+                  OVER (PARTITION BY open_stage_label) AS decimal(6,1)) AS median_days_in_stage
+      FROM rpt.com_rfq_register
+      WHERE is_open_live = 1 AND is_excluded = 0
+  - key: com_rfq_register
+    name: "COM · RFQ summary register"
+    description: "BRD §10.4 RFQ Summary: one row per RFQ (no values; values are restricted)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT rfq_number, bid_number, client_code, fabrication_category, rfq_type,
+             funnel_position_label AS funnel_position, current_stage_label AS current_stage,
+             received_on, bid_deadline_riyadh, submission_date, probability_pct,
+             open_stage_label AS open_stage, open_stage_age_days, opco,
+             CASE WHEN is_demo_or_test = 1 THEN 'proposed exclusion' ELSE '' END AS data_flag
+      FROM rpt.com_rfq_register
+      WHERE is_excluded = 0
+      ORDER BY received_on DESC
+  - key: com_pending_approvals
+    name: "COM · Pending BD approval steps"
+    description: "Pending RFQ approval steps by step and role, with median age."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT DISTINCT step_name, approver_role,
+             COUNT(*) OVER (PARTITION BY step_name, approver_role) AS pending_steps,
+             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)
+                  OVER (PARTITION BY step_name, approver_role) AS decimal(6,1)) AS median_age_days
+      FROM rpt.gov_approval_step
+      WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_excluded = 0
+
+  # ---------------------------------------------------------------- projects & gates
+  - key: prj_by_origin
+    name: "PRJ · Projects by origin"
+    description: "Active projects by origin (created in PMSv2, converted from RFQ, migrated)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT origin, COUNT(*) AS projects
+      FROM rpt.dim_project
+      WHERE is_excluded = 0
+      GROUP BY origin
+  - key: prj_gates_by_status
+    name: "PRJ · Gate instances by gate and status"
+    description: "Stage-gate progression across projects."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT CONCAT(gate_sequence, '. ', gate_name) AS gate,
+             SUM(CASE WHEN is_passed = 1 THEN 1 ELSE 0 END) AS [Passed],
+             SUM(CASE WHEN is_in_review = 1 THEN 1 ELSE 0 END) AS [In review],
+             SUM(CASE WHEN is_blocked = 1 THEN 1 ELSE 0 END) AS [Blocked],
+             SUM(CASE WHEN is_passed = 0 AND is_in_review = 0 AND is_blocked = 0 THEN 1 ELSE 0 END) AS [Pending]
+      FROM rpt.prj_gate_status
+      WHERE is_excluded = 0
+      GROUP BY gate_sequence, gate_name
+      ORDER BY gate_sequence
+  - key: prj_master_completeness
+    name: "PRJ · Project master-data completeness"
+    description: "Per project: which reporting inputs exist (value, PM, schedule, WBS, gates, documents)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT project_number, origin, status_label AS status, opco,
+             CASE WHEN has_contract_value = 1 THEN 'yes' ELSE 'no' END AS contract_value,
+             CASE WHEN planned_end_date IS NOT NULL THEN 'yes' ELSE 'no' END AS planned_end,
+             CASE WHEN has_project_manager = 1 THEN 'yes' ELSE 'no' END AS project_manager,
+             CASE WHEN has_p6_schedule = 1 THEN 'yes' ELSE 'no' END AS p6_schedule,
+             CASE WHEN has_wbs = 1 THEN 'yes' ELSE 'no' END AS wbs,
+             CASE WHEN has_gates = 1 THEN 'yes' ELSE 'no' END AS gates,
+             document_count
+      FROM rpt.dim_project
+      WHERE is_excluded = 0
+      ORDER BY document_count DESC
+  - key: prj_wbs_status
+    name: "PRJ · WBS nodes by approval status"
+    description: "WBS structure approval status."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT status_label AS wbs_status, COUNT(*) AS wbs_nodes
+      FROM rpt.prj_wbs_summary
+      WHERE is_excluded = 0
+      GROUP BY status_label
+
+  # ---------------------------------------------------------------- planning (P6 hours)
+  - key: pln_schedule_status
+    name: "PLN · P6 schedule status"
+    description: "Which P6 revision each project is reported on, and why (latest draft is labelled)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT project_number, revision_basis_label AS reported_on, revision_number, revision_status,
+             data_date, data_date_age_days, activity_count, status_reason,
+             CASE WHEN is_p6_duplicate = 1 THEN 'duplicate of another schedule (excluded from totals)' ELSE '' END AS note
+      FROM rpt.p6_schedule_status
+      ORDER BY project_number
+  - key: pln_labour_scurve
+    name: "PLN · Labour hours S-curve (planned vs earned, latest draft)"
+    description: "Cumulative planned vs cumulative earned labour hours per week (P6, duplicates excluded)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT w.week_start,
+             CAST(w.planned_cum AS decimal(12,0)) AS [Planned cumulative],
+             CAST(SUM(w.earned) OVER (ORDER BY w.week_start ROWS UNBOUNDED PRECEDING) AS decimal(12,0)) AS [Earned cumulative]
+      FROM (SELECT week_start, SUM(planned_hours_cum) AS planned_cum, SUM(earned_hours) AS earned
+            FROM rpt.p6_hours_weekly
+            WHERE resource_type = 'labor' AND is_p6_duplicate = 0 AND is_excluded = 0
+            GROUP BY week_start) w
+      ORDER BY w.week_start
+  - key: pln_hours_by_type
+    name: "PLN · P6 hours budget vs actual vs earned by resource type"
+    description: "Budget, actual and earned hours per resource type on the reported revision."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT resource_type,
+             CAST(SUM(budget_hours) AS decimal(12,0)) AS [Budget hours],
+             CAST(SUM(actual_hours) AS decimal(12,0)) AS [Actual hours],
+             CAST(SUM(earned_hours) AS decimal(12,0)) AS [Earned hours]
+      FROM rpt.p6_resource_hours
+      WHERE is_p6_duplicate = 0 AND is_excluded = 0 AND is_dummy_resource = 0
+      GROUP BY resource_type
+      ORDER BY resource_type
+  - key: pln_activity_status
+    name: "PLN · P6 activities by status"
+    description: "Activities on the reported revision by status."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT status_label AS activity_status, COUNT(*) AS activities
+      FROM rpt.p6_activity_progress
+      WHERE is_p6_duplicate = 0 AND is_excluded = 0
+      GROUP BY status_label
+
+  # ---------------------------------------------------------------- process & adoption
+  - key: prc_pending_by_role
+    name: "PRC · Pending approval steps by role"
+    description: "Pending approval steps per approver role (roles, never people)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT COALESCE(approver_role, '(unassigned)') AS approver_role, COUNT(*) AS pending_steps
+      FROM rpt.gov_approval_step
+      WHERE is_pending = 1 AND is_excluded = 0
+      GROUP BY approver_role
+      ORDER BY COUNT(*) DESC
+  - key: prc_pending_by_age
+    name: "PRC · Pending approval steps by age"
+    description: "Pending approval steps by waiting time."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT CASE age_bin WHEN 'd0_2' THEN '0-2 days' WHEN 'd3_7' THEN '3-7 days'
+                          WHEN 'd8_30' THEN '8-30 days' WHEN 'd30_plus' THEN 'over 30 days'
+                          ELSE age_bin END AS waiting,
+             MIN(CASE age_bin WHEN 'd0_2' THEN 1 WHEN 'd3_7' THEN 2 WHEN 'd8_30' THEN 3 ELSE 4 END) AS sort_order,
+             COUNT(*) AS pending_steps
+      FROM rpt.gov_approval_step
+      WHERE is_pending = 1 AND is_excluded = 0
+      GROUP BY age_bin
+      ORDER BY MIN(CASE age_bin WHEN 'd0_2' THEN 1 WHEN 'd3_7' THEN 2 WHEN 'd8_30' THEN 3 ELSE 4 END)
+  - key: prc_pending_by_module
+    name: "PRC · Pending approval steps by module"
+    description: "Where approvals are waiting (WBS, RFQ, MTO, ...)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT module_label AS module, COUNT(*) AS pending_steps
+      FROM rpt.gov_approval_step
+      WHERE is_pending = 1 AND is_excluded = 0
+      GROUP BY module_label
+  - key: adp_active_users_monthly
+    name: "ADP · Active users per month"
+    description: "Distinct active users per month (telemetry and audit)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT activity_month, active_users, users_logged_in
+      FROM rpt.sys_active_users_monthly
+      ORDER BY activity_month
+  - key: adp_hours_by_module
+    name: "ADP · Active hours by module (last 30 days)"
+    description: "Where people spend their time in PMSv2."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT module, CAST(SUM(active_hours) AS decimal(10,1)) AS active_hours
+      FROM rpt.sys_activity_daily
+      WHERE activity_date >= DATEADD(day, -30, (SELECT today_riyadh FROM rpt.v_clock))
+      GROUP BY module
+      ORDER BY SUM(active_hours) DESC
+
+  # ---------------------------------------------------------------- data readiness (PMO)
+  - key: dq_module_liveness
+    name: "DQ · Module liveness"
+    description: "Which PMSv2 modules hold data, since when, and how recently they were used."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT module_name AS module, data_status_label AS data_status, key_table_rows,
+             populated_tables, tables, first_business_date, last_business_date,
+             days_since_last_entry, go_live_note
+      FROM rpt.dq_module_liveness
+      ORDER BY sort_order
+  - key: dq_readiness_checks
+    name: "DQ · Data readiness checks"
+    description: "Portfolio-level data-quality checks with the affected share and the backlog item."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT check_code, check_name, kpi_id, SUM(affected) AS affected, SUM(population) AS population,
+             CAST(100.0 * SUM(affected) / NULLIF(SUM(population), 0) AS decimal(5,1)) AS affected_pct,
+             MAX(backlog_ref) AS backlog_item
+      FROM rpt.dq_data_readiness
+      GROUP BY check_code, check_name, kpi_id
+      ORDER BY check_code
+  - key: dq_exclusion_candidates
+    name: "DQ · Test and demonstration records proposed for exclusion"
+    description: "Candidates awaiting confirmation (DEC-16); nothing is excluded until confirmed."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT entity_type, reason_code, candidate_reason, proposed_action, status,
+             SUM(rows_affected) AS rows_affected, COUNT(*) AS candidates
+      FROM rpt.dq_exclusion_candidate
+      GROUP BY entity_type, reason_code, candidate_reason, proposed_action, status
+      ORDER BY SUM(rows_affected) DESC
+  - key: dq_load_info
+    name: "DQ · Restore and load information"
+    description: "Which backup the reporting copy came from, when it was restored and conditioned."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT database_name, source_server, source_database, backup_type, is_copy_only,
+             has_backup_checksums, backup_finish_riyadh, snapshot_date, restored_at_utc,
+             conditioned_at_utc, migration_count, layer_version, freshness_status
+      FROM rpt.load_info
+
+dashboards:
+  # ======================================================================== EXECUTIVE
+  - key: executive
+    name: "Executive Overview"
+    description: "Management board: engineering, bids, projects, planning and approvals on one page."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "Engineering progress (%)", type: kpi, dataset: kpi_eng01, config: {value_field: value, rollup: sum, label: "Engineering progress (document credit)", unit: "%"}, layout: {x: 0, y: 3, w: 3, h: 3}}
+      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {value_field: value, rollup: sum, label: "Not-done documents past their target date"}, layout: {x: 3, y: 3, w: 3, h: 3}}
+      - {title: "Documents with client", type: kpi, dataset: kpi_eng13, config: {value_field: value, rollup: sum, label: "Documents awaiting the client"}, layout: {x: 6, y: 3, w: 3, h: 3}}
+      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects"}, layout: {x: 9, y: 3, w: 3, h: 3}}
+      - {title: "Open RFQs", type: kpi, dataset: kpi_com11, config: {value_field: value, rollup: sum, label: "RFQs open in the bid flow"}, layout: {x: 0, y: 6, w: 3, h: 3}}
+      - {title: "Bids awarded", type: kpi, dataset: kpi_com09, config: {value_field: value, rollup: sum, label: "RFQs awarded (won or PO received)"}, layout: {x: 3, y: 6, w: 3, h: 3}}
+      - {title: "Pending approval steps", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, label: "Approval steps waiting for action"}, layout: {x: 6, y: 6, w: 3, h: 3}}
+      - {title: "P6 labour hours consumed (%, latest draft)", type: kpi, dataset: kpi_pln12, config: {value_field: value, rollup: sum, label: "P6 labour hours consumed vs budget (latest draft)", unit: "%"}, layout: {x: 9, y: 6, w: 3, h: 3}}
+      - {title: "Engineering progress by project (%)", type: bar, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, rollup: none}, layout: {x: 0, y: 9, w: 6, h: 7}}
+      - {title: "Overdue documents by age", type: bar, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, rollup: none}, layout: {x: 6, y: 9, w: 6, h: 7}}
+      - {title: "Bid funnel", type: bar, dataset: com_funnel, config: {category_field: funnel_position, value_field: rfqs, rollup: none}, layout: {x: 0, y: 16, w: 6, h: 7}}
+      - {title: "Pending approvals by role", type: bar, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, rollup: none}, layout: {x: 6, y: 16, w: 6, h: 7}}
+      - {title: "Module liveness", type: table, dataset: dq_module_liveness, config: {}, layout: {x: 0, y: 23, w: 12, h: 8}}
+      - {title: "All KPIs (weekly management pack)", type: table, dataset: mgt_kpi_summary, config: {}, layout: {x: 0, y: 31, w: 12, h: 12}}
+
+  # ======================================================================== ENGINEERING
+  - key: engineering
+    name: "Engineering & Document Control"
+    description: "Document register progress, pipeline, overdue, client turnaround and transmittals (BRD §4.9.3)."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "Engineering progress (%)", type: kpi, dataset: kpi_eng01, config: {value_field: value, rollup: sum, label: "Engineering progress (document credit)", unit: "%"}, layout: {x: 0, y: 3, w: 3, h: 3}}
+      - {title: "AFC drawing coverage (%)", type: kpi, dataset: kpi_eng06, config: {value_field: value, rollup: sum, label: "Drawings approved for construction", unit: "%"}, layout: {x: 3, y: 3, w: 3, h: 3}}
+      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {value_field: value, rollup: sum, label: "Not-done documents past their target date"}, layout: {x: 6, y: 3, w: 3, h: 3}}
+      - {title: "Client submissions responded (%)", type: kpi, dataset: kpi_eng11, config: {value_field: value, rollup: sum, label: "Client submissions with a response", unit: "%"}, layout: {x: 9, y: 3, w: 3, h: 3}}
+      - {title: "Client turnaround (median days)", type: kpi, dataset: kpi_eng12, config: {value_field: value, rollup: sum, label: "Median days from issue to client return", unit: "days"}, layout: {x: 0, y: 6, w: 3, h: 3}}
+      - {title: "External transmittals issued", type: kpi, dataset: kpi_eng25, config: {value_field: value, rollup: sum, label: "External transmittals issued"}, layout: {x: 3, y: 6, w: 3, h: 3}}
+      - {title: "Superseded revisions", type: kpi, dataset: kpi_eng30, config: {value_field: value, rollup: sum, label: "Revisions superseded by a later revision"}, layout: {x: 6, y: 6, w: 3, h: 3}}
+      - {title: "BOM take-off coverage (%, PCS)", type: kpi, dataset: kpi_mto01, config: {value_field: value, rollup: sum, label: "BOM quantity covered by MTO (PCS lines)", unit: "%"}, layout: {x: 9, y: 6, w: 3, h: 3}}
+      - {title: "Progress by project (%)", type: bar, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, rollup: none}, layout: {x: 0, y: 9, w: 6, h: 7}}
+      - {title: "Where documents are", type: pie, dataset: eng_pipeline, config: {category_field: pipeline_state, value_field: documents, rollup: none}, layout: {x: 6, y: 9, w: 6, h: 7}}
+      - {title: "Transmittals issued per month", type: line, dataset: eng_transmittals_monthly, config: {category_field: issued_month, value_fields: [External (client), Internal, Vendor, Other], rollup: none}, layout: {x: 0, y: 16, w: 6, h: 7}}
+      - {title: "Client turnaround by month (median days)", type: line, dataset: eng_turnaround_monthly, config: {category_field: return_month, value_field: median_days, rollup: none}, layout: {x: 6, y: 16, w: 6, h: 7}}
+      - {title: "Overdue documents by age", type: bar, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, rollup: none}, layout: {x: 0, y: 23, w: 4, h: 7}}
+      - {title: "SDRL submission status (601)", type: bar, dataset: eng_sdrl_601, config: {category_field: submission_status, value_field: documents, rollup: none}, layout: {x: 4, y: 23, w: 4, h: 7}}
+      - {title: "Documents with client by project", type: bar, dataset: eng_with_client_by_project, config: {category_field: project_number, value_field: documents_with_client, rollup: none}, layout: {x: 8, y: 23, w: 4, h: 7}}
+      - {title: "BOM take-off coverage by unit", type: table, dataset: eng_bom_coverage_units, config: {}, layout: {x: 0, y: 30, w: 12, h: 5}}
+      - {title: "Overdue document register", type: table, dataset: eng_overdue_register, config: {}, layout: {x: 0, y: 35, w: 12, h: 10}}
+
+  # ======================================================================== COMMERCIAL
+  - key: commercial
+    name: "Commercial & Bids"
+    description: "RFQ intake, funnel, outcomes, ageing and BD approvals (values are on the restricted board)."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "RFQs received", type: kpi, dataset: kpi_com01, config: {value_field: value, rollup: sum, label: "RFQs received (test RFQs not yet excluded)"}, layout: {x: 0, y: 3, w: 3, h: 3}}
+      - {title: "Bids awarded", type: kpi, dataset: kpi_com09, config: {value_field: value, rollup: sum, label: "RFQs awarded (won or PO received)"}, layout: {x: 3, y: 3, w: 3, h: 3}}
+      - {title: "Open RFQs", type: kpi, dataset: kpi_com11, config: {value_field: value, rollup: sum, label: "RFQs open in the bid flow"}, layout: {x: 6, y: 3, w: 3, h: 3}}
+      - {title: "Pending BD approvals", type: kpi, dataset: kpi_com16, config: {value_field: value, rollup: sum, label: "RFQs waiting on a BD approval"}, layout: {x: 9, y: 3, w: 3, h: 3}}
+      - {title: "RFQs received per month", type: line, dataset: com_rfqs_monthly, config: {category_field: received_month, value_field: rfqs, rollup: none}, layout: {x: 0, y: 6, w: 6, h: 7}}
+      - {title: "Bid inquiry outcomes", type: bar, dataset: com_outcomes, config: {category_field: outcome, value_field: rfqs, rollup: none}, layout: {x: 6, y: 6, w: 6, h: 7}}
+      - {title: "Bid funnel by position", type: bar, dataset: com_funnel, config: {category_field: funnel_position, value_field: rfqs, rollup: none}, layout: {x: 0, y: 13, w: 6, h: 7}}
+      - {title: "Open RFQs by stage", type: bar, dataset: com_open_ageing, config: {category_field: stage, value_field: open_rfqs, rollup: none}, layout: {x: 6, y: 13, w: 6, h: 7}}
+      - {title: "RFQs flagged as test (pending confirmation)", type: kpi, dataset: kpi_com_test_rfqs, config: {value_field: value, rollup: sum, label: "RFQs proposed for exclusion (awaiting confirmation)"}, layout: {x: 0, y: 20, w: 3, h: 3}}
+      - {title: "Pending BD approval steps", type: table, dataset: com_pending_approvals, config: {}, layout: {x: 3, y: 20, w: 9, h: 5}}
+      - {title: "RFQ summary register", type: table, dataset: com_rfq_register, config: {}, layout: {x: 0, y: 25, w: 12, h: 10}}
+
+  # ======================================================================== PROJECTS
+  - key: projects
+    name: "Projects & Gates"
+    description: "Portfolio, stage gates, WBS approval and project master-data completeness."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects"}, layout: {x: 0, y: 3, w: 4, h: 3}}
+      - {title: "Gates passed (%)", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, label: "Gate instances passed", unit: "%"}, layout: {x: 4, y: 3, w: 4, h: 3}}
+      - {title: "Projects KPI-ready (%)", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, label: "Projects with contract value and planned end", unit: "%"}, layout: {x: 8, y: 3, w: 4, h: 3}}
+      - {title: "Projects by origin", type: pie, dataset: prj_by_origin, config: {category_field: origin, value_field: projects, rollup: none}, layout: {x: 0, y: 6, w: 4, h: 7}}
+      - {title: "Gate instances by gate and status", type: bar, dataset: prj_gates_by_status, config: {category_field: gate, value_fields: [Pending, In review, Passed, Blocked], stacked: true, rollup: none}, layout: {x: 4, y: 6, w: 8, h: 7}}
+      - {title: "WBS nodes by approval status", type: bar, dataset: prj_wbs_status, config: {category_field: wbs_status, value_field: wbs_nodes, rollup: none}, layout: {x: 0, y: 13, w: 4, h: 6}}
+      - {title: "Project master-data completeness", type: table, dataset: prj_master_completeness, config: {}, layout: {x: 4, y: 13, w: 8, h: 10}}
+
+  # ======================================================================== PLANNING
+  - key: planning
+    name: "Planning (P6 hours)"
+    description: "P6 schedule status and labour hours. Reported on the latest draft until a revision is approved."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "P6 projects without an approved revision", type: kpi, dataset: kpi_pln01, config: {value_field: value, rollup: sum, label: "P6 projects reported on an unapproved draft", thresholds: [{op: gt, value: 0, color: amber}]}, layout: {x: 0, y: 3, w: 4, h: 3}}
+      - {title: "Labour hours consumed (%, latest draft)", type: kpi, dataset: kpi_pln12, config: {value_field: value, rollup: sum, label: "P6 labour hours consumed vs budget (latest draft)", unit: "%"}, layout: {x: 4, y: 3, w: 4, h: 3}}
+      - {title: "Productivity factor (P6 basis, latest draft)", type: kpi, dataset: kpi_pro11, config: {value_field: value, rollup: sum, label: "Productivity factor: earned / actual hours (P6)", thresholds: [{op: lt, value: 0.9, color: red}, {op: lt, value: 0.95, color: amber}, {op: gte, value: 0.95, color: green}]}, layout: {x: 8, y: 3, w: 4, h: 3}}
+      - {title: "Schedule status (which revision is reported)", type: table, dataset: pln_schedule_status, config: {}, layout: {x: 0, y: 6, w: 12, h: 4}}
+      - {title: "Labour hours S-curve: planned vs earned (latest draft)", type: line, dataset: pln_labour_scurve, config: {category_field: week_start, value_fields: [Planned cumulative, Earned cumulative], rollup: none}, layout: {x: 0, y: 10, w: 8, h: 8}}
+      - {title: "Activities by status", type: pie, dataset: pln_activity_status, config: {category_field: activity_status, value_field: activities, rollup: none}, layout: {x: 8, y: 10, w: 4, h: 8}}
+      - {title: "Hours by resource type: budget, actual, earned", type: bar, dataset: pln_hours_by_type, config: {category_field: resource_type, value_fields: [Budget hours, Actual hours, Earned hours], rollup: none}, layout: {x: 0, y: 18, w: 12, h: 7}}
+
+  # ======================================================================== PROCESS & ADOPTION
+  - key: process
+    name: "Process & Adoption"
+    description: "Approval backlog and bottlenecks, and how the platform is being used."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "Pending approval steps", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, label: "Approval steps waiting for action"}, layout: {x: 0, y: 3, w: 3, h: 3}}
+      - {title: "Pending at the top bottleneck role", type: kpi, dataset: kpi_prc05, config: {value_field: value, rollup: sum, label: "Waiting at the busiest approver role"}, layout: {x: 3, y: 3, w: 3, h: 3}}
+      - {title: "Active users this month", type: kpi, dataset: kpi_adp01, config: {value_field: value, rollup: sum, label: "Users active this month"}, layout: {x: 6, y: 3, w: 3, h: 3}}
+      - {title: "Audited exports (PMSv2)", type: kpi, dataset: kpi_adp04, config: {value_field: value, rollup: sum, label: "Audited exports in PMSv2"}, layout: {x: 9, y: 3, w: 3, h: 3}}
+      - {title: "Pending approvals by role", type: bar, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, rollup: none}, layout: {x: 0, y: 6, w: 6, h: 7}}
+      - {title: "Pending approvals by waiting time", type: bar, dataset: prc_pending_by_age, config: {category_field: waiting, value_field: pending_steps, rollup: none}, layout: {x: 6, y: 6, w: 6, h: 7}}
+      - {title: "Pending approvals by module", type: pie, dataset: prc_pending_by_module, config: {category_field: module, value_field: pending_steps, rollup: none}, layout: {x: 0, y: 13, w: 4, h: 7}}
+      - {title: "Active users per month", type: line, dataset: adp_active_users_monthly, config: {category_field: activity_month, value_field: active_users, rollup: none}, layout: {x: 4, y: 13, w: 4, h: 7}}
+      - {title: "Active hours by module (30 days)", type: bar, dataset: adp_hours_by_module, config: {category_field: module, value_field: active_hours, rollup: none}, layout: {x: 8, y: 13, w: 4, h: 7}}
+
+  # ======================================================================== DATA READINESS (PMO)
+  - key: data_readiness
+    name: "Data Readiness"
+    description: "PMO board: which modules hold data, data-quality checks, proposed exclusions, load provenance."
+    filters: []
+    widgets:
+      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
+      - {title: "Modules live (holding data)", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, label: "PMSv2 modules holding data"}, layout: {x: 0, y: 3, w: 3, h: 3}}
+      - {title: "Projects KPI-ready (%)", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, label: "Projects with contract value and planned end", unit: "%"}, layout: {x: 3, y: 3, w: 3, h: 3}}
+      - {title: "DMS revisions from the migration (%)", type: kpi, dataset: kpi_eng31, config: {value_field: value, rollup: sum, label: "DMS revisions entered by the migration", unit: "%"}, layout: {x: 6, y: 3, w: 3, h: 3}}
+      - {title: "Active users this month", type: kpi, dataset: kpi_adp01, config: {value_field: value, rollup: sum, label: "Users active this month"}, layout: {x: 9, y: 3, w: 3, h: 3}}
+      - {title: "Module liveness", type: table, dataset: dq_module_liveness, config: {}, layout: {x: 0, y: 6, w: 12, h: 8}}
+      - {title: "Data readiness checks", type: table, dataset: dq_readiness_checks, config: {}, layout: {x: 0, y: 14, w: 12, h: 8}}
+      - {title: "Proposed exclusions (awaiting confirmation)", type: table, dataset: dq_exclusion_candidates, config: {}, layout: {x: 0, y: 22, w: 12, h: 6}}
+      - {title: "Restore and load information", type: table, dataset: dq_load_info, config: {}, layout: {x: 0, y: 28, w: 12, h: 4}}
+
+# ---- scheduled management pack ---------------------------------------------------------------
+# Audited exports of the datasets above, sent by send_scheduled_reports (Riyadh, 06:00, calendar
+# weeks and months): one email and one audit row per recipient, each file stamped "Data as of"
+# with the backup time. Recipients are NOT in this file: pass seed_domain_pack --recipients or
+# set them on the Reports page. Classified content (rpt_fin, pack-restricted.yaml) is never
+# attached to an email: it is link-only (DEC-07), so that pack schedules no reports.
+reports:
+  - {key: weekly_kpi_summary,     name: "PMSv2 weekly · KPI summary",               dataset: mgt_kpi_summary,       schedule: weekly,  format: pdf}
+  - {key: weekly_overdue_docs,    name: "PMSv2 weekly · Overdue document register", dataset: eng_overdue_register,  schedule: weekly,  format: xlsx}
+  - {key: weekly_rfq_register,    name: "PMSv2 weekly · RFQ summary register",      dataset: com_rfq_register,      schedule: weekly,  format: xlsx}
+  - {key: weekly_bd_approvals,    name: "PMSv2 weekly · Pending BD approvals",      dataset: com_pending_approvals, schedule: weekly,  format: pdf}
+  - {key: monthly_data_readiness, name: "PMSv2 monthly · Data readiness checks",    dataset: dq_readiness_checks,   schedule: monthly, format: pdf}
+  - {key: monthly_module_liveness, name: "PMSv2 monthly · Module liveness",         dataset: dq_module_liveness,    schedule: monthly, format: pdf}
