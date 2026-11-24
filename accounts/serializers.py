@@ -45,16 +45,20 @@ class UserSerializer(serializers.ModelSerializer):
     organization_name = serializers.CharField(source="organization.name", read_only=True)
     is_admin = serializers.BooleanField(read_only=True)
     can_build = serializers.BooleanField(read_only=True)
+    # Lab/QA managers and section heads. The client needs it to know whether to offer the
+    # reported-answers queue — reviewing a complaint is a manager's job, and without this
+    # flag on the login payload the UI would have hidden that queue from every one of them.
+    is_manager = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             "id", "username", "email", "first_name", "last_name",
             "role", "organization", "organization_name", "sites", "labs",
-            "job_title", "phone", "is_active", "is_admin", "can_build",
+            "job_title", "phone", "is_active", "is_admin", "is_manager", "can_build",
             "date_joined", "password",
         ]
-        read_only_fields = ["id", "date_joined", "is_admin", "can_build"]
+        read_only_fields = ["id", "date_joined", "is_admin", "is_manager", "can_build"]
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
@@ -105,19 +109,47 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 
 class APITokenSerializer(serializers.ModelSerializer):
-    """Serializer for personal API tokens.
-    The 'key' field is write-once — only returned on creation."""
+    """Personal API tokens.
 
-    key = serializers.CharField(read_only=True)
+    The plaintext token is returned EXACTLY ONCE — in the response that creates it — and
+    is never stored, so it can never be shown again. The docstring here used to promise
+    that, while `key` sat in `fields` and was therefore serialised on every list and
+    retrieve: the intent was right and the code did the opposite.
+
+    What a client sees afterwards is the prefix ("dis_a1b2…"), which is enough to tell
+    two tokens apart and not enough to use either.
+    """
+
+    # Populated only by `create`. Absent from every other response, because the value
+    # does not exist anywhere to populate it from.
+    key = serializers.CharField(read_only=True, required=False)
 
     class Meta:
         model = APIToken
-        fields = ["id", "name", "key", "last_used_at", "created_at"]
-        read_only_fields = ["id", "key", "last_used_at", "created_at"]
+        fields = ["id", "name", "key", "prefix", "expires_at", "last_used_at",
+                  "created_at"]
+        read_only_fields = ["id", "key", "prefix", "last_used_at", "created_at"]
 
     def create(self, validated_data):
-        validated_data["key"] = secrets.token_urlsafe(32)
-        return super().create(validated_data)
+        token, raw = APIToken.generate(
+            user=validated_data["user"],
+            name=validated_data.get("name", ""),
+            expires_at=validated_data.get("expires_at"),
+        )
+        # Attach for THIS response only. It is not a field on the model.
+        token.key = raw
+        return token
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        raw = getattr(instance, "key", None)
+        if raw:
+            data["key"] = raw
+            data["warning"] = ("Copy this token now. It is stored only as a hash and "
+                               "cannot be shown again.")
+        else:
+            data.pop("key", None)
+        return data
 
 
 class DSETokenObtainPairSerializer(TokenObtainPairSerializer):
