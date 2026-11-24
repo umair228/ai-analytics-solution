@@ -408,90 +408,16 @@ class DatasetViewSet(viewsets.ModelViewSet):
                "filters": [...], "params": {...},
                "x", "y", "agg", "group_by", "column", "limit", "offset"}
         """
-        from querybuilder.executor import (
-            QueryError, execute_dataset_query, is_unknown_column_error,
-        )
-        from querybuilder.models import QueryDefinition
+        from .explore import ExploreUnsupported, run_explore
 
-        dataset = self.get_object()
-        q = dataset.query
-        if q is None or q.mode != QueryDefinition.Mode.RAW:
-            return Response(
-                {"error": True, "unsupported": True,
-                 "detail": "Full-data explore requires a raw-SQL dataset; "
-                           "the client falls back to the cached preview."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # The output-column allow-list comes from the cached result; populate
-        # it on first use so a never-refreshed dataset still works.
-        if not dataset.cached_columns:
-            try:
-                refresh_dataset(dataset)
-            except Exception as exc:  # noqa: BLE001
-                return _error(exc)
-
-        body = request.data or {}
-        spec = {k: body.get(k)
-                for k in ("mode", "x", "y", "agg", "group_by", "x_bucket",
-                          "column", "limit", "offset", "with_count")}
-        merged_params = {**q.declared_param_defaults(),
-                         **(dataset.param_defaults or {}),
-                         **(body.get("params") or {})}
-        # Only well-formed entries — a malformed filter must degrade, not 500.
-        filters = [f for f in (body.get("filters") or [])
-                   if isinstance(f, dict) and f.get("column")]
-
-        def run(flts):
-            return execute_dataset_query(
-                q.datasource, q.raw_sql, q.database or None,
-                params=merged_params or None,
-                filters=flts,
-                columns=dataset.cached_columns or [],
-                spec=spec,
-            )
-
-        def split(flts, cols):
-            kept = [f for f in flts if f["column"] in cols]
-            skip = sorted({str(f["column"]) for f in flts
-                           if f["column"] not in cols})
-            return kept, skip
-
-        columns = dataset.cached_columns or []
-        kept, skipped = split(filters, columns)
-
-        # Filters were dropped but the query changed since the last refresh —
-        # the cache may simply be stale: heal proactively and re-split (covers
-        # a NEW output column the stale cache didn't know about).
-        if skipped and dataset.last_refreshed_at and q.updated_at \
-                and q.updated_at > dataset.last_refreshed_at:
-            try:
-                refresh_dataset(dataset)
-                columns = dataset.cached_columns or []
-                kept, skipped = split(filters, columns)
-            except Exception:  # noqa: BLE001 — proactive only; carry on
-                pass
-
+        dataset = self.get_object()      # the access check: visibility, sharing, admin
         try:
-            result = run(kept)
-        except QueryError as exc:
-            if not is_unknown_column_error(str(exc)):
-                return _error(exc)
-            # Stale cached columns (query edited since last refresh) — refresh,
-            # drop filters whose columns are gone, and retry once.
-            try:
-                refresh_dataset(dataset)
-            except Exception:  # noqa: BLE001
-                return _error(exc)
-            columns = dataset.cached_columns or []
-            kept, skipped = split(filters, columns)
-            try:
-                result = run(kept)
-            except QueryError as exc2:
-                return _error(exc2)
-        result["source"] = "database"
-        if skipped:
-            result["skipped_filters"] = skipped
+            result = run_explore(dataset, request.data or {})
+        except ExploreUnsupported as exc:
+            return Response({"error": True, "unsupported": True, "detail": str(exc)},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:  # noqa: BLE001 — QueryError, or a failed refresh
+            return _error(exc)
         return Response(result)
 
     @action(detail=True, methods=["get"], url_path="suggest-filters")

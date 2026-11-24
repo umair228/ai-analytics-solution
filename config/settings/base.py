@@ -293,12 +293,29 @@ DSE_OQ_REPORT_PATH = config("DSE_OQ_REPORT_PATH",
 # LocMem is per-process, so N gunicorn workers hold N copies — fine for a 60s TTL
 # on a home-page tile. Point this at Redis if that ever stops being true.
 # --------------------------------------------------------------------------
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "dis-default",
+# DIS_CACHE: "locmem" (default: per process), "db" (a table in the metadata database,
+# shared by every API worker, the scheduler and the nightly warm-up; created by a
+# migration) or a redis:// URL. Board results from a restored snapshot are cached
+# under its restore_id (datasets.explore), so share the cache when using that.
+_DIS_CACHE = config("DIS_CACHE", default="locmem").strip()
+if _DIS_CACHE == "db":
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.db.DatabaseCache",
+                          "LOCATION": "dis_cache", "OPTIONS": {"MAX_ENTRIES": 20000}}}
+elif _DIS_CACHE.startswith(("redis://", "rediss://")):
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.redis.RedisCache",
+                          "LOCATION": _DIS_CACHE}}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "dis-default",
+        }
     }
-}
+# Periodic jobs this deployment switches off (run_scheduler_tick logs each skip), e.g.
+# "send_lab_brief" on a reporting-only deployment.
+DIS_SCHEDULER_SKIP = config("DIS_SCHEDULER_SKIP", default="", cast=Csv())
+# perf_budget: the server-side p95 a board load must stay under.
+DIS_BOARD_BUDGET_MS = config("DIS_BOARD_BUDGET_MS", default=3000, cast=int)
 
 # --------------------------------------------------------------------------
 # AI assistant — provider selection
