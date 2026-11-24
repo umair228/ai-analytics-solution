@@ -143,6 +143,8 @@ datasets:
 dashboards:
   - key: commercial_values
     name: "Commercial Values (restricted)"
+    # Listed right after "Commercial & Bids" (position 30 in pack.yaml), for those cleared.
+    position: 35
     description: "What the bid pipeline is worth, whether contracts match their estimates, and how bid prices moved. Cost-cleared and bid-confidential lists only."
     filters: []
     widgets:

@@ -232,6 +232,39 @@ class DomainPackTests(TestCase):
         with self.assertRaisesMessage(CommandError, "Pack file not found"):
             self.seed(pack=Path(self.tmp) / "missing.yaml")
 
+    def test_boards_are_listed_in_pack_order_unless_placed(self):
+        """A manager finds a pack's first board first: positions default to 10, 20, ...
+        in the order written, an explicit position slots a board in, and boards
+        without one follow, newest first."""
+        doc = self.example()
+        first = doc["dashboards"][0]
+        second = {**first, "key": "second", "name": "Example · Second", "widgets": []}
+        slotted = {**first, "key": "slotted", "name": "Example · Slotted", "widgets": [],
+                   "position": 5}
+        doc["dashboards"] = [first, second, slotted]
+        self.seed(pack=self.write_pack(doc))
+        Dashboard.objects.create(name="Someone's own board", owner=self.admin)
+        positions = dict(Dashboard.objects.values_list("name", "position"))
+        self.assertEqual(positions[first["name"]], 10)
+        self.assertEqual(positions["Example · Second"], 20)
+        self.assertEqual(positions["Example · Slotted"], 5)
+        from rest_framework.test import APIClient
+        api = APIClient()
+        api.force_authenticate(self.admin)
+        response = api.get("/api/dashboards/")
+        self.assertEqual(response.status_code, 200, response.content[:300])
+        body = response.json()
+        rows = body["results"] if isinstance(body, dict) else body   # paginated or not
+        self.assertEqual([d["name"] for d in rows], ["Example · Slotted", first["name"], "Example · Second",
+                                  "Someone's own board"])
+
+    def test_board_position_must_be_a_whole_number(self):
+        doc = self.example()
+        doc["dashboards"][0]["position"] = "first"
+        self.assert_invalid(doc, "position: must be a whole number, 0 or more (got 'first')")
+        doc["dashboards"][0]["position"] = True
+        self.assert_invalid(doc, "position: must be a whole number")
+
     def test_visibility_is_enforced_so_a_pack_is_private_or_org(self):
         """core.access enforces visibility; a pack sets no lab, so LAB would grant nobody."""
         doc = self.example()
@@ -374,6 +407,32 @@ class PmsV2PackTests(TestCase):
                 self.assertFalse(bad, f"{board.name} / {w.title}: unknown tones {bad}")
 
 
+    def test_every_home_tile_opens_a_board_of_the_pack(self):
+        """The management home groups the certified tiles by area and links each area
+        to the board that explains it (semantics/specs/fmms.yaml `board:`), so every
+        name there must be a board of the PMSv2 packs, and every tile a manager sees
+        must say, in words, what it counts."""
+        if self.pack_path != FMMS_PACK:
+            return
+        from dashboards.domain_pack import load_pack
+        spec = yaml.safe_load((Path(settings.BASE_DIR) / "semantics" / "specs"
+                               / "fmms.yaml").read_text())
+        boards = {b.name for b in self.pack.dashboards}
+        boards |= {b.name for b in load_pack(FMMS_RESTRICTED_PACK).dashboards}
+        for tile in spec["health"]:
+            self.assertIn(tile.get("board"), boards, f"{tile['key']}: board not in the packs")
+            self.assertTrue(tile.get("group"), f"{tile['key']}: needs a group")
+            if "viewer" in (tile.get("roles") or ["viewer"]):
+                self.assertTrue(tile.get("kpi_id"), f"{tile['key']}: needs its KPI code")
+                self.assertNotIn(tile["kpi_id"], tile.get("description", ""),
+                                 f"{tile['key']}: the code goes in kpi_id, not the words")
+
+    def test_executive_board_comes_first(self):
+        self.assertEqual(self.pack.dashboards[0].name, "Executive Overview")
+        positions = [b.position for b in self.pack.dashboards]
+        self.assertEqual(positions, sorted(positions))
+
+
 class PmsV2RestrictedPackTests(PmsV2PackTests):
     """The restricted values pack (rpt_fin, private) follows the same board rules."""
 
@@ -381,3 +440,7 @@ class PmsV2RestrictedPackTests(PmsV2PackTests):
 
     def test_restricted_pack_stays_private(self):
         self.assertEqual(self.pack.visibility, "private")
+
+    def test_executive_board_comes_first(self):
+        """The restricted board is listed right after Commercial & Bids (30)."""
+        self.assertEqual([b.position for b in self.pack.dashboards], [35])

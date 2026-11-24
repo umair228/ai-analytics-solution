@@ -477,17 +477,17 @@ metrics:
       SELECT SUM(CASE WHEN data_status = 'HAS_DATA' THEN 1 ELSE 0 END)
       FROM {{table:dq_module_liveness}}
 
+# The home page. Managers (role viewer) see these grouped by area, each area opening
+# the board that explains it; descriptions are the plain-words definition shown on
+# hover, kpi_id the catalogue code. The backup age is for the PMO roles: managers get
+# the same fact as "Figures as of <date>" at the top of the page.
 health:
-  - key: data_freshness_hours
-    label: Hours since the backup
-    description: Age of the restored copy behind every number here. Red once it is older than 26 h (DEC-05).
-    unit: hours
-    direction: lower_better
-    critical: 26
-    sql: SELECT hours_since_backup FROM {{table:v_data_as_of}}
   - key: eng_progress
     label: Engineering progress
-    description: ENG-01 — document progress credit over all documents.
+    description: Share of the engineering work done, by document progress credit.
+    kpi_id: ENG-01
+    group: Engineering
+    board: Engineering & Document Control
     unit: percent
     direction: higher_better
     sql: |
@@ -495,7 +495,10 @@ health:
       FROM {{table:eng_document_register}} WHERE is_excluded = 0 AND {{scope:project_key}}
   - key: eng_overdue
     label: Overdue documents
-    description: ENG-07 — submission date passed and not done.
+    description: Past their planned submission date and not done.
+    kpi_id: ENG-07
+    group: Engineering
+    board: Engineering & Document Control
     unit: count
     direction: lower_better
     sql: |
@@ -503,38 +506,63 @@ health:
       WHERE is_excluded = 0 AND {{scope:project_key}}
   - key: eng_with_client
     label: Documents with the client
-    description: ENG-13 — issued and awaiting the client's response.
+    description: Issued to the client and awaiting the client's response.
+    kpi_id: ENG-13
+    group: Engineering
+    board: Engineering & Document Control
     unit: count
     direction: lower_better
     sql: |
       SELECT COUNT(*) FROM {{table:eng_document_register}}
       WHERE is_excluded = 0 AND pipeline_state = 'with_client' AND {{scope:project_key}}
   - key: com_open_rfqs
-    label: RFQs open in BD
-    description: COM-11 — RFQs open in a BD stage.
+    label: Open RFQs
+    description: Enquiries still open at a business development stage.
+    kpi_id: COM-11
+    group: Commercial
+    board: Commercial & Bids
     unit: count
     direction: neutral
     sql: SELECT SUM(is_open_in_stage) FROM {{table:com_rfq_register}} WHERE is_excluded = 0
   - key: com_pending_approval
     label: RFQs waiting for approval
-    description: COM-16 — RFQs with a pending BD approval step.
+    description: RFQs with a BD approval step awaiting a decision.
+    kpi_id: COM-16
+    group: Commercial
+    board: Commercial & Bids
     unit: count
     direction: lower_better
     sql: |
       SELECT COUNT(DISTINCT rfq_key) FROM {{table:gov_approval_step}}
       WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_current_round = 1
         AND rfq_key IS NOT NULL AND is_excluded = 0
-  - key: prc_pending_steps
-    label: Approvals pending
-    description: PRC-03 — approval steps pending across all modules.
-    unit: count
-    direction: lower_better
-    sql: SELECT COUNT(*) FROM {{table:gov_approval_step}} WHERE is_pending = 1
   - key: prj_active
     label: Active projects
-    description: PRJ-01 — projects with status active.
+    description: Projects whose status is active.
+    kpi_id: PRJ-01
+    group: Projects
+    board: Projects & Gates
     unit: count
     direction: neutral
     sql: |
       SELECT SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END)
       FROM {{table:dim_project}} WHERE is_excluded = 0 AND {{scope:project_key}}
+  - key: prc_pending_steps
+    label: Approvals pending
+    description: Approval steps awaiting a decision, in every module.
+    kpi_id: PRC-03
+    group: Approvals
+    board: Process & Adoption
+    unit: count
+    direction: lower_better
+    sql: SELECT COUNT(*) FROM {{table:gov_approval_step}} WHERE is_pending = 1
+  - key: data_freshness_hours
+    label: Hours since the backup
+    description: Age of the restored copy behind every figure (DEC-05).
+    unit: hours
+    direction: lower_better
+    critical: 26
+    group: Data
+    board: Data Readiness
+    roles: [admin, lab_manager, qa_manager, section_head, senior_analyst, analyst]
+    sql: SELECT hours_since_backup FROM {{table:v_data_as_of}}
