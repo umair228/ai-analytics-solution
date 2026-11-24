@@ -131,12 +131,15 @@ def _col(tables, table_name, column_name):
         raise CompileError(f"Unknown column '{column_name}' on table '{table_name}'.")
 
 
-def compile_spec(datasource, raw_spec, database=None, unlimited=False):
+def compile_spec(datasource, raw_spec, database=None, unlimited=False,
+                 keep_spec_limit=False):
     """Compile a query spec for a data source. Returns a CompiledQuery.
 
     ``unlimited=True`` skips the platform row cap AND the spec's own LIMIT —
     used by the full-result CSV export, where truncation would silently lose
-    data. Interactive preview paths keep the cap.
+    data. Interactive preview paths keep the cap. ``keep_spec_limit=True``
+    (with ``unlimited``) drops only the platform cap: the spec's own LIMIT is
+    part of the query's meaning (a "top 10"), so a dataset export keeps it.
     """
     spec = validate_spec(raw_spec)
     engine = get_engine(datasource, database)
@@ -237,6 +240,8 @@ def compile_spec(datasource, raw_spec, database=None, unlimited=False):
     if not unlimited:
         max_rows = settings.DSE_QUERY_MAX_ROWS
         stmt = stmt.limit(min(spec["limit"] or max_rows, max_rows))
+    elif keep_spec_limit and spec["limit"]:
+        stmt = stmt.limit(spec["limit"])
 
     # ---- compile to a human-readable SQL string for display ----
     try:

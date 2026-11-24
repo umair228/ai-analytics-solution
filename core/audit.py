@@ -26,6 +26,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.db import transaction
 
 from .models import AuditLog
 
@@ -35,6 +36,15 @@ _MAX_TARGET_TYPE = 80
 _MAX_TARGET_ID = 80
 _MAX_SUMMARY = 255
 _MAX_REASON = 500
+
+# Data leaving the platform. Rows written before these became AuditLog.Action
+# choices already carry the same values.
+EXPORT = AuditLog.Action.EXPORT   # a file downloaded from the API or built in the browser
+SEND = AuditLog.Action.SEND       # a file emailed by a scheduled report
+
+
+class AuditWriteError(Exception):
+    """A fail-closed audit row could not be committed."""
 
 
 def client_ip(request):
@@ -277,3 +287,40 @@ def record_audit(request, action, *, target_type="", target_id="", summary="", d
         detail=detail,
         ip_address=client_ip(request),
     )
+
+
+def record_audit_strict(action, *, user=None, request=None, target_type="",
+                        target_id="", summary="", detail=None) -> AuditLog:
+    """Commit an audit row or raise :class:`AuditWriteError`, whatever
+    ``AUDIT_FAIL_OPEN`` says.
+
+    For actions that must not happen unaudited (exports, emailed reports, source
+    promotion): the caller writes this row first and only releases the data
+    once it returns. The row is committed in its own atomic block, so a failure
+    (database down, constraint, disk full) surfaces here, before any data
+    leaves. The incident escape hatch ``AUDIT_FAIL_OPEN`` deliberately does not
+    apply: an export that cannot be attributed does not happen.
+    """
+    if request is not None:
+        if user is None:
+            user = getattr(request, "user", None)
+        ip = client_ip(request)
+    else:
+        ip = None
+    if user is not None and not getattr(user, "is_authenticated", False):
+        user = None
+    try:
+        with transaction.atomic():
+            return AuditLog.objects.create(
+                user=user,
+                action=action,
+                target_type=str(target_type or "")[:_MAX_TARGET_TYPE],
+                target_id=str(target_id or "")[:_MAX_TARGET_ID],
+                summary=str(summary or "")[:_MAX_SUMMARY],
+                detail=_safe_detail(detail),
+                ip_address=_safe_ip(ip),
+            )
+    except Exception as exc:  # noqa: BLE001 — re-raised as one typed error
+        logger.error("Audit write failed (%s %s#%s): %s",
+                     action, target_type, target_id, exc)
+        raise AuditWriteError(str(exc)) from exc

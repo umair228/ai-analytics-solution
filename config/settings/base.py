@@ -152,12 +152,29 @@ REST_FRAMEWORK = {
     },
 }
 
+def _optional_int(value):
+    """decouple cast for an optional integer: unset / blank → None."""
+    if value is None or str(value).strip() == "":
+        return None
+    return int(value)
+
+
+def jwt_refresh_lifetime(hours, days) -> timedelta:
+    """Refresh-token lifetime: JWT_REFRESH_HOURS (when set) overrides
+    JWT_REFRESH_DAYS, so a deployment can enforce a shorter, sub-day session
+    ceiling (e.g. a working day) without touching the days default."""
+    if hours:
+        return timedelta(hours=hours)
+    return timedelta(days=days)
+
+
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
         minutes=config("JWT_ACCESS_MINUTES", default=60, cast=int)
     ),
-    "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=config("JWT_REFRESH_DAYS", default=7, cast=int)
+    "REFRESH_TOKEN_LIFETIME": jwt_refresh_lifetime(
+        config("JWT_REFRESH_HOURS", default=None, cast=_optional_int),
+        config("JWT_REFRESH_DAYS", default=7, cast=int),
     ),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
@@ -175,6 +192,8 @@ CORS_ALLOWED_ORIGINS = config(
     cast=Csv(),
 )
 CORS_ALLOW_CREDENTIALS = True
+# Let a cross-origin SPA read the server-chosen export file name.
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 
 # --------------------------------------------------------------------------
@@ -540,3 +559,53 @@ EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="dse-alerts@localhost")
+
+# --------------------------------------------------------------------------
+# Enterprise reporting: branding, audited exports, scheduled reports.
+# Every default keeps the pre-existing behaviour, so a deployment that sets
+# none of these (e.g. EGPC) is unaffected.
+# --------------------------------------------------------------------------
+# Branding — served as-is by GET /api/branding/ (blank = not set: the SPA then
+# uses its build-time VITE_* values, then its own defaults). Server-side files
+# and emails fall back to the platform name ("DIS", see
+# core.branding) when the product name is blank, so an existing deployment is
+# not renamed on upgrade.
+DIS_BRAND_PRODUCT_NAME = config("DIS_BRAND_PRODUCT_NAME", default="")
+DIS_BRAND_SHORT_NAME = config("DIS_BRAND_SHORT_NAME", default="")
+DIS_BRAND_TAGLINE = config("DIS_BRAND_TAGLINE", default="")
+DIS_BRAND_FOOTER = config("DIS_BRAND_FOOTER", default="")
+# "full" = the complete platform; "reporting" = a reporting-only deployment
+# (the SPA hides AI, forecasting and lab-specific modules).
+DIS_PROFILES = ("full", "reporting")
+DIS_PROFILE = config("DIS_PROFILE", default="full").strip().lower()
+if DIS_PROFILE not in DIS_PROFILES:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(
+        f"DIS_PROFILE={DIS_PROFILE!r} is not one of {', '.join(DIS_PROFILES)}.")
+
+# Time zone for report stamps ("Data as of", "Generated at"), file-name dates
+# and the scheduled-report send hour / calendar months.
+DIS_REPORT_TZ = config("DIS_REPORT_TZ", default="Asia/Riyadh")
+try:
+    from zoneinfo import ZoneInfo as _ZoneInfo
+    _ZoneInfo(DIS_REPORT_TZ)
+except Exception as _exc:  # noqa: BLE001 — fail at startup, not mid-export
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(f"DIS_REPORT_TZ={DIS_REPORT_TZ!r} is not a valid time zone.") from _exc
+# Local hour (0-23, in DIS_REPORT_TZ) from which scheduled reports go out.
+# Unset = send whenever send_scheduled_reports runs and a report is due
+# (the original behaviour).
+DIS_REPORT_SEND_HOUR = config("DIS_REPORT_SEND_HOUR", default=None, cast=_optional_int)
+if DIS_REPORT_SEND_HOUR is not None and not 0 <= DIS_REPORT_SEND_HOUR <= 23:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured("DIS_REPORT_SEND_HOUR must be an hour between 0 and 23.")
+# True = "monthly" reports go once per calendar month (from the 1st);
+# False = every 30 days (the original behaviour).
+DIS_REPORT_CALENDAR_MONTHS = config("DIS_REPORT_CALENDAR_MONTHS", default=False, cast=bool)
+# Email subject prefixes (scheduled reports / threshold alerts).
+DIS_EMAIL_SUBJECT_PREFIX = config("DIS_EMAIL_SUBJECT_PREFIX", default="[DIS Report]")
+DIS_ALERT_SUBJECT_PREFIX = config("DIS_ALERT_SUBJECT_PREFIX", default="[DIS Alert]")
+# Server-side export ceilings (GET /api/datasets/<id>/export/ and scheduled
+# reports): a larger result is refused with HTTP 413 rather than truncated.
+DIS_EXPORT_MAX_ROWS = config("DIS_EXPORT_MAX_ROWS", default=100000, cast=int)
+DIS_EXPORT_PDF_MAX_ROWS = config("DIS_EXPORT_PDF_MAX_ROWS", default=2000, cast=int)
