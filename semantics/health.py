@@ -23,7 +23,7 @@ from querybuilder.executor import QueryError, assert_read_only
 from texttosql.execution import execute_with_deadline
 
 from .access import cleared_classes
-from .layer import get_semantic_layer, render_for
+from .layer import get_semantic_layer, layer_version, render_for
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,8 @@ def _run_tile(datasource, tile, layer=None, cleared=frozenset()) -> dict:
         "key": tile.key, "label": tile.label, "description": tile.description,
         "unit": tile.unit, "direction": tile.direction, "target": tile.target,
         "warn": getattr(tile, "warn", None), "critical": getattr(tile, "critical", None),
+        "group": getattr(tile, "group", ""), "board": getattr(tile, "board", ""),
+        "kpi_id": getattr(tile, "kpi_id", ""),
         "value": None, "grade": "none", "error": "", "sql": "", "restricted": False,
     }
     if not set(getattr(tile, "classes", None) or ()) <= set(cleared):
@@ -153,13 +155,14 @@ def lab_health(user, datasource_id=None) -> dict:
             "tiles": [],
         }
 
-    # Cache per (datasource, snapshot, role, clearance): the tile SET depends on the
-    # role and the VALUES shown depend on clearance, so a shared key would serve a
-    # section head the lab manager's tiles, or an uncleared viewer a cost figure.
+    # Cache per (datasource, layer, snapshot, role, clearance): the tile SET depends on
+    # the role and the VALUES shown depend on clearance, so a shared key would serve a
+    # section head the lab manager's tiles, or an uncleared viewer a cost figure. The
+    # layer's load time is in the key so a reloaded spec shows at once, not hours later.
     cleared = cleared_classes(user)
     restore_id = str((getattr(datasource, "options", None) or {}).get("restore_id") or "")
-    key = (f"lab-health:{datasource.id}:{restore_id or 'live'}:{role}:"
-           f"{','.join(sorted(cleared))}")
+    key = (f"lab-health:{datasource.id}:{layer_version(datasource)}:"
+           f"{restore_id or 'live'}:{role}:{','.join(sorted(cleared))}")
     cached = cache.get(key)
     if cached is not None:
         return cached

@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import F
 
 from core.access import Visibility, can_view
 from core.models import TimeStampedModel
@@ -30,9 +31,12 @@ class Dashboard(TimeStampedModel):
         settings.AUTH_USER_MODEL, blank=True, related_name="shared_dashboards"
     )
     filters = models.JSONField(default=list, blank=True)
+    # Where the board sits in lists, smallest first. A domain pack sets it so a manager
+    # finds the executive board first; boards without one follow, newest first.
+    position = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
-        ordering = ["-updated_at"]
+        ordering = [F("position").asc(nulls_last=True), "-updated_at"]
 
     def __str__(self):
         return self.name

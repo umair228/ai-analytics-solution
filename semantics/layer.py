@@ -80,6 +80,9 @@ class LHealthTile:
     critical: float | None = None
     classes: list = field(default_factory=list)
     scoped: bool = False
+    group: str = ""
+    board: str = ""
+    kpi_id: str = ""
 
     def visible_to(self, role: str) -> bool:
         return not self.roles or (role or "") in self.roles
@@ -133,6 +136,12 @@ def _cache_key(datasource):
     stamp = (SemanticLayer.objects.filter(datasource=datasource)
              .values_list("updated_at", flat=True).first())
     return (datasource.id, stamp)
+
+
+def layer_version(datasource) -> str:
+    """When this source's layer was last loaded: part of any cache key built from it."""
+    stamp = _cache_key(datasource)[1]
+    return stamp.isoformat() if stamp else ""
 
 
 def render_for(layer: "Layer", sql: str, datasource, *, scope=None) -> str:
@@ -205,5 +214,6 @@ def _build_semantic_layer(datasource) -> Layer:
             key=h.key, label=h.label, sql=h.sql, description=h.description,
             unit=h.unit, direction=h.direction, target=h.target,
             roles=list(h.roles or []), position=h.position, warn=h.warn,
-            critical=h.critical, classes=list(h.classes or []), scoped=h.scoped))
+            critical=h.critical, classes=list(h.classes or []), scoped=h.scoped,
+            group=h.group, board=h.board, kpi_id=h.kpi_id))
     return layer

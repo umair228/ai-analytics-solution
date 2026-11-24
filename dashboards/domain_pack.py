@@ -28,7 +28,8 @@ PACK_KEYS = ("pack", "version", "datasources", "visibility", "share_with_group",
              "datasets", "dashboards", "reports")
 DATASET_KEYS = ("key", "name", "description", "datasource", "sql", "parameters",
                 "refresh", "share_with_group")
-DASHBOARD_KEYS = ("key", "name", "description", "filters", "widgets", "share_with_group")
+DASHBOARD_KEYS = ("key", "name", "description", "filters", "widgets", "share_with_group",
+                  "position")
 WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
 REPORT_KEYS = ("key", "name", "dataset", "schedule", "format")
 REPORT_FORMATS = ("xlsx", "pdf", "csv")  # what send_scheduled_reports renders for a dataset
@@ -78,6 +79,7 @@ class PackDashboard:
     filters: list
     widgets: list
     share_group: Group | None
+    position: int | None = None
 
 
 @dataclass
@@ -249,6 +251,12 @@ def validate_pack(doc, source="<pack>") -> Pack:
         key = _key(item, where, dashboard_keys, err)
         dname = _name(item, where, dashboard_names, err)
         description = _text(item, "description", where, err)
+        # Boards are listed in pack order (10, 20, ...) unless one says where it goes,
+        # e.g. a restricted board that belongs next to its public counterpart.
+        position = item.get("position", (i + 1) * 10)
+        if isinstance(position, bool) or not isinstance(position, int) or position < 0:
+            err(where, f"position: must be a whole number, 0 or more (got {position!r}).")
+            position = None
         filters = item.get("filters") or []
         if not isinstance(filters, list):
             err(where, "filters: must be a list (Dashboard.filters JSON).")
@@ -271,7 +279,7 @@ def validate_pack(doc, source="<pack>") -> Pack:
         if key and dname:
             dashboards.append(PackDashboard(
                 key=key, name=dname, description=description, filters=filters,
-                widgets=widgets, share_group=group))
+                widgets=widgets, share_group=group, position=position))
 
     # -- scheduled reports: audited exports of a pack dataset ---------------
     reports: list[PackReport] = []
@@ -590,7 +598,8 @@ def _upsert_dataset(spec: PackDataset, query, pack: Pack, owner, *, query_change
 
 def _upsert_dashboard(spec: PackDashboard, pack: Pack, owner, datasets):
     fields = {"description": spec.description, "owner_id": owner.id,
-              "visibility": pack.visibility, "filters": spec.filters}
+              "visibility": pack.visibility, "filters": spec.filters,
+              "position": spec.position}
     dashboard = Dashboard.objects.filter(name=spec.name).first()
     created = dashboard is None
     if created:

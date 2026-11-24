@@ -84,6 +84,9 @@ joins:
 # `target` + `direction` grade the tile; a tile with no target is reported, not
 # graded — we don't invent a threshold nobody agreed to.
 # `roles` empty = everyone sees it.
+# Optional for a reporting deployment's home: `group` (the area a tile is shown under),
+# `board` (the dashboard name that area opens) and `kpi_id` (the catalogue code,
+# shown with the definition on hover). Without them the tiles show as a grid.
 health:
   - key: samples_30d
     label: Samples logged

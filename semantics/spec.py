@@ -82,6 +82,11 @@ def validate_health(spec) -> list[str]:
             errors.append(f"health tile '{key}' has no sql")
         if not (t.get("label") or "").strip():
             errors.append(f"health tile '{key}' has no label")
+        for name, limit in (("group", 60), ("board", 200), ("kpi_id", 32)):
+            value = t.get(name, "")
+            if not isinstance(value, str) or len(value) > limit:
+                errors.append(f"health tile '{key}' {name}: must be text of at most "
+                              f"{limit} characters")
         for macro in unknown_macros(t.get("sql") or ""):
             errors.append(f"health tile '{key}' uses unknown macro '{{{{{macro}:…}}}}'")
         if (unit := t.get("unit", "count")) not in units:
@@ -395,6 +400,7 @@ def apply_spec(datasource, spec, verify=True) -> dict:
             unit=t.get("unit", "count"), direction=t.get("direction", "neutral"),
             target=t.get("target"), warn=t.get("warn"), critical=t.get("critical"),
             roles=t.get("roles") or [], position=t.get("position", i),
+            group=t.get("group", ""), board=t.get("board", ""), kpi_id=t.get("kpi_id", ""),
             classes=classification_of(spec, t["sql"])[0],
             scoped=classification_of(spec, t["sql"])[1])
         n_health += 1

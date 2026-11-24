@@ -133,6 +133,13 @@ class HealthTile(TimeStampedModel):
     # Which lab roles see this tile. Empty = everyone.
     roles = models.JSONField(default=list, blank=True)
     position = models.PositiveIntegerField(default=0)
+    # The management home groups tiles by area ("Engineering"), and each group opens
+    # the board that explains its numbers (a dashboard name; the page links it only
+    # when the viewer can open that board). kpi_id is the catalogue code (ENG-01):
+    # part of the definition, never the headline.
+    group = models.CharField(max_length=60, blank=True)
+    board = models.CharField(max_length=200, blank=True)
+    kpi_id = models.CharField(max_length=32, blank=True)
     # Classification inherited from the views the SQL reads (scope loader):
     # restricted classes ("cost", "bid_confidential") need clearance to be shown.
     classes = models.JSONField(default=list, blank=True)

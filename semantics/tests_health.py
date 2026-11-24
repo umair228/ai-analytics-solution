@@ -97,6 +97,14 @@ class ValidateHealthTests(SimpleTestCase):
             {"key": "k", "label": "L", "sql": "SELECT 1", "unit": "furlongs"}]})
         self.assertTrue(any("unknown unit" in e for e in errs))
 
+    def test_group_board_and_kpi_id_must_be_short_text(self):
+        errs = validate_health({"health": [
+            {"key": "k", "label": "L", "sql": "SELECT 1", "group": ["Engineering"],
+             "board": "B" * 201, "kpi_id": "ENG-01"}]})
+        self.assertTrue(any("group: must be text" in e for e in errs))
+        self.assertTrue(any("board: must be text" in e for e in errs))
+        self.assertFalse(any("kpi_id" in e for e in errs))
+
     def test_unknown_macro_is_rejected(self):
         errs = validate_health({"health": [
             {"key": "k", "label": "L", "sql": "SELECT {{nmu:x}}"}]})
@@ -249,6 +257,37 @@ class LabHealthApiTests(TestCase):
         self.assertIn("cancelled_30d", mgr)        # intake quality: a manager's problem
         self.assertNotIn("cancelled_30d", analyst)  # not an analyst's
         self.assertIn("backlog", analyst)           # but the backlog certainly is
+
+    def test_tiles_carry_their_area_board_and_code(self):
+        """The management home groups tiles by area and opens the board behind them."""
+        from semantics import layer as layer_mod
+        from semantics.health import lab_health
+        from semantics.models import HealthTile
+
+        HealthTile.objects.filter(datasource=self.ds, key="backlog").update(
+            group="Laboratory", board="Lab Overview", kpi_id="LAB-02")
+        cache.clear()
+        layer_mod.invalidate()
+
+        tiles = {t["key"]: t for t in lab_health(self.user)["tiles"]}
+        self.assertEqual((tiles["backlog"]["group"], tiles["backlog"]["board"],
+                          tiles["backlog"]["kpi_id"]), ("Laboratory", "Lab Overview", "LAB-02"))
+        self.assertEqual(tiles["samples_30d"]["group"], "")      # optional: older specs
+
+    def test_a_reloaded_spec_shows_at_once_despite_the_cache(self):
+        """Tiles are cached for hours on a snapshot; a reload must not wait that out."""
+        from semantics.health import lab_health
+        from semantics.spec import apply_spec
+
+        self.ds.options = {**self.ds.options, "restore_id": "night-1"}   # long cache
+        self.ds.save(update_fields=["options"])
+        self.assertEqual(lab_health(self.user)["tiles"][0]["group"], "")
+        spec = load_yaml(SPEC)
+        spec["health"][0]["group"] = "Intake"
+        import time
+        time.sleep(0.01)                     # a later updated_at
+        apply_spec(self.ds, spec, verify=False)
+        self.assertEqual(lab_health(self.user)["tiles"][0]["group"], "Intake")
 
     def test_a_healthy_number_grades_good(self):
         from semantics.health import lab_health
