@@ -21,8 +21,11 @@ from connections.engine import get_engine
 from querybuilder import executor
 
 
-def execute_with_deadline(datasource, sql, database=None, seconds=None):
+def execute_with_deadline(datasource, sql, database=None, seconds=None, params=None):
     """Run ``executor.execute_raw_sql`` under a wall-clock deadline.
+
+    ``params`` are bound by the driver (never interpolated) — a parameterised query
+    deserves the same deadline as a generated one.
 
     Returns the result payload, or raises ``QueryError`` on timeout/failure.
     """
@@ -31,7 +34,8 @@ def execute_with_deadline(datasource, sql, database=None, seconds=None):
 
     def _work():
         try:
-            box["payload"] = executor.execute_raw_sql(datasource, sql, database=database)
+            box["payload"] = executor.execute_raw_sql(
+                datasource, sql, database=database, params=params)
         except Exception as exc:  # noqa: BLE001 - re-raised on the calling thread
             box["error"] = exc
 
