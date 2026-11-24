@@ -84,5 +84,19 @@ sentence-transformers>=2.7
 # Optional image OCR for scanned uploads (heavy; enable via DOCSEARCH_ENABLE_OCR=True):
 #   easyocr>=1.7
 
+# ── Lakehouse connectors (OPTIONAL) ──────────────────────────────────────────
+# DIS does not compete with a customer's lakehouse; it sits on top of one. If a
+# prospect already runs Databricks or Snowflake, registering their warehouse as a
+# DataSource makes DIS the layer that finally gets it to answer a question — the
+# certified metrics, SPC engine, risk models and COA writer are all dialect-portable
+# and work against it unchanged.
+#
+# Left OUT of the default image on purpose: they are heavy, and an on-prem LabWare
+# deployment will never need them. Install on the server only when a customer has one:
+#   pip install 'databricks-sqlalchemy'
+#   pip install 'snowflake-sqlalchemy'
+# connections/engine.py turns SQLAlchemy's "Can't load plugin" into that instruction.
+
 # Production server
 gunicorn>=23
+qrcode

@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = "Send scheduled dataset CSV email reports."
 
+    # Scheduled. _is_due() gates each report on last_sent_at, so a 5-minute tick is safe.
+    periodic = True
+
     def handle(self, *args, **options):
         now = timezone.now()
         sent = 0

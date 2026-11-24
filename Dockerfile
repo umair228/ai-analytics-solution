@@ -31,6 +31,28 @@ RUN pip install --no-cache-dir -c .docsearch-constraints.txt -r requirements.txt
 
 COPY . .
 
+# ---------------------------------------------------------------------------
+# Name the build, and make the image carry its own Operational Qualification.
+# ---------------------------------------------------------------------------
+# A validation summary that does not say which build it is about is a piece of paper, so
+# the sha and version are stamped in and the OQ report records them.
+ARG DIS_GIT_SHA=unknown
+ARG DIS_VERSION=unknown
+ENV DIS_GIT_SHA=${DIS_GIT_SHA} \
+    DIS_VERSION=${DIS_VERSION}
+
+# Run the OQ here — inside the image, against the exact code the image contains — so the
+# evidence at /api/validation/oq/ cannot be evidence about some *other* build.
+#
+# `|| true` looks like a cop-out and is the opposite. There is no path by which this can
+# make the image claim something it did not earn: if the qualification cannot run, no
+# report is written, and the API then reports — in these words — that this build carries
+# no OQ evidence. Absence is honest; a stale or borrowed report would not be. What `|| true`
+# buys is that a build-environment problem cannot take production down with it. The gate
+# that stops failing code from shipping is CI (`make ci`), which is where a gate belongs.
+RUN python manage.py qualify --json \
+    || echo "OQ did not run at image-build time; /api/validation/oq/ will report that this build carries no evidence."
+
 EXPOSE 8000
 
 # --timeout 300 matches nginx proxy_read_timeout: a Document-Search / Knowledge

@@ -42,6 +42,8 @@ INSTALLED_APPS = [
     "docsearch",
     "replication",
     "semantics",
+    "coa",
+    "validation",
 ]
 
 MIDDLEWARE = [
@@ -51,6 +53,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # A role obliged to carry a second factor cannot use the API without one. Middleware,
+    # not a permission class: see the note under DEFAULT_PERMISSION_CLASSES.
+    "accounts.middleware.MfaEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -119,10 +124,32 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # NB: MFA enforcement is deliberately NOT here. A permission class in this tuple applies
+    # only to views that have no opinion of their own — and nearly every viewset in this
+    # codebase overrides `permission_classes` or `get_permissions()`, which REPLACES this
+    # list rather than adding to it. Put the MFA policy here and it protects exactly the
+    # views that never thought about permissions. It lives in
+    # accounts.middleware.MfaEnforcementMiddleware, where no view can drop it.
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardResultsSetPagination",
     "PAGE_SIZE": 25,
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    # Part 11 §11.300(d) asks for safeguards that *prevent* unauthorised use, not only
+    # detect it. The account lockout detects; this prevents — it caps how fast anyone can
+    # try, per address, before they ever reach a username.
+    #
+    # It also bounds a second problem: audit writes fail CLOSED and the trail is
+    # append-only, so an unthrottled attacker hammering /api/auth/login/ writes an audit
+    # row per attempt and can fill the disk. Detection that can be turned into a
+    # denial-of-service is not much of a control.
+    "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.ScopedRateThrottle",),
+    "DEFAULT_THROTTLE_RATES": {
+        "login": config("DSE_LOGIN_RATE", default="10/min"),
+        "register": config("DSE_REGISTER_RATE", default="5/hour"),
+        # A six-digit code is a million guesses. A second factor you can query a million
+        # times is not a second factor. (Failures also feed the account lockout.)
+        "mfa": config("DSE_MFA_RATE", default="10/min"),
+    },
 }
 
 SIMPLE_JWT = {
@@ -173,6 +200,87 @@ DSE_CONNECTION_TEST_TIMEOUT = config("DSE_CONNECTION_TEST_TIMEOUT", default=10, 
 # Where file-based data sources (Excel/CSV) are materialized to SQLite
 DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
 
+# Audit trail (core.audit). Writes fail CLOSED: an action that cannot be recorded
+# does not happen. Set True only to ride out an incident — it re-opens the gap
+# where an action succeeds while its audit entry silently vanishes, which voids
+# the attributability claim in SECURITY.md.
+AUDIT_FAIL_OPEN = config("AUDIT_FAIL_OPEN", default=False, cast=bool)
+
+# --------------------------------------------------------------------------
+# Access to the system itself.
+# --------------------------------------------------------------------------
+# Self-service registration. OFF, and it must stay off for any regulated deployment:
+# 21 CFR Part 11 §11.10(d) requires "limiting system access to authorized individuals",
+# and an endpoint that mints an account for anyone who asks is the plain opposite.
+#
+# It used to be open, and that was survivable only by accident: a new account could see
+# nothing, because visibility was decided solely by owner/shared_with and both were empty
+# for a stranger. The moment `Visibility.ORG` started meaning something (core.access), an
+# open POST /api/auth/register/ became "read every org-wide dataset in the laboratory" —
+# for anyone who could reach the box, over the plaintext HTTP the pilot still serves.
+#
+# Users are created by an administrator. In a laboratory with 27 named analysts, that is
+# not a burden, it is the requirement.
+DSE_ALLOW_SELF_REGISTRATION = config("DSE_ALLOW_SELF_REGISTRATION", default=False,
+                                     cast=bool)
+
+# Failed-login lockout — Part 11 §11.300(d): detect and report attempts at unauthorised
+# use. After this many consecutive failures the account is locked for the cooldown, every
+# attempt is written to the audit trail, and the lockout itself raises an urgent notice.
+#
+# Locking by username is a denial-of-service trade: someone who knows a name can lock it
+# out. For an on-prem laboratory of named users behind a firewall that trade is worth
+# making, and the lock EXPIRES rather than requiring an administrator at 3am.
+DSE_LOGIN_MAX_FAILURES = config("DSE_LOGIN_MAX_FAILURES", default=5, cast=int)
+DSE_LOGIN_LOCKOUT_MINUTES = config("DSE_LOGIN_LOCKOUT_MINUTES", default=15, cast=int)
+
+# Two-factor authentication (TOTP, RFC 6238 — accounts/totp.py, proved against the RFC's
+# own published test vectors).
+#
+# Any user may turn it on. DSE_REQUIRE_MFA_ROLES names the roles that MUST have it — and
+# switching that on cannot lock anybody out: a non-compliant user still signs in, and is
+# then refused every endpoint EXCEPT the ones that let them enrol
+# (accounts.middleware.MfaEnforcementMiddleware). Refusing the login instead would leave people outside the
+# building with the instructions locked inside it.
+#
+#   DSE_REQUIRE_MFA_ROLES=admin,qa_manager,lab_manager
+DSE_REQUIRE_MFA_ROLES = config(
+    "DSE_REQUIRE_MFA_ROLES", default="",
+    cast=lambda v: [s.strip() for s in str(v).split(",") if s.strip()])
+DSE_MFA_ISSUER = config("DSE_MFA_ISSUER", default="DIS")
+
+# Record types whose modification requires a stated reason (Part 11 §11.10(e) change
+# control). Empty by default — turning it on rejects any update that arrives without a
+# reason, so it is a deliberate act, not a surprise. `preflight` reports that it is off.
+DSE_REQUIRE_CHANGE_REASON = config(
+    "DSE_REQUIRE_CHANGE_REASON", default="",
+    cast=lambda v: [s.strip() for s in str(v).split(",") if s.strip()])
+
+# The Operational Qualification report for THIS build — written by `manage.py qualify
+# --json` in CI and served, read-only, at /api/validation/oq/. It is deliberately an
+# artefact rather than something production recomputes: the OQ executes the test suite
+# against a test database, and in a validated system it is evidence about the build that
+# was qualified, not a thing you re-run against live data. If the file is absent, the API
+# says so — an unqualified build must never look like a qualified one.
+DSE_OQ_REPORT_PATH = config("DSE_OQ_REPORT_PATH",
+                            default=str(BASE_DIR / "validation" / "oq_report.json"))
+
+# --------------------------------------------------------------------------
+# Cache. Declared explicitly rather than leaning on Django's implicit default,
+# because something now depends on it: the Lab Health tiles (semantics.health)
+# would otherwise issue six LIMS queries on every home-page load, for numbers that
+# only move on a replication cadence measured in hours.
+#
+# LocMem is per-process, so N gunicorn workers hold N copies — fine for a 60s TTL
+# on a home-page tile. Point this at Redis if that ever stops being true.
+# --------------------------------------------------------------------------
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "dis-default",
+    }
+}
+
 # --------------------------------------------------------------------------
 # AI assistant — provider selection
 #
@@ -184,9 +292,23 @@ DSE_MATERIALIZED_DIR = BASE_DIR / "media" / "materialized"
 #                  everything air-gapped. Swapping Ollama -> vLLM is just a
 #                  change of LLM_BASE_URL + LLM_MODEL (no code change).
 # --------------------------------------------------------------------------
-LLM_PROVIDER = config("LLM_PROVIDER", default="anthropic")
+# NOTE: the default is "local", NOT "anthropic". The product's core promise is
+# that lab data stays on-premise, and a default of "anthropic" made that promise
+# one environment variable deep: a missing .env, a container started without
+# env_file, or a typo in LLM_PROVIDER would have silently routed prompts — which
+# include sample LIMS rows (see ai.context) — to api.anthropic.com. Failing to
+# "local, not configured" is loud and safe; failing to "cloud" is quiet and not.
+LLM_PROVIDER = config("LLM_PROVIDER", default="local")
 
-# Cloud provider (Claude)
+# Egress kill-switch. Outbound calls to a third-party LLM require a DELIBERATE
+# opt-in, so that reaching the cloud takes an explicit act rather than an
+# omission. Enforced in ai.providers.egress at provider construction:
+#   * the Anthropic provider refuses to build without it;
+#   * the local provider refuses an LLM_BASE_URL that is not loopback/RFC1918/
+#     CGNAT (Tailscale), so LLM_PROVIDER=local can't be pointed at OpenAI either.
+DSE_ALLOW_EXTERNAL_LLM = config("DSE_ALLOW_EXTERNAL_LLM", default=False, cast=bool)
+
+# Cloud provider (Claude) — also requires DSE_ALLOW_EXTERNAL_LLM=True.
 CLAUDE_API_KEY = config("CLAUDE_API_KEY", default="")
 CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
 
@@ -195,12 +317,29 @@ CLAUDE_MODEL = config("CLAUDE_MODEL", default="claude-sonnet-4-6")
 # LLM_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ (or similar).
 LLM_BASE_URL = config("LLM_BASE_URL", default="http://127.0.0.1:11434/v1")
 LLM_MODEL = config("LLM_MODEL", default="qwen2.5:7b-instruct")
+
+# The digest of the model the system was QUALIFIED against. Written by `make pin`.
+#
+# LLM_MODEL is a mutable tag, and Ollama has no digest-pinned reference — so "pin the
+# model" is advice nobody can follow. This is the answerable question instead: has it
+# MOVED? If someone re-pulls the tag, the weights can change silently, and every accuracy
+# number, every golden-set pass and the whole /validation page go on describing a model
+# that is no longer the one answering questions. `manage.py preflight` compares this
+# against what the host is actually serving and FAILS on a mismatch, because at that point
+# the qualification is not stale — it is void.
+DSE_LLM_MODEL_DIGEST = config("DSE_LLM_MODEL_DIGEST", default="")
 LLM_API_KEY = config("LLM_API_KEY", default="EMPTY")
 LLM_TIMEOUT = config("LLM_TIMEOUT", default=300, cast=int)
-# Low temperature → reliable, repeatable tool-calling (esp. for smaller local
-# models). LLM_NUM_CTX raises Ollama's context window (default ~4k is too small
-# once tool schemas + results are in play); vLLM ignores it (set at serve time).
-LLM_TEMPERATURE = config("LLM_TEMPERATURE", default=0.2, cast=float)
+# Determinism. A regulated lab has to be able to re-run a question and get the
+# same answer; "we asked again and got something else" ends a CSV conversation.
+# temperature=0 + a fixed seed is the closest a hosted model gets to that, and
+# it also makes tool-calling more reliable on smaller local models. Both are
+# applied on EVERY provider — note the Anthropic path previously passed no
+# temperature at all, so it ran at the API default of 1.0.
+# LLM_NUM_CTX raises Ollama's context window (default ~4k is too small once tool
+# schemas + results are in play); vLLM ignores it (set at serve time).
+LLM_TEMPERATURE = config("LLM_TEMPERATURE", default=0.0, cast=float)
+LLM_SEED = config("LLM_SEED", default=42, cast=int)
 LLM_NUM_CTX = config("LLM_NUM_CTX", default=16384, cast=int)
 # Curbs degenerate looping / language-drift that quantized models can fall into
 # during long tool-use turns (Ollama reads it from options; vLLM ignores it).
@@ -239,6 +378,11 @@ DSE_REPLICATION_SOURCE_ID = config("DSE_REPLICATION_SOURCE_ID", default=None, ca
 DSE_REPLICATION_TARGET_ID = config("DSE_REPLICATION_TARGET_ID", default=None, cast=lambda v: int(v) if v else None)
 DSE_REPLICATION_SCHEMA = config("DSE_REPLICATION_SCHEMA", default="")
 DSE_REPLICATION_FULL_HOUR = config("DSE_REPLICATION_FULL_HOUR", default=2, cast=int)
+
+# Who to email when the replica goes stale (replication.freshness / the scheduler's
+# stale alert). A silently-failing replication otherwise serves stale data with full
+# confidence and nobody finds out. Console/stderr always warns; this adds email.
+DSE_ALERT_EMAILS = config("DSE_ALERT_EMAILS", default="", cast=Csv())
 
 # --------------------------------------------------------------------------
 # Forecasting source database (LIMS — external SQL Server, read-only)
