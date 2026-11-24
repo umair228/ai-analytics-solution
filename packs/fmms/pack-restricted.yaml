@@ -49,12 +49,17 @@ datasets:
     datasource: restricted
     refresh: daily
     sql: |
-      SELECT project_number, origin, contract_currency,
+      SELECT project_number,
+             CASE origin WHEN 'converted_from_rfq' THEN 'Won through the bid process'
+                         WHEN 'direct_or_migrated' THEN 'Created directly or migrated'
+                         ELSE REPLACE(origin, '_', ' ') END AS origin,
+             contract_currency,
              CAST(contract_value_orig AS decimal(18,0)) AS contract_value_orig,
              CAST(contract_value_sar AS decimal(18,0)) AS contract_value_sar,
              CAST(baseline_selling_price_sar AS decimal(18,0)) AS baseline_selling_price_sar,
              CAST(baseline_cost_sar AS decimal(18,0)) AS baseline_cost_sar,
-             contract_value_status
+             CASE contract_value_status WHEN 'captured' THEN 'Recorded' WHEN 'zero' THEN 'Recorded as zero'
+                                        ELSE 'Not recorded' END AS contract_value_status
       FROM rpt_fin.prj_contract_value
       WHERE is_excluded = 0
       ORDER BY contract_value_sar DESC
@@ -65,7 +70,7 @@ datasets:
     refresh: daily
     sql: |
       SELECT rfq_number, revision_number, revision_seq, status_label AS status,
-             CASE WHEN is_current = 1 THEN 'current' WHEN is_baseline = 1 THEN 'baseline' ELSE '' END AS role,
+             CASE WHEN is_current = 1 THEN 'Current' WHEN is_baseline = 1 THEN 'Baseline' ELSE '' END AS role,
              currency, CAST(final_selling_price_sar AS decimal(18,0)) AS selling_price_sar,
              CAST(final_cost_sar AS decimal(18,0)) AS cost_sar, CAST(margin_pct AS decimal(6,1)) AS margin_pct,
              CAST(delta_vs_previous_sar AS decimal(18,0)) AS delta_vs_previous_sar,
@@ -74,14 +79,91 @@ datasets:
       WHERE revisions_of_rfq > 1 AND is_excluded = 0
       ORDER BY rfq_number, revision_seq
 
+  # ---- management views (one KPI per dataset; labels in words) ---------------------
+  # The board's headline is the pipeline of PLAUSIBLE bids, so it agrees with the by-stage
+  # list under it. The certified COM-03 (rpt_fin.exec_summary_fin) counts every bid,
+  # including the few whose value per tonne is implausible (one of them dominates it);
+  # the card's info icon says so, and the flagged bids are listed under Data quality.
+  - key: fin_pipeline_value
+    name: "FIN · Bid pipeline value, plausible bids (SAR)"
+    description: "Current-revision value of every bid whose value per tonne is plausible (COM-03 without the flagged outliers)."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT CAST(SUM(value_sar) AS decimal(18,0)) AS value,
+             N'The certified figure (COM-03) also counts the bids flagged as implausible: see Data quality.' AS caveat
+      FROM rpt_fin.com_rfq_value
+      WHERE is_excluded = 0 AND is_outlier = 0 AND value_sar IS NOT NULL
+  - key: fin_kpi_com25
+    name: "FIN · KPI COM-25 Estimation change, first to current (SAR)"
+    description: "How much bid prices moved between the first and the current estimate."
+    datasource: restricted
+    refresh: daily
+    sql: "SELECT value_sar AS value, data_as_of_riyadh FROM rpt_fin.exec_summary_fin WHERE kpi_id = 'COM-25'"
+  - key: fin_estimate_change
+    name: "FIN · Change from first to current estimate, per bid (SAR)"
+    description: "For every RFQ estimated more than once: current selling price minus the first."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT rfq_number, CAST(delta_vs_first_sar AS decimal(18,0)) AS change_sar,
+             revisions_of_rfq AS revisions
+      FROM rpt_fin.com_estimation_comparison
+      WHERE revisions_of_rfq > 1 AND is_excluded = 0 AND is_current = 1
+      ORDER BY ABS(delta_vs_first_sar) DESC
+  - key: fin_contract_capture
+    name: "FIN · Projects with a contract value recorded"
+    description: "Active projects by whether their contract value is recorded."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT CASE contract_value_status WHEN 'captured' THEN 'Contract value recorded'
+                                        WHEN 'zero' THEN 'Recorded as zero'
+                                        ELSE 'Not recorded' END AS status,
+             COUNT(*) AS projects
+      FROM rpt_fin.prj_contract_value
+      WHERE is_excluded = 0
+      GROUP BY CASE contract_value_status WHEN 'captured' THEN 'Contract value recorded'
+                                          WHEN 'zero' THEN 'Recorded as zero'
+                                          ELSE 'Not recorded' END
+      ORDER BY MIN(CASE contract_value_status WHEN 'captured' THEN 1 WHEN 'zero' THEN 2 ELSE 3 END)
+  - key: fin_contract_vs_baseline
+    name: "FIN · Contract value against the estimate it was won on (SAR)"
+    description: "Projects with a recorded contract value: contract value and baseline selling price."
+    datasource: restricted
+    refresh: daily
+    sql: |
+      SELECT project_number,
+             CAST(contract_value_sar AS decimal(18,0)) AS [Contract value],
+             CAST(baseline_selling_price_sar AS decimal(18,0)) AS [Estimate it was won on]
+      FROM rpt_fin.prj_contract_value
+      WHERE is_excluded = 0 AND contract_value_status = 'captured'
+      ORDER BY contract_value_sar DESC
+
 dashboards:
   - key: commercial_values
     name: "Commercial Values (restricted)"
-    description: "Pipeline, contract and estimation values in SAR. Cost-cleared and bid-confidential lists only."
+    description: "What the bid pipeline is worth, whether contracts match their estimates, and how bid prices moved. Cost-cleared and bid-confidential lists only."
     filters: []
     widgets:
-      - {title: "Value KPIs (SAR)", type: table, dataset: fin_kpis, config: {}, layout: {x: 0, y: 0, w: 12, h: 4}}
-      - {title: "Pipeline value by funnel position (SAR, outliers excluded)", type: bar, dataset: fin_pipeline_by_position, config: {category_field: funnel_position, value_field: value_sar, rollup: none}, layout: {x: 0, y: 4, w: 7, h: 7}}
-      - {title: "Bid values flagged as implausible", type: table, dataset: fin_value_outliers, config: {}, layout: {x: 7, y: 4, w: 5, h: 7}}
-      - {title: "Contract value vs baseline estimate", type: table, dataset: fin_contract_values, config: {}, layout: {x: 0, y: 11, w: 12, h: 7}}
-      - {title: "Estimation comparison (revision deltas)", type: table, dataset: fin_estimation_comparison, config: {}, layout: {x: 0, y: 18, w: 12, h: 8}}
+      # ---- 1. Pipeline value ---------------------------------------------------------
+      - {title: "Pipeline value", type: text, config: {content: "What is the bid pipeline worth, and where does the value sit?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Bid pipeline value", type: kpi, dataset: fin_pipeline_value, config: {value_field: value, rollup: sum, unit: SAR, label: "Bid pipeline value", caption: "Current estimate of every bid with a plausible value."}, layout: {x: 0, y: 2, w: 4, h: 4}}
+      - {title: "Change in estimates", type: kpi, dataset: fin_kpi_com25, config: {value_field: value, rollup: sum, unit: SAR, label: "Change from first to current estimate", caption: "How far bid prices moved across all re-estimated bids."}, layout: {x: 4, y: 2, w: 4, h: 4}}
+      - {title: "Implausible bid values", type: kpi, dataset: fin_value_outliers, config: {value_field: value_sar, rollup: count, direction: lower_better, label: "Bids flagged as implausible", caption: "Value per tonne outside the plausible range; not in the pipeline value. Listed under Data quality."}, layout: {x: 8, y: 2, w: 4, h: 4}}
+      - {title: "Pipeline value by stage", type: bar_list, dataset: fin_pipeline_by_position, config: {category_field: funnel_position, value_field: value_sar, unit: SAR, detail_field: rfqs, detail_format: "{value} enquiries", limit: 8, caption: "Current-estimate value of the plausible bids at each step of the workflow."}, layout: {x: 0, y: 6, w: 7, h: 9}}
+      - {title: "How re-estimated bids moved", type: bar, dataset: fin_estimate_change, config: {category_field: rfq_number, value_field: change_sar, unit: SAR, orientation: horizontal, rollup: none, caption: "Current price minus the first estimate, per bid estimated more than once."}, layout: {x: 7, y: 6, w: 5, h: 9}}
+
+      # ---- 2. Contracts --------------------------------------------------------------
+      - {title: "Contracts", type: text, config: {content: "Are contract values recorded, and do they match the estimate each project was won on?"}, layout: {x: 0, y: 15, w: 12, h: 2}}
+      - {title: "Contract values recorded", type: bar_list, dataset: fin_contract_capture, config: {category_field: status, value_field: projects, sort: false, tones: {"Contract value recorded": good, "Recorded as zero": watch, "Not recorded": watch}, caption: "Value KPIs cover only projects with a recorded contract value."}, layout: {x: 0, y: 17, w: 4, h: 6}}
+      - {title: "Contract value against the estimate it was won on", type: bar, dataset: fin_contract_vs_baseline, config: {category_field: project_number, value_fields: [Contract value, Estimate it was won on], unit: SAR, orientation: horizontal, rollup: none, tones: {"Estimate it was won on": neutral}, caption: "Projects with a recorded contract value."}, layout: {x: 4, y: 17, w: 8, h: 6}}
+      - {title: "Contract values by project", type: table, dataset: fin_contract_values, config: {page_size: 10, columns: [{field: project_number, label: Project}, {field: origin, label: Origin}, {field: contract_value_status, label: "Contract value"}, {field: contract_currency, label: Currency}, {field: contract_value_orig, label: "Contract value (contract currency)"}, {field: contract_value_sar, label: "Contract value (SAR)"}, {field: baseline_selling_price_sar, label: "Estimated selling price (SAR)"}, {field: baseline_cost_sar, label: "Estimated cost (SAR)"}]}, layout: {x: 0, y: 23, w: 12, h: 9}}
+
+      # ---- 3. Estimates --------------------------------------------------------------
+      - {title: "Estimates", type: text, config: {content: "Every revision of the bids that were estimated more than once."}, layout: {x: 0, y: 32, w: 12, h: 2}}
+      - {title: "Estimate revisions", type: table, dataset: fin_estimation_comparison, config: {page_size: 12, columns: [{field: rfq_number, label: RFQ}, {field: revision_number, label: Revision}, {field: status, label: Status}, {field: role, label: ""}, {field: selling_price_sar, label: "Selling price (SAR)"}, {field: cost_sar, label: "Cost (SAR)"}, {field: margin_pct, label: "Margin %"}, {field: delta_vs_previous_sar, label: "Change vs previous (SAR)"}, {field: delta_vs_first_sar, label: "Change vs first (SAR)"}]}, layout: {x: 0, y: 34, w: 12, h: 10}}
+
+      # ---- 4. Data quality -----------------------------------------------------------
+      - {title: "Data quality", type: text, config: {content: "Bid values left out of the pipeline because their value per tonne is implausible."}, layout: {x: 0, y: 44, w: 12, h: 2}}
+      - {title: "Bid values flagged as implausible", type: table, dataset: fin_value_outliers, config: {columns: [{field: rfq_number, label: RFQ}, {field: funnel_position, label: "Where it is"}, {field: client_code, label: Client}, {field: currency, label: Currency}, {field: value_sar, label: "Value (SAR)"}, {field: sar_per_ton, label: "SAR per tonne"}, {field: value_status, label: Status}]}, layout: {x: 0, y: 46, w: 12, h: 6}}

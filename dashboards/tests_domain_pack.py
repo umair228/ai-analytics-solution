@@ -329,6 +329,7 @@ class DomainPackTests(TestCase):
 
 
 FMMS_PACK = Path(settings.BASE_DIR) / "packs" / "fmms" / "pack.yaml"
+FMMS_RESTRICTED_PACK = Path(settings.BASE_DIR) / "packs" / "fmms" / "pack-restricted.yaml"
 
 
 class PmsV2PackTests(TestCase):
@@ -336,11 +337,14 @@ class PmsV2PackTests(TestCase):
     so the UI can place them by position (src/lib/boardLayout.js: inside 12 columns,
     nothing overlapping), with every KPI saying in words what it counts."""
 
+    pack_path = FMMS_PACK
+
     def setUp(self):
         from dashboards.domain_pack import load_pack
         admin = User.objects.create_superuser("pmsv2-pack", "p@x.co", "x")
-        DataSource.objects.create(name="PMSv2 Reporting", source_type="mssql", owner=admin)
-        self.pack = load_pack(FMMS_PACK)          # raises PackError listing every problem
+        for name in ("PMSv2 Reporting", "PMSv2 Reporting - Restricted"):
+            DataSource.objects.create(name=name, source_type="mssql", owner=admin)
+        self.pack = load_pack(self.pack_path)     # raises PackError listing every problem
 
     def test_boards_have_usable_positions(self):
         for board in self.pack.dashboards:
@@ -368,3 +372,12 @@ class PmsV2PackTests(TestCase):
                 bad = {k: v for k, v in tones.items()
                        if v not in ("good", "watch", "serious", "act", "info", "neutral")}
                 self.assertFalse(bad, f"{board.name} / {w.title}: unknown tones {bad}")
+
+
+class PmsV2RestrictedPackTests(PmsV2PackTests):
+    """The restricted values pack (rpt_fin, private) follows the same board rules."""
+
+    pack_path = FMMS_RESTRICTED_PACK
+
+    def test_restricted_pack_stays_private(self):
+        self.assertEqual(self.pack.visibility, "private")

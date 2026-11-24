@@ -362,11 +362,13 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT rfq_number, bid_number, client_code, fabrication_category, rfq_type,
+      SELECT rfq_number, bid_number, client_code,
+             UPPER(LEFT(fabrication_category, 1)) + REPLACE(SUBSTRING(fabrication_category, 2, 200), '_', ' ') AS fabrication_category,
+             UPPER(LEFT(rfq_type, 1)) + REPLACE(SUBSTRING(rfq_type, 2, 200), '_', ' ') AS rfq_type,
              funnel_position_label AS funnel_position, current_stage_label AS current_stage,
              received_on, bid_deadline_riyadh, submission_date, probability_pct,
              open_stage_label AS open_stage, open_stage_age_days, opco,
-             CASE WHEN is_demo_or_test = 1 THEN 'proposed exclusion' ELSE '' END AS data_flag
+             CASE WHEN is_demo_or_test = 1 THEN 'Proposed exclusion' ELSE '' END AS data_flag
       FROM rpt.com_rfq_register
       WHERE is_excluded = 0
       ORDER BY received_on DESC
@@ -470,7 +472,8 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT project_number, revision_basis_label AS reported_on, revision_number, revision_status,
+      SELECT project_number, revision_basis_label AS reported_on, revision_number,
+             UPPER(LEFT(revision_status, 1)) + REPLACE(SUBSTRING(revision_status, 2, 200), '_', ' ') AS revision_status,
              data_date, data_date_age_days, activity_count, status_reason,
              CASE WHEN is_p6_duplicate = 1 THEN 'duplicate of another schedule (excluded from totals)' ELSE '' END AS note
       FROM rpt.p6_schedule_status
@@ -623,7 +626,12 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT entity_type, reason_code, candidate_reason, proposed_action, status,
+      SELECT CASE entity_type WHEN 'rfq' THEN 'RFQ' WHEN 'nmr_import_batch' THEN 'NMR import batch'
+                              ELSE UPPER(LEFT(entity_type, 1)) + REPLACE(SUBSTRING(entity_type, 2, 200), '_', ' ') END AS entity_type,
+             reason_code, candidate_reason,
+             CASE proposed_action WHEN 'exclude_from_p6_totals' THEN 'Exclude from P6 totals'
+                                  ELSE UPPER(LEFT(proposed_action, 1)) + REPLACE(SUBSTRING(proposed_action, 2, 200), '_', ' ') END AS proposed_action,
+             UPPER(LEFT(status, 1)) + REPLACE(SUBSTRING(status, 2, 200), '_', ' ') AS status,
              SUM(rows_affected) AS rows_affected, COUNT(*) AS candidates
       FROM rpt.dq_exclusion_candidate
       GROUP BY entity_type, reason_code, candidate_reason, proposed_action, status
@@ -634,9 +642,15 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT database_name, source_server, source_database, backup_type, is_copy_only,
-             has_backup_checksums, backup_finish_riyadh, snapshot_date, restored_at_utc,
-             conditioned_at_utc, migration_count, layer_version, freshness_status
+      SELECT database_name, source_server, source_database,
+             CASE backup_type WHEN 'D' THEN 'Full database' WHEN 'I' THEN 'Differential'
+                              WHEN 'L' THEN 'Transaction log' ELSE backup_type END AS backup_type,
+             is_copy_only,
+             CASE WHEN has_backup_checksums = 1 THEN 'Yes' ELSE 'No' END AS has_backup_checksums,
+             backup_finish_riyadh, snapshot_date, restored_at_utc,
+             conditioned_at_utc, migration_count, layer_version,
+             CASE freshness_status WHEN 'stale' THEN 'Refresh overdue' WHEN 'fresh' THEN 'Current'
+                                   ELSE freshness_status END AS freshness_status
       FROM rpt.load_info
 
   # ------------------------------------------------------------------ management views
