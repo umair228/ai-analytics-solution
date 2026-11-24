@@ -57,6 +57,11 @@ class Widget(TimeStampedModel):
         TABLE = "table", "Table"
         TEXT = "text", "Text / Note"
         STUDIO = "studio", "Chart Studio (multi-dataset)"
+        # Management views: a ranked list with bars (top-N), a stage funnel (pipeline)
+        # and progress towards a target (value against a goal or budget).
+        BAR_LIST = "bar_list", "Ranked bar list (top N)"
+        FUNNEL = "funnel", "Funnel (pipeline stages)"
+        PROGRESS = "progress", "Progress vs target"
 
     dashboard = models.ForeignKey(
         Dashboard, on_delete=models.CASCADE, related_name="widgets"
