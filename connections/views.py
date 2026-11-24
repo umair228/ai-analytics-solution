@@ -6,7 +6,8 @@ from rest_framework.decorators import action, api_view
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from core.audit import record_audit
+from core.access import visible_to
+from core.audit import record_audit, record_change, require_reason, snapshot
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
@@ -35,10 +36,9 @@ class DataSourceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = DataSource.objects.select_related("owner", "site").prefetch_related("shared_with")
-        if user.is_admin:
-            return qs
-        return qs.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+        qs = DataSource.objects.select_related("owner", "site", "lab").prefetch_related(
+            "shared_with")
+        return visible_to(qs, user)
 
     def perform_create(self, serializer):
         ds = serializer.save()
@@ -46,13 +46,20 @@ class DataSourceViewSet(viewsets.ModelViewSet):
                      target_id=ds.id, summary=f"Created data source '{ds.name}'")
 
     def perform_update(self, serializer):
+        require_reason(self.request, "DataSource")
+        # Snapshot BEFORE the save, or there is nothing left to compare against — which is
+        # exactly how "Updated data source 'EGPC LIMS'" came to be the whole entry.
+        before = snapshot(serializer.instance)
         ds = serializer.save()
-        record_audit(self.request, AuditLog.Action.UPDATE, target_type="DataSource",
-                     target_id=ds.id, summary=f"Updated data source '{ds.name}'")
+        record_change(self.request, AuditLog.Action.UPDATE, ds, before=before,
+                      target_type="DataSource",
+                      summary=f"Updated data source '{ds.name}'")
 
     def perform_destroy(self, instance):
-        record_audit(self.request, AuditLog.Action.DELETE, target_type="DataSource",
-                     target_id=instance.id, summary=f"Deleted data source '{instance.name}'")
+        require_reason(self.request, "DataSource")
+        record_change(self.request, AuditLog.Action.DELETE, instance,
+                      target_type="DataSource",
+                      summary=f"Deleted data source '{instance.name}'")
         instance.delete()
 
     # ---- connection testing -------------------------------------------------

@@ -277,7 +277,7 @@ def seed_platform():
             source_type="sqlite",
             options={"path": str(WAREHOUSE)},
             owner=admin,
-            visibility="shared",
+            visibility="org",
             test_status="ok",
             last_tested_at=timezone.now(),
             last_test_error="",
@@ -295,11 +295,11 @@ def seed_platform():
         query = QueryDefinition.objects.create(
             name=name, description=desc, datasource=ds,
             mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
         )
         dataset = Dataset.objects.create(
             name=name, description=desc, query=query,
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
         )
         result = refresh_dataset(dataset)
         query.last_run_at = timezone.now()
@@ -315,7 +315,7 @@ def seed_platform():
         name="Water Quality Operations",
         description="Live operational view of water-potability testing "
                     "across all regional labs.",
-        owner=admin, visibility="shared",
+        owner=admin, visibility="org",
     )
     for order, (title, kind, ds_name, config, x, y, w, h) in enumerate(WIDGETS):
         Widget.objects.create(

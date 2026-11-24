@@ -1,5 +1,7 @@
-"""Role-based access-control permission classes for the DSE API."""
+"""Role-based access-control permission classes for the DIS API."""
 from rest_framework.permissions import SAFE_METHODS, BasePermission
+
+from core.access import can_edit, can_view
 
 
 class IsAdmin(BasePermission):
@@ -27,8 +29,13 @@ class IsAnalystOrAbove(BasePermission):
 
 
 class IsOwnerOrSharedReadOnly(BasePermission):
-    """Object-level: owner has full access, shared users get read-only,
-    admins always have full access."""
+    """Object-level: owner has full access, anyone who can *see* it gets read-only,
+    admins always have full access.
+
+    "Can see it" is :func:`core.access.can_view` — the same rule the list querysets use,
+    not a second implementation of it. When those two are written separately they drift,
+    and the one that drifts silently is the list, which is the one nobody thinks to test.
+    """
 
     message = "You do not have access to this resource."
 
@@ -36,12 +43,6 @@ class IsOwnerOrSharedReadOnly(BasePermission):
         user = request.user
         if not (user and user.is_authenticated):
             return False
-        if user.is_admin:
+        if can_edit(obj, user):
             return True
-        if getattr(obj, "owner_id", None) == user.id:
-            return True
-        if request.method in SAFE_METHODS:
-            shared = getattr(obj, "shared_with", None)
-            if shared is not None and shared.filter(pk=user.pk).exists():
-                return True
-        return False
+        return request.method in SAFE_METHODS and can_view(obj, user)

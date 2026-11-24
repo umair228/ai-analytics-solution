@@ -7,6 +7,7 @@ class DatasetSerializer(serializers.ModelSerializer):
     query_name      = serializers.CharField(source="query.name",            read_only=True)
     datasource_name = serializers.CharField(source="query.datasource.name", read_only=True)
     owner_username  = serializers.CharField(source="owner.username",        read_only=True)
+    lab_name        = serializers.CharField(source="lab.name", read_only=True, default=None)
     # Expose which query parameters are defined on the backing query
     query_parameters = serializers.JSONField(source="query.parameters",     read_only=True)
 
@@ -14,7 +15,7 @@ class DatasetSerializer(serializers.ModelSerializer):
         model = Dataset
         fields = [
             "id", "name", "description", "query", "query_name", "datasource_name",
-            "owner", "owner_username", "site", "visibility", "shared_with",
+            "owner", "owner_username", "site", "lab", "lab_name", "visibility", "shared_with",
             "cached_columns", "calculated_fields", "row_count", "total_row_count",
             "last_refreshed_at", "last_error", "refresh_interval",
             "next_refresh_at", "param_defaults", "query_parameters",
@@ -51,8 +52,9 @@ class DatasetAlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = DatasetAlert
         fields = [
-            "id", "name", "dataset", "dataset_name", "column",
-            "aggregation", "condition", "threshold", "is_active",
+            "id", "name", "dataset", "dataset_name", "kind", "column",
+            "aggregation", "condition", "threshold", "config",
+            "cooldown_minutes", "is_active",
             "notify_email", "notify_webhook",
             "owner", "owner_username", "unread_count",
             "last_checked_at", "last_triggered_at", "created_at", "updated_at",
@@ -75,11 +77,13 @@ class AlertEventSerializer(serializers.ModelSerializer):
     dataset_name   = serializers.CharField(source="alert.dataset.name",  read_only=True)
     dataset_id     = serializers.IntegerField(source="alert.dataset.id", read_only=True)
 
+    alert_kind = serializers.CharField(source="alert.kind", read_only=True)
+
     class Meta:
         model = AlertEvent
         fields = [
-            "id", "alert", "alert_name", "dataset_id", "dataset_name",
-            "triggered_value", "message",
+            "id", "alert", "alert_name", "alert_kind", "dataset_id", "dataset_name",
+            "triggered_value", "message", "detail",
             "acknowledged", "acknowledged_at", "acknowledged_by",
             "created_at",
         ]

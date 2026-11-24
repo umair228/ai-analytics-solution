@@ -5,6 +5,7 @@ from .models import QueryDefinition
 
 class QueryDefinitionSerializer(serializers.ModelSerializer):
     owner_username = serializers.CharField(source="owner.username", read_only=True)
+    lab_name = serializers.CharField(source="lab.name", read_only=True, default=None)
     datasource_name = serializers.CharField(source="datasource.name", read_only=True)
     database = serializers.CharField(allow_blank=True, allow_null=True, default="")
 
@@ -13,7 +14,7 @@ class QueryDefinitionSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "description", "datasource", "datasource_name",
             "database", "mode", "spec", "raw_sql", "generated_sql",
-            "owner", "owner_username", "site", "visibility", "shared_with",
+            "owner", "owner_username", "site", "lab", "lab_name", "visibility", "shared_with",
             "parameters", "last_run_at", "last_row_count", "created_at", "updated_at",
         ]
         read_only_fields = [
