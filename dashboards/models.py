@@ -34,6 +34,9 @@ class Dashboard(TimeStampedModel):
     # Where the board sits in lists, smallest first. A domain pack sets it so a manager
     # finds the executive board first; boards without one follow, newest first.
     position = models.PositiveIntegerField(null=True, blank=True)
+    # Where a manager's sidebar lists the board: "" = Boards; e.g. "Registers" for the
+    # register pages (a big list with its filter charts), kept apart from the boards.
+    nav_group = models.CharField(max_length=40, blank=True)
 
     class Meta:
         ordering = [F("position").asc(nulls_last=True), "-updated_at"]
@@ -69,6 +72,9 @@ class Widget(TimeStampedModel):
         # One record's facts as label / value rows (a project's number, client, status,
         # dates): the header of a one-object board such as the Project View.
         DETAILS = "details", "Details (one record's facts)"
+        # A register page: filter charts above a server-side list (search, sort, page,
+        # columns, export) over a dataset of any size.
+        REGISTER = "register", "Register (filterable list)"
 
     dashboard = models.ForeignKey(
         Dashboard, on_delete=models.CASCADE, related_name="widgets"

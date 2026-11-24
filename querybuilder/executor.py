@@ -273,6 +273,31 @@ def _remap_order_by(order_by, name_to_sql):
 _COMPARE_OPS = {">": ">", ">=": ">=", "<": "<", "<=": "<=", "=": "=", "!=": "<>"}
 
 
+def filter_columns(f) -> list:
+    """The output columns a filter names: one, or several for a quick search."""
+    if not isinstance(f, dict):
+        return []
+    if f.get("type") == "any-text":
+        return [c for c in (f.get("columns") or []) if isinstance(c, str)]
+    return [f["column"]] if f.get("column") else []
+
+
+def split_filters(filters, columns):
+    """(kept, skipped column names) against an output-column allow-list. A quick search
+    is kept while any of its columns exists (the others are reported, not applied)."""
+    have = set(columns or [])
+    kept, skipped = [], set()
+    for f in filters or []:
+        named = filter_columns(f)
+        if not named:
+            continue
+        present = [c for c in named if c in have]
+        skipped.update(c for c in named if c not in have)
+        if present:
+            kept.append(f)
+    return kept, sorted(skipped)
+
+
 def build_filter_where(filters, allowed_columns, quote, resolve=None) -> tuple[str, dict]:
     """Build a parameterised WHERE fragment from dashboard filter specs.
 
@@ -286,6 +311,21 @@ def build_filter_where(filters, allowed_columns, quote, resolve=None) -> tuple[s
     resolve = resolve or (lambda c: quote(c))
     clauses, params = [], {}
     for i, f in enumerate(filters or []):
+        if (f or {}).get("type") == "any-text":
+            # One search box over several columns (a register's quick search): every
+            # word must appear in at least one of them, in any case. Wildcards typed
+            # by the user are matched literally.
+            cols = [c for c in (f.get("columns") or []) if c in allowed]
+            words = str(f.get("value") or "").lower().split()[:8]
+            for j, word in enumerate(words):
+                if not cols:
+                    break
+                pk = f"flt{i}_{j}"
+                escaped = word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                params[pk] = f"%{escaped}%"
+                clauses.append("(" + " OR ".join(
+                    f"LOWER({resolve(c)}) LIKE :{pk} ESCAPE '\\'" for c in cols) + ")")
+            continue
         col = (f or {}).get("column")
         if not col or col not in allowed:
             continue
@@ -497,7 +537,18 @@ def execute_dataset_query(datasource, sql, database=None, params=None,
         limit = max(1, min(int(spec.get("limit") or 1000), EXPLORE_MAX_PAGE))
         offset = max(0, int(spec.get("offset") or 0))
         q = f"SELECT {projection} FROM {sub}{where_sql}"
-        if order_by:
+        # A register sorts by the column clicked, then by the query's own order (which
+        # ends on a unique key), so pages of a non-unique sort stay stable.
+        sort_terms = []
+        for s in (spec.get("sort") or [])[:3]:
+            if not isinstance(s, dict):
+                continue
+            direction = "DESC" if str(s.get("dir") or "").lower() == "desc" else "ASC"
+            sort_terms.append(f"{safe_col(s.get('column'), 'sort')} {direction}")
+        if sort_terms:
+            rest = order_by[len("ORDER BY "):] if order_by else ""
+            q += "\nORDER BY " + ", ".join(sort_terms + ([rest] if rest else []))
+        elif order_by:
             q += f"\n{order_by}"
         cols, rows = run(limited(q, limit, offset),
                          {**merged, "dse_lim": limit, "dse_off": offset})

@@ -29,7 +29,7 @@ PACK_KEYS = ("pack", "version", "datasources", "visibility", "share_with_group",
 DATASET_KEYS = ("key", "name", "description", "datasource", "sql", "parameters",
                 "refresh", "share_with_group")
 DASHBOARD_KEYS = ("key", "name", "description", "filters", "widgets", "share_with_group",
-                  "position")
+                  "position", "nav_group")
 WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
 # config.drill: the list behind a figure. `dataset` is a pack dataset key (resolved to
 # `dataset_id` on install); `field` is the list's column matched to the clicked
@@ -85,6 +85,7 @@ class PackDashboard:
     widgets: list
     share_group: Group | None
     position: int | None = None
+    nav_group: str = ""
 
 
 @dataclass
@@ -290,7 +291,8 @@ def validate_pack(doc, source="<pack>") -> Pack:
         if key and dname:
             dashboards.append(PackDashboard(
                 key=key, name=dname, description=description, filters=filters,
-                widgets=widgets, share_group=group, position=position))
+                widgets=widgets, share_group=group, position=position,
+                nav_group=_text(item, "nav_group", where, err)[:40]))
 
     # -- scheduled reports: audited exports of a pack dataset ---------------
     reports: list[PackReport] = []
@@ -698,7 +700,7 @@ def _upsert_dashboard(spec: PackDashboard, pack: Pack, owner, datasets):
     fields = {"description": spec.description, "owner_id": owner.id,
               "visibility": pack.visibility,
               "filters": _resolved_filters(spec.filters, datasets),
-              "position": spec.position}
+              "position": spec.position, "nav_group": spec.nav_group}
     dashboard = Dashboard.objects.filter(name=spec.name).first()
     created = dashboard is None
     if created:

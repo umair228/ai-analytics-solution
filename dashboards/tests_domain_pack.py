@@ -535,6 +535,24 @@ class PmsV2PackTests(TestCase):
                 self.assertEqual(drill.get("param_filters"), {"project_number": "project"},
                                  f"{w.title}: its list must open for the chosen project")
 
+    def test_registers_chart_search_and_show_columns_their_list_has(self):
+        """Every register's charts, search and columns name output columns of its list
+        (else the filter is skipped and the chart is empty)."""
+        if self.pack_path != FMMS_PACK:
+            return
+        import re
+        keys = {d.key: d for d in self.pack.datasets}
+        regs = [(b, w) for b in self.pack.dashboards for w in b.widgets if w.type == "register"]
+        self.assertEqual(len(regs), 4)
+        for board, w in regs:
+            self.assertEqual(board.nav_group, "Registers")
+            sql = keys[w.dataset_key].sql
+            outputs = set(re.findall(r"\bAS\s+(\w+)", sql)) | set(re.findall(r"[\s,.](\w+)\s*(?:,|\n)", sql))
+            named = ([d["field"] for d in w.config["dimensions"]] + list(w.config.get("search", []))
+                     + [c["field"] for c in w.config["columns"]])
+            missing = [f for f in named if f not in outputs]
+            self.assertFalse(missing, f"{board.name}: not in {w.dataset_key}: {missing}")
+
     def test_executive_board_comes_first(self):
         self.assertEqual(self.pack.dashboards[0].name, "Executive Overview")
         positions = [b.position for b in self.pack.dashboards]
