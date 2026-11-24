@@ -797,6 +797,65 @@ datasets:
       WHERE is_excluded = 0
       ORDER BY project_number
 
+  # ---- Matrices: two dimensions at once (row x column), each cell opens its list ----
+  - key: eng_open_by_project_stage
+    name: "ENG · Open documents by project and stage"
+    description: "Open documents of the 12 projects with the most, by the step they wait in (workflow order)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT x.project_number, x.project_name, x.pipeline_state, x.step, x.documents, x.project_open
+      FROM (SELECT r.project_number, MAX(p.project_name) AS project_name,
+                   r.pipeline_state_label AS pipeline_state,
+                   MIN(CASE r.pipeline_state WHEN 'not_started' THEN 1 WHEN 'with_engineering' THEN 2
+                   WHEN 'internal_review' THEN 3 WHEN 'pm_approval' THEN 4
+                   WHEN 'additional_approval' THEN 5 WHEN 'gm_approval' THEN 6
+                   WHEN 'with_client' THEN 7 ELSE 8 END) AS step,
+                   COUNT(*) AS documents, MAX(t.open_documents) AS project_open
+            FROM rpt.eng_document_register r
+            JOIN (SELECT TOP 12 project_key, COUNT(*) AS open_documents
+                  FROM rpt.eng_document_register
+                  WHERE is_excluded = 0 AND pipeline_state <> 'done'
+                  GROUP BY project_key ORDER BY COUNT(*) DESC) t ON t.project_key = r.project_key
+            LEFT JOIN rpt.dim_project p ON p.project_key = r.project_key
+            WHERE r.is_excluded = 0 AND r.pipeline_state <> 'done'
+            GROUP BY r.project_number, r.pipeline_state_label) x
+      ORDER BY project_open DESC, project_number, step
+
+  - key: prc_pending_role_age
+    name: "PRC · Approval steps waiting, by role and how long"
+    description: "Pending approval steps by who they wait for and for how long (roles only, never people)."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT approver_role, waiting, bin_order, steps,
+             SUM(steps) OVER (PARTITION BY approver_role) AS role_total
+      FROM (SELECT a.approver_role, a.waiting, a.bin_order, COUNT(*) AS steps
+            FROM (SELECT CASE
+                 WHEN s.approver_role IS NULL THEN 'Not assigned'
+                 WHEN s.approver_role = 'planner' THEN 'Planner'
+                 WHEN s.approver_role = 'bd' THEN 'Business development'
+                 WHEN s.approver_role = 'bd_coordinator' THEN 'BD coordinator'
+                 WHEN s.approver_role = 'bd_manager' THEN 'BD manager'
+                 WHEN s.approver_role = 'estimator' THEN 'Estimator'
+                 WHEN s.approver_role = 'engineering_manager' THEN 'Engineering manager'
+                 WHEN s.approver_role = 'project_manager' THEN 'Project manager'
+                 WHEN s.approver_role = 'finance' THEN 'Finance'
+                 WHEN s.approver_role = 'qc_manager' THEN 'QC manager'
+                 WHEN s.approver_role = 'composite' THEN 'Several roles together'
+                 WHEN s.approver_role = 'attr:record.estimation_engineer_id' THEN 'Assigned estimation engineer'
+                 WHEN s.approver_role LIKE 'attr:record.%' THEN 'The person assigned on the record'
+                 ELSE UPPER(LEFT(s.approver_role, 1)) + REPLACE(SUBSTRING(s.approver_role, 2, 200), '_', ' ')
+               END AS approver_role,
+                         CASE s.age_bin WHEN 'd0_2' THEN '0-2 days' WHEN 'd3_7' THEN '3-7 days'
+                                        WHEN 'd8_30' THEN '8-30 days' WHEN 'd30_plus' THEN 'over 30 days'
+                                        ELSE s.age_bin END AS waiting,
+                         CASE s.age_bin WHEN 'd0_2' THEN 1 WHEN 'd3_7' THEN 2 WHEN 'd8_30' THEN 3 ELSE 4 END AS bin_order
+                  FROM rpt.gov_approval_step s
+                  WHERE s.is_pending = 1 AND s.is_excluded = 0) a
+            GROUP BY a.approver_role, a.waiting, a.bin_order) g
+      ORDER BY role_total DESC, approver_role, bin_order
+
   # ---- Project View: one project at a time (parameter :project = its number) -------
   # The same definitions as the certified metrics (ENG-01, ENG-07, ENG-13, ENG-12,
   # ENG-06, PLN-12, PRO-11), filtered to one project before anything is counted.
@@ -1113,29 +1172,30 @@ dashboards:
       - {title: "Where the documents are now", type: bar_list, dataset: eng_pipeline, config: {drill: {dataset: eng_document_list, field: pipeline_state, title: "Documents", columns: *docs_cols}, category_field: pipeline_state, value_field: documents, limit: 8, caption: "Every document by the step it is waiting in."}, layout: {x: 6, y: 6, w: 6, h: 7}}
 
       # ---- 2. Late documents -------------------------------------------------------
-      - {title: "Late documents", type: text, config: {content: "What is overdue, how late, and where? Target dates are still placeholders, so these counts overstate the backlog."}, layout: {x: 0, y: 13, w: 12, h: 2}}
-      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {drill: {dataset: eng_overdue_register, title: "Overdue documents", label: "See the documents", columns: *overdue_cols}, value_field: value, rollup: sum, direction: lower_better, label: "Overdue documents", caption: "Past their target date and not yet done."}, layout: {x: 0, y: 15, w: 4, h: 4}}
-      - {title: "How late they are", type: bar_list, dataset: eng_overdue_aging, config: {drill: {dataset: eng_overdue_register, field: overdue_age, title: "Overdue documents", columns: *overdue_cols}, category_field: overdue_age, value_field: documents, sort: false, tones: {"1-7 days": neutral, "8-14 days": watch, "15-30 days": serious, "More than 30 days": act}, caption: "Older items need escalation, not reminders."}, layout: {x: 0, y: 19, w: 4, h: 5}}
-      - {title: "Projects with the most overdue documents", type: bar_list, dataset: mgmt_overdue_by_project, config: {name_field: project_name, drill: {dataset: eng_overdue_register, field: project_number, title: "Overdue documents", columns: *overdue_cols}, category_field: project_number, value_field: overdue_documents, limit: 8, caption: "Where delivery is slipping."}, layout: {x: 4, y: 15, w: 8, h: 9}}
+      - {title: "Where each project's open documents are", type: heatmap, dataset: eng_open_by_project_stage, config: {category_field: pipeline_state, category_order_field: step, series_field: project_number, name_field: project_name, value_field: documents, caption: "The 12 projects with the most open documents, by the step each document waits in. Darker means more.", empty: "No open documents.", drill: {dataset: eng_document_list, field: pipeline_state, field2: project_number, title: "Documents", columns: *docs_cols}}, layout: {x: 0, y: 13, w: 12, h: 11}}
+      - {title: "Late documents", type: text, config: {content: "What is overdue, how late, and where? Target dates are still placeholders, so these counts overstate the backlog."}, layout: {x: 0, y: 24, w: 12, h: 2}}
+      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {drill: {dataset: eng_overdue_register, title: "Overdue documents", label: "See the documents", columns: *overdue_cols}, value_field: value, rollup: sum, direction: lower_better, label: "Overdue documents", caption: "Past their target date and not yet done."}, layout: {x: 0, y: 26, w: 4, h: 4}}
+      - {title: "How late they are", type: bar_list, dataset: eng_overdue_aging, config: {drill: {dataset: eng_overdue_register, field: overdue_age, title: "Overdue documents", columns: *overdue_cols}, category_field: overdue_age, value_field: documents, sort: false, tones: {"1-7 days": neutral, "8-14 days": watch, "15-30 days": serious, "More than 30 days": act}, caption: "Older items need escalation, not reminders."}, layout: {x: 0, y: 30, w: 4, h: 5}}
+      - {title: "Projects with the most overdue documents", type: bar_list, dataset: mgmt_overdue_by_project, config: {name_field: project_name, drill: {dataset: eng_overdue_register, field: project_number, title: "Overdue documents", columns: *overdue_cols}, category_field: project_number, value_field: overdue_documents, limit: 8, caption: "Where delivery is slipping."}, layout: {x: 4, y: 26, w: 8, h: 9}}
 
       # ---- 3. The client -----------------------------------------------------------
-      - {title: "The client", type: text, config: {content: "Is the client responding, and how fast?"}, layout: {x: 0, y: 24, w: 12, h: 2}}
-      - {title: "Client turnaround", type: kpi, dataset: eng_turnaround_monthly, config: {value_field: median_days, trend_field: median_days, value_from: last, rollup: avg, unit: d, direction: lower_better, delta_label: "vs previous month", label: "Client turnaround, latest month", caption: "Median days to return our documents."}, layout: {x: 0, y: 26, w: 3, h: 4}}
-      - {title: "Submissions answered", type: kpi, dataset: kpi_eng11, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Client submissions answered", caption: "Share of our submissions the client has returned."}, layout: {x: 3, y: 26, w: 3, h: 4}}
-      - {title: "Waiting for the client", type: kpi, dataset: kpi_eng13, config: {drill: {dataset: eng_with_client_register, title: "Documents waiting for the client", label: "See the documents", columns: *client_cols}, value_field: value, rollup: sum, direction: lower_better, label: "Documents waiting for the client", caption: "Issued and awaiting the client's response."}, layout: {x: 6, y: 26, w: 3, h: 4}}
-      - {title: "Transmittals to the client", type: kpi, dataset: kpi_eng25, config: {value_field: value, rollup: sum, label: "Transmittals issued to the client", caption: "Formal issues to the client, all time."}, layout: {x: 9, y: 26, w: 3, h: 4}}
-      - {title: "Client turnaround by month", type: line, dataset: eng_turnaround_monthly, config: {category_field: return_month, category_format: month, value_field: median_days, unit: d, rollup: none, caption: "Median days from our issue to the client's return. Lower is better."}, layout: {x: 0, y: 30, w: 7, h: 8}}
-      - {title: "Documents waiting with the client, by project", type: bar_list, dataset: eng_with_client_by_project, config: {name_field: project_name, drill: {dataset: eng_with_client_register, field: project_number, title: "Documents waiting for the client", columns: *client_cols}, category_field: project_number, value_field: documents_with_client, detail_field: median_age_days, detail_format: "median {value} days waiting", limit: 6, caption: "Long waits are for the project manager to raise with the client."}, layout: {x: 7, y: 30, w: 5, h: 8}}
+      - {title: "The client", type: text, config: {content: "Is the client responding, and how fast?"}, layout: {x: 0, y: 35, w: 12, h: 2}}
+      - {title: "Client turnaround", type: kpi, dataset: eng_turnaround_monthly, config: {value_field: median_days, trend_field: median_days, value_from: last, rollup: avg, unit: d, direction: lower_better, delta_label: "vs previous month", label: "Client turnaround, latest month", caption: "Median days to return our documents."}, layout: {x: 0, y: 37, w: 3, h: 4}}
+      - {title: "Submissions answered", type: kpi, dataset: kpi_eng11, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Client submissions answered", caption: "Share of our submissions the client has returned."}, layout: {x: 3, y: 37, w: 3, h: 4}}
+      - {title: "Waiting for the client", type: kpi, dataset: kpi_eng13, config: {drill: {dataset: eng_with_client_register, title: "Documents waiting for the client", label: "See the documents", columns: *client_cols}, value_field: value, rollup: sum, direction: lower_better, label: "Documents waiting for the client", caption: "Issued and awaiting the client's response."}, layout: {x: 6, y: 37, w: 3, h: 4}}
+      - {title: "Transmittals to the client", type: kpi, dataset: kpi_eng25, config: {value_field: value, rollup: sum, label: "Transmittals issued to the client", caption: "Formal issues to the client, all time."}, layout: {x: 9, y: 37, w: 3, h: 4}}
+      - {title: "Client turnaround by month", type: line, dataset: eng_turnaround_monthly, config: {category_field: return_month, category_format: month, value_field: median_days, unit: d, rollup: none, caption: "Median days from our issue to the client's return. Lower is better."}, layout: {x: 0, y: 41, w: 7, h: 8}}
+      - {title: "Documents waiting with the client, by project", type: bar_list, dataset: eng_with_client_by_project, config: {name_field: project_name, drill: {dataset: eng_with_client_register, field: project_number, title: "Documents waiting for the client", columns: *client_cols}, category_field: project_number, value_field: documents_with_client, detail_field: median_age_days, detail_format: "median {value} days waiting", limit: 6, caption: "Long waits are for the project manager to raise with the client."}, layout: {x: 7, y: 41, w: 5, h: 8}}
 
       # ---- 4. Output ---------------------------------------------------------------
-      - {title: "Output", type: text, config: {content: "What engineering is issuing, month by month."}, layout: {x: 0, y: 38, w: 12, h: 2}}
-      - {title: "Transmittals issued per month", type: bar, dataset: eng_transmittals_monthly, config: {category_field: issued_month, category_format: month, value_fields: [External (client), Internal, Vendor, Other], stacked: true, rollup: none, caption: "Every transmittal, by who it went to."}, layout: {x: 0, y: 40, w: 8, h: 7}}
-      - {title: "Contract document list (NMR 601)", type: bar_list, dataset: eng_sdrl_601, config: {category_field: submission_status, value_field: documents, tones: {Approved: good, "With client": info, "Within company (correction)": watch, "Within company (MIS)": neutral, "With vendor": neutral}, caption: "Where each document on the contract's submission list stands."}, layout: {x: 8, y: 40, w: 4, h: 7}}
+      - {title: "Output", type: text, config: {content: "What engineering is issuing, month by month."}, layout: {x: 0, y: 49, w: 12, h: 2}}
+      - {title: "Transmittals issued per month", type: bar, dataset: eng_transmittals_monthly, config: {category_field: issued_month, category_format: month, value_fields: [External (client), Internal, Vendor, Other], stacked: true, rollup: none, caption: "Every transmittal, by who it went to."}, layout: {x: 0, y: 51, w: 8, h: 7}}
+      - {title: "Contract document list (NMR 601)", type: bar_list, dataset: eng_sdrl_601, config: {category_field: submission_status, value_field: documents, tones: {Approved: good, "With client": info, "Within company (correction)": watch, "Within company (MIS)": neutral, "With vendor": neutral}, caption: "Where each document on the contract's submission list stands."}, layout: {x: 8, y: 51, w: 4, h: 7}}
 
       # ---- 5. Detail ---------------------------------------------------------------
-      - {title: "Detail", type: text, config: {content: "Registers for follow-up: sort by any column, export from the widget menu."}, layout: {x: 0, y: 47, w: 12, h: 2}}
-      - {title: "Overdue document register", type: table, dataset: eng_overdue_register, config: {page_size: 12, columns: [{field: project_number, label: Project}, {field: project_name, label: "Project name"}, {field: document_number, label: Document}, {field: document_type, label: Type}, {field: pipeline_state, label: "Where it is"}, {field: current_status, label: Status}, {field: revision, label: Revision}, {field: target_date, label: "Target date"}, {field: days_overdue, label: "Days overdue"}]}, layout: {x: 0, y: 49, w: 12, h: 11}}
-      - {title: "Material take-off coverage by unit", type: table, dataset: eng_bom_coverage_units, config: {columns: [{field: bom_unit, label: Unit}, {field: bom_lines, label: "BOM lines"}, {field: bom_qty, label: "BOM quantity"}, {field: covered_qty, label: "Covered by take-off"}, {field: coverage_pct, label: "Coverage %"}], caption: "Never add coverage across units."}, layout: {x: 0, y: 60, w: 12, h: 6}}
+      - {title: "Detail", type: text, config: {content: "Registers for follow-up: sort by any column, export from the widget menu."}, layout: {x: 0, y: 58, w: 12, h: 2}}
+      - {title: "Overdue document register", type: table, dataset: eng_overdue_register, config: {page_size: 12, columns: [{field: project_number, label: Project}, {field: project_name, label: "Project name"}, {field: document_number, label: Document}, {field: document_type, label: Type}, {field: pipeline_state, label: "Where it is"}, {field: current_status, label: Status}, {field: revision, label: Revision}, {field: target_date, label: "Target date"}, {field: days_overdue, label: "Days overdue"}]}, layout: {x: 0, y: 60, w: 12, h: 11}}
+      - {title: "Material take-off coverage by unit", type: table, dataset: eng_bom_coverage_units, config: {columns: [{field: bom_unit, label: Unit}, {field: bom_lines, label: "BOM lines"}, {field: bom_qty, label: "BOM quantity"}, {field: covered_qty, label: "Covered by take-off"}, {field: coverage_pct, label: "Coverage %"}], caption: "Never add coverage across units."}, layout: {x: 0, y: 71, w: 12, h: 6}}
 
   # ======================================================================== COMMERCIAL
   - key: commercial
@@ -1224,13 +1284,14 @@ dashboards:
       - {title: "How long approvals have waited", type: bar_list, dataset: prc_pending_by_age, config: {drill: {dataset: prc_pending_list, field: waiting, title: "Approvals waiting", columns: *approvals_cols}, category_field: waiting, value_field: pending_steps, sort: false, tones: {"0-2 days": neutral, "3-7 days": neutral, "8-30 days": watch, "over 30 days": act}, caption: "Anything over 30 days is a stalled decision."}, layout: {x: 6, y: 7, w: 6, h: 8}}
 
       # ---- 2. Adoption -------------------------------------------------------------
-      - {title: "Adoption", type: text, config: {content: "Is the team using the system?"}, layout: {x: 0, y: 15, w: 12, h: 2}}
-      - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 0, y: 17, w: 3, h: 4}}
-      - {title: "Hours of use", type: kpi, dataset: adp_hours_by_module, config: {value_field: active_hours, rollup: sum, unit: h, direction: higher_better, label: "Hours of active use, last 30 days", caption: "Time people actively spent in PMSv2."}, layout: {x: 3, y: 17, w: 3, h: 4}}
-      - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch appear once those modules are used."}, layout: {x: 6, y: 17, w: 3, h: 4}}
-      - {title: "Audited exports", type: kpi, dataset: kpi_adp04, config: {value_field: value, rollup: sum, label: "Exports recorded in the audit trail", caption: "Every download of PMSv2 data is logged."}, layout: {x: 9, y: 17, w: 3, h: 4}}
-      - {title: "Active users per month", type: bar, dataset: adp_active_users_monthly, config: {category_field: activity_month, category_format: month, value_field: active_users, rollup: none, caption: "Is use growing as modules go live?"}, layout: {x: 0, y: 21, w: 6, h: 8}}
-      - {title: "Where people spend their time", type: bar_list, dataset: adp_hours_by_module, config: {category_field: module, value_field: active_hours, unit: h, limit: 8, caption: "Active hours by module, last 30 days."}, layout: {x: 6, y: 21, w: 6, h: 8}}
+      - {title: "Who the approvals wait for, and how long", type: heatmap, dataset: prc_pending_role_age, config: {category_field: waiting, category_order_field: bin_order, series_field: approver_role, value_field: steps, caption: "Pending steps by role and by how long they have waited. Darker means more; the right-hand columns are the oldest.", empty: "Nothing is waiting for a decision.", drill: {dataset: prc_pending_list, field: waiting, field2: approver_role, title: "Approvals waiting", columns: *approvals_cols}}, layout: {x: 0, y: 15, w: 12, h: 9}}
+      - {title: "Adoption", type: text, config: {content: "Is the team using the system?"}, layout: {x: 0, y: 24, w: 12, h: 2}}
+      - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 0, y: 26, w: 3, h: 4}}
+      - {title: "Hours of use", type: kpi, dataset: adp_hours_by_module, config: {value_field: active_hours, rollup: sum, unit: h, direction: higher_better, label: "Hours of active use, last 30 days", caption: "Time people actively spent in PMSv2."}, layout: {x: 3, y: 26, w: 3, h: 4}}
+      - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch appear once those modules are used."}, layout: {x: 6, y: 26, w: 3, h: 4}}
+      - {title: "Audited exports", type: kpi, dataset: kpi_adp04, config: {value_field: value, rollup: sum, label: "Exports recorded in the audit trail", caption: "Every download of PMSv2 data is logged."}, layout: {x: 9, y: 26, w: 3, h: 4}}
+      - {title: "Active users per month", type: bar, dataset: adp_active_users_monthly, config: {category_field: activity_month, category_format: month, value_field: active_users, rollup: none, caption: "Is use growing as modules go live?"}, layout: {x: 0, y: 30, w: 6, h: 8}}
+      - {title: "Where people spend their time", type: bar_list, dataset: adp_hours_by_module, config: {category_field: module, value_field: active_hours, unit: h, limit: 8, caption: "Active hours by module, last 30 days."}, layout: {x: 6, y: 30, w: 6, h: 8}}
 
   # ======================================================================== DATA READINESS (PMO)
   - key: data_readiness

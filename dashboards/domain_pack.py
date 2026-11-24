@@ -34,7 +34,8 @@ WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
 # config.drill: the list behind a figure. `dataset` is a pack dataset key (resolved to
 # `dataset_id` on install); `field` is the list's column matched to the clicked
 # category; `filters` narrow every opening ([{column, value}]); `columns` as on a table.
-DRILL_KEYS = ("dataset", "field", "filters", "columns", "title", "label", "param_filters")
+DRILL_KEYS = ("dataset", "field", "field2", "filters", "columns", "title", "label",
+              "param_filters")
 REPORT_KEYS = ("key", "name", "dataset", "board", "schedule", "format")
 REPORT_FORMATS = ("xlsx", "pdf", "csv")  # what send_scheduled_reports renders for a dataset
 # Recipients are personal data and change without a release, so a pack never carries them:
@@ -514,7 +515,7 @@ def _drill_ok(drill, where, dataset_keys, err) -> bool:
     if drill.get("dataset") not in dataset_keys:
         err(where, f"dataset: {drill.get('dataset')!r} is not a dataset key of this pack.")
         ok = False
-    for k in ("field", "title", "label"):
+    for k in ("field", "field2", "title", "label"):
         if k in drill and not (isinstance(drill[k], str) and drill[k].strip()):
             err(where, f"{k}: must be text.")
             ok = False
