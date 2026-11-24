@@ -21,6 +21,7 @@ class DashboardSerializer(serializers.ModelSerializer):
     widget_count = serializers.IntegerField(source="widgets.count", read_only=True)
     lab_name = serializers.CharField(source="lab.name", read_only=True, default=None)
     datasource_names = serializers.SerializerMethodField()
+    freshness = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
@@ -28,7 +29,7 @@ class DashboardSerializer(serializers.ModelSerializer):
             "id", "name", "description", "owner", "owner_username", "site",
             "lab", "lab_name", "visibility", "shared_with", "filters", "widgets",
             "widget_count",
-            "datasource_names", "created_at", "updated_at",
+            "datasource_names", "freshness", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
 
@@ -40,6 +41,27 @@ class DashboardSerializer(serializers.ModelSerializer):
             if ds and ds.query_id and ds.query.datasource_id:
                 names.add(ds.query.datasource.name)
         return sorted(names)
+
+    def get_freshness(self, obj):
+        """How current the board's numbers are, in one line for its header.
+
+        The oldest data among the board's sources bounds the board (the same rule as an
+        answer): a restored copy reports its backup time ("snapshot"), a replica its
+        oldest sync, a live source "live". Computed per source and cached there.
+        """
+        from replication.freshness import describe
+
+        sources = {}
+        for w in obj.widgets.all():
+            ds = getattr(w, "dataset", None)
+            if ds and ds.query_id and ds.query.datasource_id:
+                sources[ds.query.datasource_id] = ds.query.datasource
+        if not sources:
+            return None
+        rank = {"stale": 0, "unknown": 1, "snapshot": 2, "replica": 3, "live": 4}
+        found = [describe(source) for source in sources.values()]
+        worst = min(found, key=lambda f: (rank.get(f.kind, 1), f.data_as_of or "9999"))
+        return {"kind": worst.kind, "data_as_of": worst.data_as_of, "detail": worst.detail}
 
     def create(self, validated_data):
         shared = validated_data.pop("shared_with", [])

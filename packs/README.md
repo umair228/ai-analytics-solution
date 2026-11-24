@@ -101,7 +101,7 @@ Field rules:
 | `sql` | Must pass `assert_read_only` (one `SELECT`/`WITH`, no DML/DDL, no `SELECT ... INTO`). Write it in the data source's SQL dialect. Bind parameters use `:name`. |
 | `parameters` | List of mappings with at least `name` (a bind name); `type`, `default`, `required` are stored as given (QueryDefinition semantics: a non-required parameter's `default` fills the bind when no value is supplied). Every `:name` used in `sql` must be declared here. |
 | `refresh` | A `Dataset.refresh_interval` value. |
-| widget `type` | One of `bar, line, pie, area, scatter, histogram, heatmap, boxplot, kpi, table, text, studio`. |
+| widget `type` | One of `bar, line, pie, area, scatter, histogram, heatmap, boxplot, kpi, table, text, studio`, and the management views `bar_list` (ranked top-N: `category_field`, `value_field`, `limit`, `unit`), `funnel` (pipeline stages in row order: `category_field`, `value_field`; shows conversion from the first stage) and `progress` (value against a goal: `value_field` with `target` or `target_field`, optional `category_field` for one bar per row, `direction`). Any widget may set `caption`: one plain sentence saying what the number means for the business. |
 | widget `dataset` | A dataset `key` of this pack; required except for `text` and `studio` widgets. |
 | widget `config` | Mapping, stored as-is (e.g. KPI `{value_field, rollup}`, charts `{category_field, value_field}`, table `{}`). |
 | widget `layout` | Integers `x, y >= 0`, `w, h >= 1`; missing ones default to `x=0, y=0, w=4, h=6`. |
