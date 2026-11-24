@@ -1,0 +1,578 @@
+# Fabrication demo pack: boards over a GENERATED fabrication company.
+#
+# Demonstration data only (seed_fabrication.build_warehouse): invented figures for the
+# areas a fabrication shop manages and the client's system does not hold yet (shop floor,
+# weld quality, NCRs, purchasing, dispatch, earned value, change orders, safety). The
+# data source is flagged demo, so every board here shows "Demonstration data".
+#
+#   manage.py seed_fabrication_demo        (builds the data, registers the source, installs this)
+#
+# SQLite SQL. The data date is data_info.data_date; "now" in a query means that date.
+pack: fabrication-demo
+version: 1
+datasources:
+  default: "Fabrication demo (generated data)"
+visibility: org
+share_with_group: ""
+
+datasets:
+  # ================================================================ HEADLINE SERIES
+  - key: fd_delivery_monthly
+    name: "FAB · On-time delivery by month (rolling 3 months)"
+    datasource: default
+    sql: |
+      SELECT month, shipped, on_time,
+             ROUND(100.0 * SUM(on_time) OVER w / SUM(shipped) OVER w, 1) AS on_time_pct
+      FROM (SELECT substr(actual_ship, 1, 7) AS month, COUNT(*) AS shipped,
+                   SUM(CASE WHEN days_late <= 3 THEN 1 ELSE 0 END) AS on_time
+            FROM shipments WHERE status = 'Shipped' AND substr(actual_ship, 1, 7) < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            GROUP BY substr(actual_ship, 1, 7))
+      WINDOW w AS (ORDER BY month ROWS 2 PRECEDING)
+      ORDER BY month
+
+  - key: fd_weld_monthly
+    name: "FAB · Weld repair rate by month"
+    datasource: default
+    sql: |
+      SELECT substr(welded_on, 1, 7) AS month, COUNT(*) AS welds,
+             SUM(CASE WHEN result = 'Rejected' THEN 1 ELSE 0 END) AS repairs,
+             ROUND(100.0 * SUM(CASE WHEN result = 'Rejected' THEN 1 ELSE 0 END) / COUNT(*), 2) AS repair_pct
+      FROM welds
+      WHERE substr(welded_on, 1, 7) < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      GROUP BY substr(welded_on, 1, 7)
+      HAVING COUNT(*) >= 300
+      ORDER BY month
+
+  - key: fd_ncr_open
+    name: "FAB · Open NCRs"
+    datasource: default
+    sql: |
+      SELECT COUNT(*) AS open_ncrs,
+             SUM(CASE WHEN severity = 'Critical' THEN 1 ELSE 0 END) AS critical,
+             SUM(CASE WHEN days_open > 30 THEN 1 ELSE 0 END) AS older_than_30_days
+      FROM ncrs WHERE status = 'Open'
+
+  - key: fd_ncr_monthly
+    name: "FAB · NCRs raised and closed by month, cost of poor quality"
+    datasource: default
+    sql: |
+      SELECT m.month, COALESCE(r.raised, 0) AS [Raised], COALESCE(c.closed, 0) AS [Closed],
+             COALESCE(r.cost_sar, 0) AS cost_sar
+      FROM (SELECT DISTINCT substr(raised_on, 1, 7) AS month FROM ncrs WHERE substr(raised_on, 1, 7) < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')) m
+      LEFT JOIN (SELECT substr(raised_on, 1, 7) AS month, COUNT(*) AS raised, SUM(cost_sar) AS cost_sar
+                 FROM ncrs GROUP BY 1) r ON r.month = m.month
+      LEFT JOIN (SELECT substr(closed_on, 1, 7) AS month, COUNT(*) AS closed
+                 FROM ncrs WHERE closed_on IS NOT NULL GROUP BY 1) c ON c.month = m.month
+      ORDER BY m.month
+
+  - key: fd_supplier_monthly
+    name: "FAB · Supplier on-time delivery by month (rolling 3 months)"
+    datasource: default
+    sql: |
+      SELECT month, received, on_time,
+             ROUND(100.0 * SUM(on_time) OVER w / SUM(received) OVER w, 1) AS on_time_pct
+      FROM (SELECT substr(received_on, 1, 7) AS month, COUNT(*) AS received,
+                   SUM(CASE WHEN days_late = 0 THEN 1 ELSE 0 END) AS on_time
+            FROM purchase_orders WHERE status = 'Received' AND substr(received_on, 1, 7) < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            GROUP BY substr(received_on, 1, 7))
+      WINDOW w AS (ORDER BY month ROWS 2 PRECEDING)
+      ORDER BY month
+
+  - key: fd_hse_monthly
+    name: "FAB · Safety by month (TRIR rolling 12 months)"
+    datasource: default
+    sql: |
+      SELECT month, man_hours, near_misses, first_aid, recordables, lost_time, trir_12m, ltifr_12m,
+             trir_12m AS [Recordable injury rate], ltifr_12m AS [Lost-time injury rate]
+      FROM (SELECT month, man_hours, near_misses, first_aid, recordables, lost_time,
+                   ROUND(SUM(recordables) OVER w * 200000.0 / SUM(man_hours) OVER w, 2) AS trir_12m,
+                   ROUND(SUM(lost_time) OVER w * 200000.0 / SUM(man_hours) OVER w, 2) AS ltifr_12m,
+                   ROW_NUMBER() OVER (ORDER BY month) AS n
+            FROM hse_monthly
+            WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            WINDOW w AS (ORDER BY month ROWS 11 PRECEDING))
+      -- the first six months have too few hours behind a 12-month rate to mean much
+      WHERE n > 6
+      ORDER BY month
+
+  - key: fd_days_since_lti
+    name: "FAB · Days since the last lost-time injury"
+    datasource: default
+    sql: |
+      SELECT CAST(julianday((SELECT value FROM data_info WHERE key = 'data_date'))
+                  - julianday(MAX(occurred_on)) AS INTEGER) AS days_since
+      FROM hse_incidents WHERE classification = 'Lost time'
+
+  # ================================================================ SHOP FLOOR
+  - key: fd_wc_load
+    name: "FAB · Work-centre load, last 12 weeks and next 8 (% of capacity)"
+    datasource: default
+    sql: |
+      SELECT w.work_center, w.week_start,
+             CAST(strftime('%d', w.week_start) AS INTEGER) || ' ' ||
+               CASE strftime('%m', w.week_start) WHEN '01' THEN 'Jan' WHEN '02' THEN 'Feb' WHEN '03' THEN 'Mar'
+                 WHEN '04' THEN 'Apr' WHEN '05' THEN 'May' WHEN '06' THEN 'Jun' WHEN '07' THEN 'Jul'
+                 WHEN '08' THEN 'Aug' WHEN '09' THEN 'Sep' WHEN '10' THEN 'Oct' WHEN '11' THEN 'Nov'
+                 ELSE 'Dec' END AS week,
+             CAST(ROUND(100.0 * w.load_hours / w.capacity_hours) AS INTEGER) AS load_pct,
+             CASE w.work_center WHEN 'Cutting bay' THEN 1 WHEN 'Rolling & forming' THEN 2 WHEN 'Fit-up' THEN 3
+               WHEN 'Welding bay' THEN 4 WHEN 'NDT' THEN 5 WHEN 'Heat treatment' THEN 6 WHEN 'Testing' THEN 7
+               WHEN 'Blast & paint' THEN 8 ELSE 9 END AS route_order
+      FROM wc_weekly w
+      WHERE julianday(w.week_start) BETWEEN julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 84
+                                       AND julianday((SELECT value FROM data_info WHERE key = 'data_date')) + 56
+      ORDER BY route_order, week_start
+
+  - key: fd_welding_load
+    name: "FAB · Welding bay load by week (% of capacity)"
+    datasource: default
+    sql: |
+      SELECT week_start, CAST(ROUND(100.0 * load_hours / capacity_hours) AS INTEGER) AS load_pct
+      FROM wc_weekly
+      WHERE work_center = 'Welding bay'
+        AND julianday(week_start) <= julianday((SELECT value FROM data_info WHERE key = 'data_date')) + 28
+      ORDER BY week_start
+
+  - key: fd_wip
+    name: "FAB · Items waiting at each operation (work in progress)"
+    datasource: default
+    sql: |
+      SELECT operation, MIN(seq) AS route_order, COUNT(*) AS items,
+             CAST(ROUND(AVG(waiting_days)) AS INTEGER) AS avg_days
+      FROM (SELECT o.operation, o.seq, o.status,
+                   LAG(o.status) OVER (PARTITION BY o.item_no ORDER BY o.seq) AS prev_status,
+                   julianday((SELECT value FROM data_info WHERE key = 'data_date'))
+                     - julianday(COALESCE(o.actual_start, o.planned_start)) AS waiting_days
+            FROM operations o JOIN projects p ON p.project_no = o.project_no
+            WHERE p.status <> 'On hold')
+      WHERE status = 'In progress' OR (status = 'Not started' AND prev_status = 'Done')
+      GROUP BY operation
+      ORDER BY route_order
+
+  - key: fd_throughput_weekly
+    name: "FAB · Items finished per week, against plan"
+    datasource: default
+    sql: |
+      SELECT wk AS week_start, SUM(planned) AS [Planned], SUM(finished) AS [Finished]
+      FROM (SELECT date(planned_finish, 'weekday 1', '-7 days') AS wk, 1 AS planned, 0 AS finished
+            FROM operations WHERE operation = 'Final inspection'
+            UNION ALL
+            SELECT date(actual_finish, 'weekday 1', '-7 days'), 0, 1
+            FROM operations WHERE operation = 'Final inspection' AND status = 'Done')
+      WHERE julianday(wk) BETWEEN julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182
+                              AND julianday((SELECT value FROM data_info WHERE key = 'data_date'))
+      GROUP BY wk
+      ORDER BY week_start
+
+  - key: fd_late_ops_by_wc
+    name: "FAB · Operations running late now, by work centre"
+    datasource: default
+    sql: |
+      SELECT o.work_center, COUNT(*) AS late_operations,
+             CAST(ROUND(AVG(o.days_late)) AS INTEGER) AS avg_days_late
+      FROM operations o JOIN projects p ON p.project_no = o.project_no
+      WHERE o.status IN ('In progress', 'Not started') AND o.days_late > 0 AND p.status <> 'On hold'
+      GROUP BY o.work_center
+      ORDER BY late_operations DESC
+
+  - key: fd_hours_by_wc
+    name: "FAB · Planned against actual hours by work centre, last 90 days"
+    datasource: default
+    sql: |
+      SELECT work_center, ROUND(SUM(planned_hours)) AS [Planned hours], ROUND(SUM(actual_hours)) AS [Actual hours]
+      FROM operations
+      WHERE status = 'Done'
+        AND julianday(actual_finish) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 90
+      GROUP BY work_center
+      ORDER BY SUM(planned_hours) DESC
+
+  # ================================================================ QUALITY
+  - key: fd_weld_by_process
+    name: "FAB · Weld repair rate by welding process, last 6 months"
+    datasource: default
+    sql: |
+      SELECT process, COUNT(*) AS welds,
+             ROUND(100.0 * SUM(CASE WHEN result = 'Rejected' THEN 1 ELSE 0 END) / COUNT(*), 2) AS repair_pct
+      FROM welds
+      WHERE julianday(welded_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182
+      GROUP BY process
+      ORDER BY repair_pct DESC
+
+  - key: fd_welders
+    name: "FAB · Welders with the highest repair rate, last 6 months (150+ welds)"
+    datasource: default
+    sql: |
+      SELECT welder, COUNT(*) AS welds,
+             ROUND(100.0 * SUM(CASE WHEN result = 'Rejected' THEN 1 ELSE 0 END) / COUNT(*), 2) AS repair_pct
+      FROM welds
+      WHERE julianday(welded_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182
+      GROUP BY welder
+      HAVING COUNT(*) >= 150
+      ORDER BY repair_pct DESC
+
+  - key: fd_ncr_pareto
+    name: "FAB · NCRs by category, last 12 months (Pareto)"
+    datasource: default
+    sql: |
+      SELECT category, ncrs,
+             CAST(ROUND(100.0 * SUM(ncrs) OVER (ORDER BY ncrs DESC, category ROWS UNBOUNDED PRECEDING)
+                        / SUM(ncrs) OVER ()) AS INTEGER) AS cumulative_pct
+      FROM (SELECT category, COUNT(*) AS ncrs FROM ncrs
+            WHERE julianday(raised_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+            GROUP BY category)
+      ORDER BY ncrs DESC, category
+
+  - key: fd_ncr_root_cause
+    name: "FAB · NCR root causes, last 12 months"
+    datasource: default
+    sql: |
+      SELECT root_cause, COUNT(*) AS ncrs, ROUND(SUM(cost_sar)) AS cost_sar
+      FROM ncrs
+      WHERE julianday(raised_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY root_cause
+      ORDER BY ncrs DESC
+
+  - key: fd_ncr_open_matrix
+    name: "FAB · Open NCRs by severity and age"
+    datasource: default
+    sql: |
+      SELECT severity,
+             CASE severity WHEN 'Critical' THEN 1 WHEN 'Major' THEN 2 ELSE 3 END AS severity_order,
+             age_band, MIN(band_order) AS band_order, COUNT(*) AS ncrs
+      FROM (SELECT severity,
+                   CASE WHEN days_open <= 7 THEN '0-7 days' WHEN days_open <= 30 THEN '8-30 days'
+                        WHEN days_open <= 90 THEN '31-90 days' ELSE 'over 90 days' END AS age_band,
+                   CASE WHEN days_open <= 7 THEN 1 WHEN days_open <= 30 THEN 2
+                        WHEN days_open <= 90 THEN 3 ELSE 4 END AS band_order
+            FROM ncrs WHERE status = 'Open')
+      GROUP BY severity, age_band
+      ORDER BY severity_order, band_order
+
+  # ================================================================ SUPPLY CHAIN
+  - key: fd_supplier_late
+    name: "FAB · Suppliers by share of lines delivered late, last 12 months"
+    datasource: default
+    sql: |
+      SELECT supplier, COUNT(*) AS lines,
+             ROUND(100.0 * SUM(CASE WHEN days_late > 0 THEN 1 ELSE 0 END) / COUNT(*), 1) AS late_pct,
+             CAST(ROUND(AVG(CASE WHEN days_late > 0 THEN days_late END)) AS INTEGER) AS avg_days_late
+      FROM purchase_orders
+      WHERE status = 'Received'
+        AND julianday(received_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY supplier
+      HAVING COUNT(*) >= 8
+      ORDER BY late_pct DESC
+
+  - key: fd_po_late_matrix
+    name: "FAB · Purchase-order lines by category and lateness"
+    datasource: default
+    sql: |
+      SELECT category, lateness, MIN(band_order) AS band_order, COUNT(*) AS lines,
+             SUM(COUNT(*)) OVER (PARTITION BY category) AS category_lines
+      FROM (SELECT category,
+                   CASE WHEN days_late = 0 THEN 'On time' WHEN days_late <= 7 THEN '1-7 days late'
+                        WHEN days_late <= 21 THEN '8-21 days late' ELSE 'over 21 days late' END AS lateness,
+                   CASE WHEN days_late = 0 THEN 1 WHEN days_late <= 7 THEN 2 WHEN days_late <= 21 THEN 3 ELSE 4 END AS band_order
+            FROM purchase_orders WHERE status IN ('Received', 'Overdue'))
+      GROUP BY category, lateness
+      ORDER BY category_lines DESC, category, band_order
+
+  - key: fd_po_overdue
+    name: "FAB · Overdue purchase-order lines"
+    datasource: default
+    sql: |
+      SELECT COUNT(*) AS overdue_lines, ROUND(SUM(value_sar)) AS overdue_value_sar,
+             CAST(ROUND(AVG(days_late)) AS INTEGER) AS avg_days_late
+      FROM purchase_orders WHERE status = 'Overdue'
+
+  - key: fd_spend_category
+    name: "FAB · Purchasing spend by category, last 12 months (SAR)"
+    datasource: default
+    sql: |
+      SELECT category, ROUND(SUM(value_sar)) AS value_sar, COUNT(*) AS lines
+      FROM purchase_orders
+      WHERE julianday(ordered_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY category
+      ORDER BY value_sar DESC
+
+  # ================================================================ PROJECT CONTROLS
+  - key: fd_evm_portfolio
+    name: "FAB · Active projects: earned value, cumulative (SAR)"
+    datasource: default
+    sql: |
+      SELECT e.week_start, ROUND(SUM(e.pv_sar)) AS [Planned value], ROUND(SUM(e.ev_sar)) AS [Earned value],
+             ROUND(SUM(e.ac_sar)) AS [Actual cost]
+      FROM evm_weekly e JOIN projects p ON p.project_no = e.project_no
+      WHERE p.status = 'Active'
+      GROUP BY e.week_start
+      ORDER BY week_start
+
+  - key: fd_projects
+    name: "FAB · Projects: cost and schedule performance"
+    datasource: default
+    sql: |
+      SELECT p.project_no, p.project_no || ' · ' || p.client || ' · ' || p.product_type AS project,
+             p.client, p.product_type, p.status, p.project_manager, p.contract_value_sar,
+             CASE WHEN e.ev_sar >= 0.05 * p.budget_cost_sar THEN ROUND(e.ev_sar / NULLIF(e.ac_sar, 0), 2) END AS cpi,
+             CASE WHEN e.ev_sar >= 0.05 * p.budget_cost_sar THEN ROUND(e.ev_sar / NULLIF(e.pv_sar, 0), 2) END AS spi,
+             ROUND(100.0 * e.ev_sar / p.budget_cost_sar, 1) AS pct_complete,
+             CAST(julianday(p.forecast_finish) - julianday(p.planned_finish) AS INTEGER) AS slip_days,
+             p.planned_finish, p.forecast_finish,
+             (SELECT COUNT(*) FROM ncrs n WHERE n.project_no = p.project_no AND n.status = 'Open') AS open_ncrs,
+             (SELECT COUNT(*) FROM change_orders c WHERE c.project_no = p.project_no) AS change_orders
+      FROM projects p
+      JOIN evm_weekly e ON e.project_no = p.project_no
+       AND e.week_start = (SELECT MAX(week_start) FROM evm_weekly x WHERE x.project_no = p.project_no)
+      ORDER BY slip_days DESC, p.project_no
+
+  - key: fd_projects_active
+    name: "FAB · Active projects: cost and schedule performance"
+    datasource: default
+    sql: |
+      SELECT p.project_no, p.project_no || ' · ' || p.client || ' · ' || p.product_type AS project,
+             p.client, p.product_type, p.status, p.project_manager, p.contract_value_sar,
+             CASE WHEN e.ev_sar >= 0.05 * p.budget_cost_sar THEN ROUND(e.ev_sar / NULLIF(e.ac_sar, 0), 2) END AS cpi,
+             CASE WHEN e.ev_sar >= 0.05 * p.budget_cost_sar THEN ROUND(e.ev_sar / NULLIF(e.pv_sar, 0), 2) END AS spi,
+             ROUND(100.0 * e.ev_sar / p.budget_cost_sar, 1) AS pct_complete,
+             CAST(julianday(p.forecast_finish) - julianday(p.planned_finish) AS INTEGER) AS slip_days,
+             p.planned_finish, p.forecast_finish,
+             (SELECT COUNT(*) FROM ncrs n WHERE n.project_no = p.project_no AND n.status = 'Open') AS open_ncrs,
+             (SELECT COUNT(*) FROM change_orders c WHERE c.project_no = p.project_no) AS change_orders
+      FROM projects p
+      JOIN evm_weekly e ON e.project_no = p.project_no
+       AND e.week_start = (SELECT MAX(week_start) FROM evm_weekly x WHERE x.project_no = p.project_no)
+      WHERE p.status = 'Active'
+      ORDER BY slip_days DESC, p.project_no
+
+  - key: fd_portfolio_index
+    name: "FAB · Active projects: CPI and SPI by week"
+    datasource: default
+    sql: |
+      SELECT e.week_start, ROUND(SUM(e.ev_sar) / SUM(e.ac_sar), 3) AS [CPI],
+             ROUND(SUM(e.ev_sar) / SUM(e.pv_sar), 3) AS [SPI]
+      FROM evm_weekly e JOIN projects p ON p.project_no = e.project_no
+      WHERE p.status = 'Active' AND e.pv_sar > 0
+        AND julianday(e.week_start) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182
+      GROUP BY e.week_start
+      ORDER BY week_start
+
+  - key: fd_co_by_reason
+    name: "FAB · Change orders by reason (approved value, SAR)"
+    datasource: default
+    sql: |
+      SELECT reason, COUNT(*) AS change_orders, ROUND(SUM(CASE WHEN status = 'Approved' THEN value_sar ELSE 0 END)) AS approved_sar
+      FROM change_orders GROUP BY reason ORDER BY approved_sar DESC
+
+  - key: fd_co_pending
+    name: "FAB · Change orders waiting for a decision"
+    datasource: default
+    sql: |
+      SELECT COUNT(*) AS pending, ROUND(SUM(value_sar)) AS pending_value_sar,
+             CAST(ROUND(AVG(days_to_decide)) AS INTEGER) AS avg_days_waiting
+      FROM change_orders WHERE status = 'Pending'
+
+  # ================================================================ SAFETY
+  - key: fd_incidents_by_type
+    name: "FAB · Incidents by type, last 12 months"
+    datasource: default
+    sql: |
+      SELECT incident_type, COUNT(*) AS incidents,
+             SUM(CASE WHEN classification IN ('Recordable', 'Lost time') THEN 1 ELSE 0 END) AS recordable
+      FROM hse_incidents
+      WHERE julianday(occurred_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY incident_type
+      ORDER BY incidents DESC
+
+  - key: fd_incident_pyramid
+    name: "FAB · Incidents by severity, last 12 months"
+    datasource: default
+    sql: |
+      SELECT classification, CASE classification WHEN 'Near miss' THEN 1 WHEN 'First aid' THEN 2
+                                  WHEN 'Recordable' THEN 3 ELSE 4 END AS level, COUNT(*) AS incidents
+      FROM hse_incidents
+      WHERE julianday(occurred_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY classification
+      ORDER BY level
+
+  # ================================================================ REGISTERS
+  - key: fd_reg_ncrs
+    name: "FAB · NCR register"
+    datasource: default
+    sql: |
+      SELECT n.ncr_no, n.project_no, n.project_no || ' · ' || p.client AS project, n.category, n.severity,
+             n.detected_at, n.root_cause, n.status, n.raised_on, n.closed_on, n.days_open, n.cost_sar,
+             CASE WHEN n.status = 'Closed' THEN 'Closed'
+                  WHEN n.days_open <= 7 THEN '0-7 days' WHEN n.days_open <= 30 THEN '8-30 days'
+                  WHEN n.days_open <= 90 THEN '31-90 days' ELSE 'over 90 days' END AS age_band
+      FROM ncrs n JOIN projects p ON p.project_no = n.project_no
+      ORDER BY raised_on DESC, ncr_no
+
+  - key: fd_reg_pos
+    name: "FAB · Purchase-order register"
+    datasource: default
+    sql: |
+      SELECT po_line, project_no, supplier, category, status, ordered_on, promised_on, received_on,
+             value_sar, days_late,
+             CASE WHEN status = 'Open' THEN 'Not due yet' WHEN days_late = 0 THEN 'On time'
+                  WHEN days_late <= 7 THEN '1-7 days late' WHEN days_late <= 21 THEN '8-21 days late'
+                  ELSE 'over 21 days late' END AS lateness
+      FROM purchase_orders
+      ORDER BY ordered_on DESC, po_line
+
+  - key: fd_reg_welds
+    name: "FAB · Weld log"
+    datasource: default
+    sql: |
+      SELECT weld_no, project_no, item_no, welder, process, ndt_method, welded_on, result, repairs,
+             substr(welded_on, 1, 7) AS month
+      FROM welds
+      ORDER BY welded_on DESC, weld_no
+
+  - key: fd_reg_operations
+    name: "FAB · Shop operations"
+    datasource: default
+    sql: |
+      SELECT o.op_id, o.item_no, o.project_no, o.operation, o.work_center, o.status,
+             o.planned_start, o.planned_finish, o.actual_start, o.actual_finish,
+             o.planned_hours, o.actual_hours, o.days_late,
+             CASE WHEN o.days_late = 0 THEN 'On time' WHEN o.days_late <= 7 THEN '1-7 days late'
+                  WHEN o.days_late <= 21 THEN '8-21 days late' ELSE 'over 21 days late' END AS lateness
+      FROM operations o
+      ORDER BY planned_start DESC, op_id
+
+dashboards:
+  # ======================================================================== PLANT OVERVIEW
+  - key: fab_overview
+    name: "Plant Overview"
+    nav_group: "Fabrication demo"
+    position: 200
+    description: "Demonstration data. Is the plant delivering on time, at quality, on cost and safely?"
+    widgets:
+      - {title: "This month at a glance", type: text, config: {content: "Delivery, quality, supply, load and safety: each card compares the last full month with the one before."}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "On-time delivery", type: kpi, dataset: fd_delivery_monthly, config: {value_field: on_time_pct, trend_field: on_time_pct, value_from: last, unit: "%", direction: higher_better, label: "Shipments on time (3 months)", delta_label: "vs month before", thresholds: [{op: lt, value: 80, color: red, label: "Below 80%"}, {op: gte, value: 90, color: green, label: "On target"}], caption: "Shipped within 3 days of the planned date."}, layout: {x: 0, y: 2, w: 4, h: 5}}
+      - {title: "Weld repair rate", type: kpi, dataset: fd_weld_monthly, config: {value_field: repair_pct, trend_field: repair_pct, value_from: last, unit: "%", direction: lower_better, label: "Weld repair rate", delta_label: "vs month before", thresholds: [{op: gt, value: 2.5, color: red, label: "Above 2.5% target"}, {op: lte, value: 2.5, color: green, label: "Within target"}], caption: "Welds rejected at NDT."}, layout: {x: 4, y: 2, w: 4, h: 5}}
+      - {title: "Open NCRs", type: kpi, dataset: fd_ncr_open, config: {value_field: open_ncrs, rollup: sum, direction: lower_better, label: "Open non-conformances", drill: {dataset: fd_reg_ncrs, filters: [{column: status, value: Open}], title: "Open NCRs", label: "See them"}}, layout: {x: 8, y: 2, w: 4, h: 5}}
+      - {title: "Supplier on-time", type: kpi, dataset: fd_supplier_monthly, config: {value_field: on_time_pct, trend_field: on_time_pct, value_from: last, unit: "%", direction: higher_better, label: "Supplier lines on time (3 months)", delta_label: "vs month before", thresholds: [{op: lt, value: 75, color: red, label: "Below 75%"}], caption: "Purchase-order lines received by the promised date."}, layout: {x: 0, y: 7, w: 4, h: 5}}
+      - {title: "Welding bay load", type: kpi, dataset: fd_welding_load, config: {value_field: load_pct, trend_field: load_pct, value_from: last, unit: "%", label: "Welding bay load, 4 weeks ahead", delta_label: "vs week before", thresholds: [{op: gt, value: 100, color: red, label: "Over capacity"}, {op: gt, value: 85, color: amber, label: "Near capacity"}], caption: "The plant's constraint: planned hours against hours available."}, layout: {x: 4, y: 7, w: 4, h: 5}}
+      - {title: "Recordable injury rate", type: kpi, dataset: fd_hse_monthly, config: {value_field: trir_12m, trend_field: trir_12m, value_from: last, unit: ratio, direction: lower_better, label: "Recordable injury rate (TRIR, 12 months)", delta_label: "vs month before", caption: "Recordable injuries per 200,000 hours worked."}, layout: {x: 8, y: 7, w: 4, h: 5}}
+
+      - {title: "Cost and schedule", type: text, config: {content: "Are we earning what we spend, and are projects on time?"}, layout: {x: 0, y: 12, w: 12, h: 2}}
+      - {title: "Planned value, earned value and actual cost", type: line, dataset: fd_evm_portfolio, config: {category_field: week_start, value_fields: ["Planned value", "Earned value", "Actual cost"], unit: SAR, rollup: none, tones: {"Planned value": neutral, "Actual cost": act}, caption: "The projects still running, cumulative. Earned below planned: behind schedule; cost above earned: over budget."}, layout: {x: 0, y: 14, w: 7, h: 10}}
+      - {title: "Project risk quadrant", type: scatter, dataset: fd_projects_active, config: {x_field: spi, y_field: cpi, label_field: project, size_field: contract_value_sar, x_label: "Schedule (SPI): ahead to the right", y_label: "Cost (CPI): under budget is up", reference_x: 1, reference_y: 1, quadrant_tones: true, drill: {dataset: fd_reg_ncrs, field: project_no, title: "NCRs"}, caption: "Each bubble is a running project, sized by contract value. Bottom-left is over budget and late."}, layout: {x: 7, y: 14, w: 5, h: 10}}
+
+      - {title: "Shop and supply", type: text, config: {content: "Where is the shop loaded, and what keeps failing?"}, layout: {x: 0, y: 24, w: 12, h: 2}}
+      - {title: "Work-centre load, % of capacity", type: heatmap, dataset: fd_wc_load, config: {category_field: week, category_order_field: week_start, series_field: work_center, value_field: load_pct, caption: "Last 12 weeks and the next 8 (planned). Over 100 means more work than hours.", empty: "No load recorded."}, layout: {x: 0, y: 26, w: 12, h: 10}}
+      - {title: "What the NCRs are about", type: bar_list, dataset: fd_ncr_pareto, config: {category_field: category, value_field: ncrs, detail_field: cumulative_pct, detail_format: "cumulative {value}% of all NCRs", limit: 6, caption: "Last 12 months, biggest first: fixing the top two removes most of them.", drill: {dataset: fd_reg_ncrs, field: category, title: "NCRs"}}, layout: {x: 0, y: 36, w: 6, h: 9}}
+      - {title: "Suppliers delivering late most often", type: bar_list, dataset: fd_supplier_late, config: {category_field: supplier, value_field: late_pct, unit: "%", detail_field: avg_days_late, detail_format: "late by {value} days on average", limit: 6, caption: "Share of lines received after the promised date, last 12 months.", drill: {dataset: fd_reg_pos, field: supplier, title: "Purchase-order lines"}}, layout: {x: 6, y: 36, w: 6, h: 9}}
+
+  # ======================================================================== SHOP FLOOR
+  - key: fab_shop
+    name: "Shop Floor"
+    nav_group: "Fabrication demo"
+    position: 210
+    description: "Demonstration data. Where is the work, where is it stuck, and is the shop keeping to plan?"
+    widgets:
+      - {title: "Flow", type: text, config: {content: "Where is the work waiting, and are we finishing what we planned?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Items waiting at each operation", type: bar_list, dataset: fd_wip, config: {category_field: operation, value_field: items, sort: false, detail_field: avg_days, detail_format: "{value} days there on average", limit: 9, caption: "Work in progress along the route; a long bar is a queue.", drill: {dataset: fd_reg_operations, field: operation, filters: [{column: status, value: "In progress"}], title: "Operations in progress"}}, layout: {x: 0, y: 2, w: 5, h: 10}}
+      - {title: "Items finished per week, against plan", type: bar, dataset: fd_throughput_weekly, config: {category_field: week_start, value_fields: ["Planned", "Finished"], rollup: none, tones: {"Planned": neutral}, caption: "Items through final inspection, last 26 weeks."}, layout: {x: 5, y: 2, w: 7, h: 10}}
+      - {title: "Capacity", type: text, config: {content: "Which work centres are overloaded, now and in the coming weeks?"}, layout: {x: 0, y: 12, w: 12, h: 2}}
+      - {title: "Work-centre load, % of capacity", type: heatmap, dataset: fd_wc_load, config: {category_field: week, category_order_field: week_start, series_field: work_center, value_field: load_pct, caption: "Last 12 weeks and the next 8 (planned). Over 100 means more work than hours."}, layout: {x: 0, y: 14, w: 12, h: 10}}
+      - {title: "Welding bay load by week", type: line, dataset: fd_welding_load, config: {category_field: week_start, value_field: load_pct, unit: "%", rollup: none, reference: {value: 100, label: "Capacity"}, caption: "The constraint, week by week, four weeks ahead."}, layout: {x: 0, y: 24, w: 6, h: 9}}
+      - {title: "Operations running late now", type: bar_list, dataset: fd_late_ops_by_wc, config: {category_field: work_center, value_field: late_operations, detail_field: avg_days_late, detail_format: "late by {value} days on average", limit: 9, drill: {dataset: fd_reg_operations, field: work_center, title: "Late operations"}}, layout: {x: 6, y: 24, w: 6, h: 9}}
+      - {title: "Planned against actual hours, last 90 days", type: bar, dataset: fd_hours_by_wc, config: {category_field: work_center, value_fields: ["Planned hours", "Actual hours"], unit: h, rollup: none, orientation: horizontal, tones: {"Planned hours": neutral}, caption: "Actual above planned means the work took longer than estimated."}, layout: {x: 0, y: 33, w: 12, h: 9}}
+
+  # ======================================================================== QUALITY
+  - key: fab_quality
+    name: "Quality"
+    nav_group: "Fabrication demo"
+    position: 220
+    description: "Demonstration data. Are we welding right first time, and what do the non-conformances tell us?"
+    widgets:
+      - {title: "Welding", type: text, config: {content: "Is the weld repair rate within target, and where are repairs coming from?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Weld repair rate", type: kpi, dataset: fd_weld_monthly, config: {value_field: repair_pct, trend_field: repair_pct, value_from: last, unit: "%", direction: lower_better, label: "Weld repair rate, last full month", delta_label: "vs month before", thresholds: [{op: gt, value: 2.5, color: red, label: "Above 2.5% target"}, {op: lte, value: 2.5, color: green, label: "Within target"}]}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Open NCRs", type: kpi, dataset: fd_ncr_open, config: {value_field: open_ncrs, rollup: sum, direction: lower_better, label: "Open non-conformances", drill: {dataset: fd_reg_ncrs, filters: [{column: status, value: Open}], title: "Open NCRs", label: "See them"}}, layout: {x: 0, y: 7, w: 3, h: 5}}
+      - {title: "Weld repair rate by month", type: line, dataset: fd_weld_monthly, config: {category_field: month, category_format: month, value_field: repair_pct, unit: "%", rollup: none, reference: {value: 2.5, label: "Target 2.5%"}, caption: "The quality push from April 2026 shows."}, layout: {x: 3, y: 2, w: 9, h: 10}}
+      - {title: "Repair rate by process, last 6 months", type: bar_list, dataset: fd_weld_by_process, config: {category_field: process, value_field: repair_pct, unit: "%", detail_field: welds, detail_format: "of {value} welds", drill: {dataset: fd_reg_welds, field: process, filters: [{column: result, value: Rejected}], title: "Rejected welds"}}, layout: {x: 0, y: 12, w: 4, h: 8}}
+      - {title: "Welders with the highest repair rate", type: bar_list, dataset: fd_welders, config: {category_field: welder, value_field: repair_pct, unit: "%", detail_field: welds, detail_format: "of {value} welds", limit: 8, caption: "Last 6 months, welders with 150 welds or more: candidates for coaching.", drill: {dataset: fd_reg_welds, field: welder, filters: [{column: result, value: Rejected}], title: "Rejected welds"}}, layout: {x: 4, y: 12, w: 8, h: 8}}
+      - {title: "Non-conformances", type: text, config: {content: "What goes wrong, why, and how long do open NCRs stay open?"}, layout: {x: 0, y: 20, w: 12, h: 2}}
+      - {title: "NCRs by category", type: bar_list, dataset: fd_ncr_pareto, config: {category_field: category, value_field: ncrs, detail_field: cumulative_pct, detail_format: "cumulative {value}%", caption: "Last 12 months, biggest first.", drill: {dataset: fd_reg_ncrs, field: category, title: "NCRs"}}, layout: {x: 0, y: 22, w: 4, h: 9}}
+      - {title: "Root causes", type: bar_list, dataset: fd_ncr_root_cause, config: {category_field: root_cause, value_field: ncrs, detail_field: cost_sar, detail_format: "SAR {value} cost of poor quality", caption: "Last 12 months.", drill: {dataset: fd_reg_ncrs, field: root_cause, title: "NCRs"}}, layout: {x: 4, y: 22, w: 4, h: 9}}
+      - {title: "Open NCRs by severity and age", type: heatmap, dataset: fd_ncr_open_matrix, config: {category_field: age_band, category_order_field: band_order, series_field: severity, value_field: ncrs, caption: "Critical and old is where to start.", drill: {dataset: fd_reg_ncrs, field: age_band, field2: severity, title: "Open NCRs"}}, layout: {x: 8, y: 22, w: 4, h: 9}}
+      - {title: "NCRs raised and closed by month", type: bar, dataset: fd_ncr_monthly, config: {category_field: month, category_format: month, value_fields: ["Raised", "Closed"], rollup: none, tones: {"Raised": serious, "Closed": good}, caption: "More raised than closed means the backlog is growing."}, layout: {x: 0, y: 31, w: 7, h: 9}}
+      - {title: "Cost of poor quality by month", type: bar, dataset: fd_ncr_monthly, config: {category_field: month, category_format: month, value_field: cost_sar, unit: SAR, rollup: none, caption: "Rework, scrap and re-inspection cost of the NCRs raised each month."}, layout: {x: 7, y: 31, w: 5, h: 9}}
+
+  # ======================================================================== SUPPLY CHAIN
+  - key: fab_supply
+    name: "Supply Chain"
+    nav_group: "Fabrication demo"
+    position: 230
+    description: "Demonstration data. Are suppliers delivering on time, and what is overdue now?"
+    widgets:
+      - {title: "Delivery", type: text, config: {content: "Who delivers late, and which materials are most at risk?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Supplier on-time", type: kpi, dataset: fd_supplier_monthly, config: {value_field: on_time_pct, trend_field: on_time_pct, value_from: last, unit: "%", direction: higher_better, label: "Lines on time (3 months)", delta_label: "vs month before", thresholds: [{op: lt, value: 75, color: red, label: "Below 75%"}]}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Overdue lines", type: kpi, dataset: fd_po_overdue, config: {value_field: overdue_lines, rollup: sum, direction: lower_better, label: "Purchase-order lines overdue", drill: {dataset: fd_reg_pos, filters: [{column: status, value: Overdue}], title: "Overdue lines", label: "See them"}}, layout: {x: 0, y: 7, w: 3, h: 5}}
+      - {title: "Supplier on-time delivery by month", type: line, dataset: fd_supplier_monthly, config: {category_field: month, category_format: month, value_field: on_time_pct, unit: "%", rollup: none, reference: {value: 85, label: "Target 85%"}, caption: "Rolling 3 months."}, layout: {x: 3, y: 2, w: 9, h: 10}}
+      - {title: "Suppliers delivering late most often", type: bar_list, dataset: fd_supplier_late, config: {category_field: supplier, value_field: late_pct, unit: "%", detail_field: avg_days_late, detail_format: "late by {value} days on average", limit: 8, drill: {dataset: fd_reg_pos, field: supplier, title: "Purchase-order lines"}}, layout: {x: 0, y: 12, w: 6, h: 10}}
+      - {title: "Lines by category and lateness", type: heatmap, dataset: fd_po_late_matrix, config: {category_field: lateness, category_order_field: band_order, series_field: category, value_field: lines, caption: "Received and overdue lines; the right-hand columns are the problem.", drill: {dataset: fd_reg_pos, field: lateness, field2: category, title: "Purchase-order lines"}}, layout: {x: 6, y: 12, w: 6, h: 10}}
+      - {title: "Spend by category, last 12 months", type: bar_list, dataset: fd_spend_category, config: {category_field: category, value_field: value_sar, unit: SAR, detail_field: lines, detail_format: "{value} lines", drill: {dataset: fd_reg_pos, field: category, title: "Purchase-order lines"}}, layout: {x: 0, y: 22, w: 12, h: 8}}
+
+  # ======================================================================== PROJECT CONTROLS
+  - key: fab_controls
+    name: "Project Controls"
+    nav_group: "Fabrication demo"
+    position: 240
+    description: "Demonstration data. Which projects are over budget or late, and what is changing their scope?"
+    widgets:
+      - {title: "Earned value", type: text, config: {content: "Are we earning the value we spend, and on schedule?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Project risk quadrant", type: scatter, dataset: fd_projects_active, config: {x_field: spi, y_field: cpi, label_field: project, size_field: contract_value_sar, x_label: "Schedule (SPI): ahead to the right", y_label: "Cost (CPI): under budget is up", reference_x: 1, reference_y: 1, quadrant_tones: true, drill: {dataset: fd_reg_ncrs, field: project_no, title: "NCRs"}, caption: "Each bubble is a running project, sized by contract value. Bottom-left is over budget and late."}, layout: {x: 0, y: 2, w: 6, h: 11}}
+      - {title: "Active projects: CPI and SPI by week", type: line, dataset: fd_portfolio_index, config: {category_field: week_start, value_fields: ["CPI", "SPI"], unit: ratio, rollup: none, reference: {value: 1, label: "On plan"}, y_scale: true, caption: "Below 1.0: over budget (CPI) or behind schedule (SPI)."}, layout: {x: 6, y: 2, w: 6, h: 11}}
+      - {title: "Projects", type: table, dataset: fd_projects, config: {page_size: 10, columns: [{field: project_no, label: Project}, {field: client, label: Client}, {field: product_type, label: Product}, {field: status, label: Status}, {field: pct_complete, label: "% complete"}, {field: cpi, label: CPI, format: ratio}, {field: spi, label: SPI, format: ratio}, {field: slip_days, label: "Days late (forecast)"}, {field: open_ncrs, label: "Open NCRs"}, {field: change_orders, label: "Change orders"}], row_rules: [{column: cpi, op: lt, value: 0.9, bg_color: "#fdecec"}]}, layout: {x: 0, y: 13, w: 12, h: 10}}
+      - {title: "Change", type: text, config: {content: "What is changing the scope, and what is waiting for a decision?"}, layout: {x: 0, y: 23, w: 12, h: 2}}
+      - {title: "Change orders waiting", type: kpi, dataset: fd_co_pending, config: {value_field: pending, rollup: sum, direction: lower_better, label: "Change orders waiting for a decision"}, layout: {x: 0, y: 25, w: 4, h: 5}}
+      - {title: "Change orders by reason", type: bar_list, dataset: fd_co_by_reason, config: {category_field: reason, value_field: approved_sar, unit: SAR, detail_field: change_orders, detail_format: "{value} change orders", caption: "Approved value by reason."}, layout: {x: 4, y: 25, w: 8, h: 7}}
+      - {title: "Planned value, earned value and actual cost", type: line, dataset: fd_evm_portfolio, config: {category_field: week_start, value_fields: ["Planned value", "Earned value", "Actual cost"], unit: SAR, rollup: none, tones: {"Planned value": neutral, "Actual cost": act}, caption: "The projects still running, cumulative."}, layout: {x: 0, y: 32, w: 12, h: 10}}
+
+  # ======================================================================== SAFETY
+  - key: fab_safety
+    name: "Safety"
+    nav_group: "Fabrication demo"
+    position: 250
+    description: "Demonstration data. Is the plant getting safer, and what kinds of incident happen?"
+    widgets:
+      - {title: "Safety performance", type: text, config: {content: "Are injuries falling as the hours rise?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Days since a lost-time injury", type: kpi, dataset: fd_days_since_lti, config: {value_field: days_since, rollup: sum, unit: d, direction: higher_better, label: "Days since the last lost-time injury"}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Recordable injury rate", type: kpi, dataset: fd_hse_monthly, config: {value_field: trir_12m, trend_field: trir_12m, value_from: last, unit: ratio, direction: lower_better, label: "TRIR, 12 months", delta_label: "vs month before", caption: "Recordable injuries per 200,000 hours."}, layout: {x: 0, y: 7, w: 3, h: 5}}
+      - {title: "Recordable and lost-time injury rates", type: line, dataset: fd_hse_monthly, config: {category_field: month, category_format: month, value_fields: ["Recordable injury rate", "Lost-time injury rate"], unit: ratio, rollup: none, caption: "Rolling 12 months, per 200,000 hours worked."}, layout: {x: 3, y: 2, w: 9, h: 10}}
+      - {title: "Incidents by severity, last 12 months", type: bar_list, dataset: fd_incident_pyramid, config: {category_field: classification, value_field: incidents, sort: false, tones: {"Near miss": info, "First aid": watch, "Recordable": serious, "Lost time": act}, caption: "Many near misses reported is good: they are warnings caught early."}, layout: {x: 0, y: 12, w: 6, h: 8}}
+      - {title: "Incidents by type, last 12 months", type: bar_list, dataset: fd_incidents_by_type, config: {category_field: incident_type, value_field: incidents, detail_field: recordable, detail_format: "{value} recordable"}, layout: {x: 6, y: 12, w: 6, h: 8}}
+      - {title: "Hours worked by month", type: bar, dataset: fd_hse_monthly, config: {category_field: month, category_format: month, value_field: man_hours, unit: h, rollup: none}, layout: {x: 0, y: 20, w: 12, h: 8}}
+
+  # ======================================================================== REGISTERS
+  - key: fab_reg_ncrs
+    name: "NCR register"
+    nav_group: "Fabrication demo"
+    position: 260
+    description: "Demonstration data. Every non-conformance: filter by status, severity, category or age."
+    widgets:
+      - {title: "NCR register", type: register, dataset: fd_reg_ncrs, config: {noun: NCRs, key_field: ncr_no, page_size: 50, search: [ncr_no, project, category, root_cause], dimensions: [{field: status, label: "Status", order: ["Open", "Closed"]}, {field: severity, label: "Severity", order: ["Critical", "Major", "Minor"], tones: {"Critical": act, "Major": serious}}, {field: category, label: "Category"}, {field: age_band, label: "Open for", order: ["0-7 days", "8-30 days", "31-90 days", "over 90 days", "Closed"], tones: {"31-90 days": watch, "over 90 days": act}}], columns: [{field: ncr_no, label: NCR}, {field: project, label: Project}, {field: category, label: Category}, {field: severity, label: Severity}, {field: root_cause, label: "Root cause"}, {field: detected_at, label: "Found at"}, {field: status, label: Status}, {field: raised_on, label: Raised}, {field: closed_on, label: Closed}, {field: days_open, label: "Days open"}, {field: cost_sar, label: "Cost (SAR)"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_pos
+    name: "Purchase orders"
+    nav_group: "Fabrication demo"
+    position: 270
+    description: "Demonstration data. Every purchase-order line: filter by status, lateness, category or supplier."
+    widgets:
+      - {title: "Purchase-order register", type: register, dataset: fd_reg_pos, config: {noun: lines, key_field: po_line, page_size: 50, search: [po_line, supplier, project_no, category], dimensions: [{field: status, label: "Status"}, {field: lateness, label: "Lateness", order: ["On time", "1-7 days late", "8-21 days late", "over 21 days late", "Not due yet"], tones: {"8-21 days late": watch, "over 21 days late": act}}, {field: category, label: "Category"}, {field: supplier, label: "Supplier", limit: 8}], columns: [{field: po_line, label: "PO line"}, {field: project_no, label: Project}, {field: supplier, label: Supplier}, {field: category, label: Category}, {field: status, label: Status}, {field: ordered_on, label: Ordered}, {field: promised_on, label: Promised}, {field: received_on, label: Received}, {field: days_late, label: "Days late"}, {field: value_sar, label: "Value (SAR)"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_welds
+    name: "Weld log"
+    nav_group: "Fabrication demo"
+    position: 280
+    description: "Demonstration data. Every weld and its NDT result: filter by result, process, method or welder."
+    widgets:
+      - {title: "Weld log", type: register, dataset: fd_reg_welds, config: {noun: welds, key_field: weld_no, page_size: 50, search: [weld_no, item_no, project_no, welder], dimensions: [{field: result, label: "NDT result", order: ["Accepted", "Rejected"], tones: {"Rejected": act}}, {field: process, label: "Process"}, {field: ndt_method, label: "NDT method"}, {field: welder, label: "Welder", limit: 8}], columns: [{field: weld_no, label: Weld}, {field: project_no, label: Project}, {field: item_no, label: Item}, {field: welder, label: Welder}, {field: process, label: Process}, {field: ndt_method, label: "NDT"}, {field: welded_on, label: Welded}, {field: result, label: Result}, {field: repairs, label: Repairs}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_ops
+    name: "Shop operations"
+    nav_group: "Fabrication demo"
+    position: 290
+    description: "Demonstration data. Every shop operation: filter by status, lateness, work centre or operation."
+    widgets:
+      - {title: "Shop operations", type: register, dataset: fd_reg_operations, config: {noun: operations, key_field: op_id, page_size: 50, search: [item_no, project_no, operation, work_center], dimensions: [{field: status, label: "Status", order: ["Not started", "In progress", "Done", "On hold"]}, {field: lateness, label: "Lateness", order: ["On time", "1-7 days late", "8-21 days late", "over 21 days late"], tones: {"8-21 days late": watch, "over 21 days late": act}}, {field: work_center, label: "Work centre"}, {field: operation, label: "Operation", limit: 9}], columns: [{field: item_no, label: Item}, {field: project_no, label: Project}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_start, label: "Planned start"}, {field: planned_finish, label: "Planned finish"}, {field: actual_finish, label: Finished}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}

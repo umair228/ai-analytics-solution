@@ -570,3 +570,54 @@ class PmsV2RestrictedPackTests(PmsV2PackTests):
     def test_executive_board_comes_first(self):
         """The restricted board is listed right after Commercial & Bids (30)."""
         self.assertEqual([b.position for b in self.pack.dashboards], [35])
+
+
+FAB_DEMO_PACK = Path(settings.BASE_DIR) / "packs" / "fabrication-demo" / "pack.yaml"
+
+
+class FabricationDemoPackTests(PmsV2PackTests):
+    """The generated fabrication boards follow the same board rules, and every one of
+    them says it is demonstration data."""
+
+    pack_path = FAB_DEMO_PACK
+
+    def setUp(self):
+        from dashboards.domain_pack import load_pack
+        admin = User.objects.create_superuser("fab-pack", "f@x.co", "x")
+        DataSource.objects.create(name="Fabrication demo (generated data)", source_type="sqlite",
+                                  owner=admin, options={"path": "/tmp/x.sqlite3", "demo": True})
+        self.pack = load_pack(self.pack_path)
+
+    def test_executive_board_comes_first(self):
+        self.assertEqual(self.pack.dashboards[0].name, "Plant Overview")
+        positions = [b.position for b in self.pack.dashboards]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_every_board_says_it_is_demonstration_data(self):
+        for board in self.pack.dashboards:
+            self.assertTrue(board.description.startswith("Demonstration data."), board.name)
+            self.assertEqual(board.nav_group, "Fabrication demo")
+
+    def test_the_generator_builds_a_consistent_company(self):
+        import sqlite3
+        import tempfile
+        from seed_fabrication.build_warehouse import build
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fab.sqlite3"
+            counts = build(path, verbose=False)
+            self.assertEqual(build(Path(tmp) / "again.sqlite3", verbose=False), counts)   # deterministic
+            con = sqlite3.connect(path)
+            one = lambda q: con.execute(q).fetchone()[0]                                    # noqa: E731
+            self.assertEqual(counts["projects"], 24)
+            self.assertGreater(counts["welds"], 10_000)
+            # every operation, weld, NCR and order line belongs to a project that exists
+            for table in ("operations", "welds", "ncrs", "purchase_orders", "shipments"):
+                self.assertEqual(one(f"SELECT COUNT(*) FROM {table} WHERE project_no NOT IN "
+                                     "(SELECT project_no FROM projects)"), 0, table)
+            # nothing is dated after the data date
+            self.assertEqual(one("SELECT COUNT(*) FROM welds WHERE welded_on > '2026-11-22'"), 0)
+            self.assertEqual(one("SELECT COUNT(*) FROM ncrs WHERE raised_on > '2026-11-22'"), 0)
+            # the welding bay is the constraint
+            self.assertEqual(one("SELECT work_center FROM wc_weekly GROUP BY work_center "
+                                 "ORDER BY MAX(1.0 * load_hours / capacity_hours) DESC LIMIT 1"), "Welding bay")
+            con.close()
