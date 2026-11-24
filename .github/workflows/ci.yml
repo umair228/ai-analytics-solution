@@ -40,5 +40,35 @@ jobs:
       - name: Django system check
         run: python manage.py check
 
-      - name: Golden + unit + authz tests (analytics + agent + NL->SQL + docsearch/RAG authz)
-        run: python manage.py test analytics ai docsearch -v2
+      # Every app, not a subset. `semantics` (certified metrics/router) and
+      # `replication` (the LIMS replica) were previously in neither CI nor
+      # `make test`, and `core` now carries the audit-trail controls — a
+      # governance control that isn't gated is a claim, not a control.
+      - name: Unit + golden + authz + governance tests (all apps)
+        run: python manage.py test -v2
+
+      # A traceability matrix rots the moment someone renames a test, and every
+      # matrix ever written in a word processor is wrong within a month. This one is
+      # code, so CI can prove it still points at tests that exist.
+      - name: Traceability matrix intact (CSV / GAMP 5)
+        run: python manage.py qualify --matrix
+
+      # The Operational Qualification, as a downloadable artefact per commit. This is the
+      # thing an assessor actually asks for — "show me the qualification record for the
+      # version you deployed" — and until now the only way to get one was for somebody to
+      # run a command on a laptop and paste the output somewhere.
+      - name: Operational Qualification report
+        env:
+          DIS_GIT_SHA: ${{ github.sha }}
+          DIS_VERSION: ${{ github.ref_name }}
+        run: python manage.py qualify --json --out VALIDATION_SUMMARY.md
+
+      - name: Upload the OQ report
+        if: always()          # a FAILED qualification is the one you most want to read
+        uses: actions/upload-artifact@v4
+        with:
+          name: oq-report-${{ github.sha }}
+          path: |
+            validation/oq_report.json
+            VALIDATION_SUMMARY.md
+          if-no-files-found: warn

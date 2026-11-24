@@ -23,6 +23,24 @@ from .sql_dialect import quote_ident, table_ref
 from .tables import table_specs
 
 
+def _canon(name: str) -> str:
+    """The replica's canonical identifier case: LOWER.
+
+    This is load-bearing, not cosmetic. ``pandas.to_sql("RESULT", …)`` creates a
+    Postgres table as ``"RESULT"`` — quoted, upper case — and Postgres folds
+    *unquoted* identifiers to lower case. So `SELECT s.PRODUCT FROM SAMPLE s`,
+    which is the shape both the LLM and the certified metrics naturally write,
+    would resolve to `select s.product from sample s` and find nothing. Every
+    generated query against the replica would fail.
+
+    Creating the replica lower case makes that same unquoted SQL resolve, and
+    MSSQL/SQLite are case-insensitive, so it resolves against the LabWare source
+    too. One SQL, three dialects — which is what lets the certified metrics and
+    the replica finally coexist (see semantics/metric_sql.py).
+    """
+    return (name or "").lower()
+
+
 def _chunks(seq, size):
     for i in range(0, len(seq), size):
         yield seq[i:i + size]
@@ -143,8 +161,11 @@ def replicate_table(state, *, mode="incremental", target_schema=None,
 
     do_incremental = bool(mode == "incremental" and wm_col and state.high_watermark)
 
+    # Source keeps LabWare's casing; the target is canonicalised to lower (_canon).
     src_ref = _source_table_ref(source, table)
-    tgt_ref = table_ref(table, target_schema, tgt_dialect)
+    tgt_table = _canon(table)
+    tgt_ref = table_ref(tgt_table, target_schema, tgt_dialect)
+    tgt_keys = [_canon(k) for k in keys]
     select_sql = f"SELECT * FROM {src_ref}"
     params = None
     if do_incremental:
@@ -162,11 +183,14 @@ def replicate_table(state, *, mode="incremental", target_schema=None,
     except Exception as exc:  # noqa: BLE001
         return _fail(state, f"extract failed: {exc}")
 
+    df.columns = [_canon(c) for c in df.columns]
+
     n = len(df)
     new_wm = None
-    if wm_col and wm_col in df.columns and n:
+    wm_key = _canon(wm_col)
+    if wm_col and wm_key in df.columns and n:
         try:
-            new_wm = _watermark_str(df[wm_col].dropna().max())
+            new_wm = _watermark_str(df[wm_key].dropna().max())
         except Exception:  # noqa: BLE001
             new_wm = None
 
@@ -175,13 +199,14 @@ def replicate_table(state, *, mode="incremental", target_schema=None,
         if do_incremental:
             if n:
                 with tgt_engine.begin() as conn:
-                    if _table_exists(conn, table, target_schema):
-                        _delete_keys(conn, tgt_ref, keys, _key_tuples(df, keys), tgt_dialect)
-                    df.to_sql(table, conn, schema=target_schema, if_exists="append",
+                    if _table_exists(conn, tgt_table, target_schema):
+                        _delete_keys(conn, tgt_ref, tgt_keys,
+                                     _key_tuples(df, tgt_keys), tgt_dialect)
+                    df.to_sql(tgt_table, conn, schema=target_schema, if_exists="append",
                               index=False, chunksize=chunksize)
         else:
             with tgt_engine.begin() as conn:
-                df.to_sql(table, conn, schema=target_schema, if_exists="replace",
+                df.to_sql(tgt_table, conn, schema=target_schema, if_exists="replace",
                           index=False, chunksize=chunksize)
     except Exception as exc:  # noqa: BLE001
         return _fail(state, f"load failed: {exc}")

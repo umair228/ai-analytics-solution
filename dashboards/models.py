@@ -1,15 +1,14 @@
 from django.conf import settings
 from django.db import models
 
+from core.access import Visibility, can_view
 from core.models import TimeStampedModel
 
 
 class Dashboard(TimeStampedModel):
     """An interactive dashboard — a canvas of widgets bound to datasets."""
 
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "Private"
-        SHARED = "shared", "Shared"
+    Visibility = Visibility          # core.access — one rule, not four copies of it
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -18,6 +17,10 @@ class Dashboard(TimeStampedModel):
     )
     site = models.ForeignKey(
         "accounts.Site", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="dashboards",
+    )
+    lab = models.ForeignKey(
+        "accounts.Lab", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="dashboards",
     )
     visibility = models.CharField(
@@ -35,9 +38,7 @@ class Dashboard(TimeStampedModel):
         return self.name
 
     def accessible_by(self, user) -> bool:
-        if user.is_admin or self.owner_id == user.id:
-            return True
-        return self.shared_with.filter(pk=user.pk).exists()
+        return can_view(self, user)
 
 
 class Widget(TimeStampedModel):

@@ -1,6 +1,17 @@
 # Curated semantic layer for the EGPC LabWare LIMS (the data dictionary).
-# Load with:  python manage.py load_semantic_layer --datasource EGPC_DEV
-# `datasource:` is matched against DataSource.name (case-insensitive).
+#
+# Load with:   python manage.py load_semantic_layer --datasource "EGPC LIMS"
+#         or:  python manage.py load_semantic_layer --datasource 16
+#
+# --datasource takes the DataSource NAME or id — NOT the database name. (The old example
+# here said `--datasource EGPC_DEV`, which is the DATABASE; no DataSource is called that, so
+# the command it documented could never work.) This file is named after the database, and the
+# loader now looks for a spec under either name.
+#
+# `datasource:` below is documentation — the loader does not enforce it. What decides where
+# this lands is the --datasource argument, and loading it onto the wrong source REPLACES that
+# source's semantic layer. The live-schema verification is what catches that: the spec's
+# tables will not exist there and it will refuse.
 #
 # This is the accuracy-defining artifact: encodings, casts, do_not_group, the
 # certified joins (LabWare declares no FKs) and certified metrics. Curate it;
@@ -62,6 +73,101 @@ joins:
   - {left: TEST, right: SAMPLE, "on": [[SAMPLE_NUMBER, SAMPLE_NUMBER]],
      description: A test belongs to a sample.}
 
+# Lab Health — the tiles on the home page.
+#
+# The first screen after login used to show counts of *app objects* (connections,
+# datasets, dashboards): true, and of no interest to anyone who runs a laboratory.
+# These show the lab instead, and they are CERTIFIED SQL like everything else —
+# the home page must not be the one place in the product where numbers are invented.
+#
+# Contract: each tile returns exactly ONE row with ONE numeric column.
+# `target` + `direction` grade the tile; a tile with no target is reported, not
+# graded — we don't invent a threshold nobody agreed to.
+# `roles` empty = everyone sees it.
+health:
+  - key: samples_30d
+    label: Samples logged
+    description: Samples registered in the last 30 days.
+    unit: count
+    direction: neutral
+    sql: |
+      SELECT COUNT(*) AS value FROM {{table:SAMPLE}}
+      WHERE LOGIN_DATE >= {{days_ago:30}}
+
+  - key: backlog
+    label: Open backlog
+    description: Samples not yet completed (unreceived, pending or in progress).
+    unit: count
+    direction: lower_better
+    sql: |
+      SELECT COUNT(*) AS value FROM {{table:SAMPLE}}
+      WHERE STATUS IN ('U', 'P', 'I')
+
+  - key: off_spec_rate_30d
+    label: Off-spec rate
+    description: Share of results outside specification over the last 30 days.
+    unit: percent
+    direction: lower_better
+    target: 2.0
+    sql: |
+      SELECT ROUND(100.0 * SUM(CASE WHEN r.IN_SPEC = 'F' THEN 1 ELSE 0 END)
+                   / NULLIF(COUNT(*), 0), 2) AS value
+      FROM {{table:RESULT}} r
+      JOIN {{table:SAMPLE}} s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      WHERE s.LOGIN_DATE >= {{days_ago:30}}
+
+  - key: tat_hours_30d
+    label: Mean turnaround
+    description: Average hours from sample login to completion, last 30 days.
+    unit: hours
+    direction: lower_better
+    target: 24
+    sql: |
+      SELECT ROUND(AVG({{hours_between:s.LOGIN_DATE, s.DATE_COMPLETED}}), 1) AS value
+      FROM {{table:SAMPLE}} s
+      WHERE s.DATE_COMPLETED IS NOT NULL
+        AND s.LOGIN_DATE >= {{days_ago:30}}
+
+  - key: cancelled_30d
+    label: Cancelled / rejected
+    description: Samples cancelled or rejected in the last 30 days — an intake-quality signal.
+    unit: count
+    direction: lower_better
+    roles: [admin, lab_manager, qa_manager, section_head]
+    sql: |
+      SELECT COUNT(*) AS value FROM {{table:SAMPLE}}
+      WHERE STATUS IN ('X', 'R') AND LOGIN_DATE >= {{days_ago:30}}
+
+  - key: unscheduled_30d
+    label: Unscheduled samples
+    description: Unplanned samples in the last 30 days — unplanned work displaces planned work.
+    unit: count
+    direction: neutral
+    roles: [admin, lab_manager, section_head, sample_custodian]
+    sql: |
+      SELECT COUNT(*) AS value FROM {{table:SAMPLE}}
+      WHERE SAMPLE_TYPE = 'UNSCHEDULED' AND LOGIN_DATE >= {{days_ago:30}}
+
+# NB there is deliberately no instrument tile. EGPC's TEST.INSTRUMENT is
+# essentially empty (see the `do_not_group` flag above), so a "calibrations
+# overdue" tile would be a number we made up. A blank we can explain beats a
+# figure we cannot.
+
+# Certified metrics — the deterministic fast path (no LLM writes these).
+#
+# WRITE THEM PORTABLE. They must run unchanged against the LabWare MSSQL source
+# AND the Postgres/SQLite replica; which one the agent points at is a deployment
+# choice, not a semantic one. Rendered by semantics/metric_sql.py:
+#
+#   {{table:RESULT}}        -> dbo.RESULT (MSSQL) / RESULT (replica)
+#   {{num:r.NUMERIC_ENTRY}} -> TRY_CONVERT(float,…) / guarded CAST(… AS numeric) / …
+#   limit: 5                -> TOP 5 / LIMIT 5 / FETCH FIRST 5 ROWS ONLY
+#
+# Identifiers stay UNQUOTED and upper-case: MSSQL and SQLite are case-insensitive,
+# and Postgres folds unquoted names to lower case — which matches, because the
+# replica is created lower-case on purpose (replication/loader.py::_canon).
+# Everything else is plain ANSI. `load_semantic_layer` rejects a hardcoded TOP/LIMIT
+# or an unknown macro, so a metric cannot silently degrade to the LLM path.
 metrics:
   - key: oos_rate_by_product
     name: Out-of-spec rate by product
@@ -77,8 +183,8 @@ metrics:
              COUNT(*) AS results,
              SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END) AS off_spec,
              ROUND(100.0*SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END)/COUNT(*), 2) AS off_spec_pct
-      FROM dbo.RESULT r
-      JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      FROM {{table:RESULT}} r
+      JOIN {{table:SAMPLE}} s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
       GROUP BY s.PRODUCT
       HAVING COUNT(*) >= 200
       ORDER BY off_spec_pct DESC
@@ -93,7 +199,7 @@ metrics:
              COUNT(*) AS results,
              SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END) AS off_spec,
              ROUND(100.0*SUM(CASE WHEN r.IN_SPEC='F' THEN 1 ELSE 0 END)/COUNT(*), 2) AS off_spec_pct
-      FROM dbo.RESULT r
+      FROM {{table:RESULT}} r
       GROUP BY r.ENTERED_BY
       ORDER BY off_spec DESC
 
@@ -103,14 +209,15 @@ metrics:
                "average sulphur value for each product", "average sulfur by product",
                "sulphur content by product", "sulfur by product"]
     description: Average and max total-sulphur result per product (analyte spelled SULFUR).
+    limit: 50
     sql: |
-      SELECT TOP 50 s.PRODUCT AS product,
+      SELECT s.PRODUCT AS product,
              COUNT(*) AS results,
-             ROUND(AVG(TRY_CONVERT(float, r.NUMERIC_ENTRY)), 4) AS avg_sulphur,
-             ROUND(MAX(TRY_CONVERT(float, r.NUMERIC_ENTRY)), 4) AS max_sulphur,
+             ROUND(AVG({{num:r.NUMERIC_ENTRY}}), 4) AS avg_sulphur,
+             ROUND(MAX({{num:r.NUMERIC_ENTRY}}), 4) AS max_sulphur,
              MAX(r.UNITS) AS units
-      FROM dbo.RESULT r
-      JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      FROM {{table:RESULT}} r
+      JOIN {{table:SAMPLE}} s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
       WHERE (r.ANALYSIS LIKE 'SULFUR%' OR r.NAME LIKE '%Sulfur%')
         AND r.NUMERIC_ENTRY IS NOT NULL AND s.PRODUCT IS NOT NULL
       GROUP BY s.PRODUCT
@@ -123,7 +230,7 @@ metrics:
                "number of out of specification results", "count of off spec results"]
     description: Count of out-of-spec results across EGPC (RESULT.IN_SPEC='F').
     sql: |
-      SELECT COUNT(*) AS off_spec_results FROM dbo.RESULT WHERE IN_SPEC = 'F'
+      SELECT COUNT(*) AS off_spec_results FROM {{table:RESULT}} WHERE IN_SPEC = 'F'
 
   - key: oos_by_test_count
     name: Out-of-spec results by test
@@ -132,19 +239,27 @@ metrics:
                "off spec by test", "out of specification by test",
                "test with the most out of spec results"]
     description: Out-of-spec result count per analysis/test (RESULT.IN_SPEC='F'), worst first.
+    limit: 30
     sql: |
-      SELECT TOP 30 ANALYSIS AS analysis, COUNT(*) AS off_spec
-      FROM dbo.RESULT WHERE IN_SPEC = 'F'
+      SELECT ANALYSIS AS analysis, COUNT(*) AS off_spec
+      FROM {{table:RESULT}} WHERE IN_SPEC = 'F'
       GROUP BY ANALYSIS ORDER BY off_spec DESC
 
   - key: oos_by_product_count
     name: Out-of-spec results by product (count)
+    # NB the synonyms all NAME the product dimension. A tempting general phrasing like
+    # "most out of spec results" would be a contiguous substring of "which TEST has the
+    # most out of spec results" and cross-fire, answering a test question with a product
+    # ranking. Keep the dimension in the phrase.
     synonyms: ["greatest number of out of spec results", "most out of spec results by product",
-               "product with the most out of spec results", "most off spec results by product"]
+               "product with the most out of spec results", "most off spec results by product",
+               "product has the most out of spec results",
+               "product has the most off spec results"]
     description: Out-of-spec result COUNT per product (RESULT.IN_SPEC='F'), most first.
+    limit: 30
     sql: |
-      SELECT TOP 30 s.PRODUCT AS product, COUNT(*) AS off_spec
-      FROM dbo.RESULT r JOIN dbo.SAMPLE s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
+      SELECT s.PRODUCT AS product, COUNT(*) AS off_spec
+      FROM {{table:RESULT}} r JOIN {{table:SAMPLE}} s ON r.SAMPLE_NUMBER = s.SAMPLE_NUMBER
       WHERE r.IN_SPEC = 'F'
       GROUP BY s.PRODUCT ORDER BY off_spec DESC
 
@@ -153,18 +268,20 @@ metrics:
     synonyms: ["top 5 tests most used", "5 most used tests", "most used tests",
                "top tests by volume", "most common tests"]
     description: The highest-volume analyses by result count.
+    limit: 5
     sql: |
-      SELECT TOP 5 ANALYSIS AS analysis, COUNT(*) AS results
-      FROM dbo.RESULT GROUP BY ANALYSIS ORDER BY results DESC
+      SELECT ANALYSIS AS analysis, COUNT(*) AS results
+      FROM {{table:RESULT}} GROUP BY ANALYSIS ORDER BY results DESC
 
   - key: most_used_product
     name: Most-tested product
     synonyms: ["most used to conduct testing", "most tested product",
                "product most used for testing", "which product is tested most"]
     description: The product with the most samples logged.
+    limit: 5
     sql: |
-      SELECT TOP 5 PRODUCT AS product, COUNT(*) AS samples
-      FROM dbo.SAMPLE GROUP BY PRODUCT ORDER BY samples DESC
+      SELECT PRODUCT AS product, COUNT(*) AS samples
+      FROM {{table:SAMPLE}} GROUP BY PRODUCT ORDER BY samples DESC
 
   - key: unscheduled_count
     name: Unscheduled sample count
@@ -172,7 +289,7 @@ metrics:
                "unscheduled samples registered", "count of unscheduled samples"]
     description: Number of samples with SAMPLE_TYPE='UNSCHEDULED'.
     sql: |
-      SELECT COUNT(*) AS unscheduled_samples FROM dbo.SAMPLE WHERE SAMPLE_TYPE = 'UNSCHEDULED'
+      SELECT COUNT(*) AS unscheduled_samples FROM {{table:SAMPLE}} WHERE SAMPLE_TYPE = 'UNSCHEDULED'
 
   - key: cancelled_count
     name: Cancelled sample count
@@ -180,30 +297,38 @@ metrics:
                "count of cancelled samples", "cancelled samples"]
     description: Number of cancelled samples (SAMPLE.STATUS='X').
     sql: |
-      SELECT COUNT(*) AS cancelled_samples FROM dbo.SAMPLE WHERE STATUS = 'X'
+      SELECT COUNT(*) AS cancelled_samples FROM {{table:SAMPLE}} WHERE STATUS = 'X'
 
   - key: cetane_range
     name: Cetane Index range
+    # NB "in diesel" is safe to treat as part of the phrasing rather than as a filter:
+    # cetane index is only ever measured ON diesel/gasoil, so naming the product is a
+    # tautology. Ask for "cetane index in GASOLINE" and no synonym matches, so it
+    # correctly defers rather than handing back diesel numbers.
     synonyms: ["range of cetane index", "cetane index range", "cetane index in diesel",
+               "cetane index in diesel gasoil",
                "cetane number range", "min and max cetane"]
     description: Min/max/mean of the Cetane Index analysis (verify the analysis code against the data).
     sql: |
-      SELECT ROUND(MIN(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS min_value,
-             ROUND(MAX(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS max_value,
-             ROUND(AVG(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS mean_value,
+      SELECT ROUND(MIN({{num:NUMERIC_ENTRY}}), 2) AS min_value,
+             ROUND(MAX({{num:NUMERIC_ENTRY}}), 2) AS max_value,
+             ROUND(AVG({{num:NUMERIC_ENTRY}}), 2) AS mean_value,
              COUNT(*) AS n
-      FROM dbo.RESULT
+      FROM {{table:RESULT}}
       WHERE (ANALYSIS LIKE '%CETANE%' OR NAME LIKE '%Cetane%') AND NUMERIC_ENTRY IS NOT NULL
 
   - key: octane_range
     name: Octane Number (RON) range
-    synonyms: ["range of octane number", "octane number range", "octane rating range",
+    # RON is a pure alias for Research Octane Number, not a constraint — teach the
+    # phrasing rather than letting "RON" block the match.
+    synonyms: ["range of octane number", "range of octane number ron",
+               "octane number range", "octane rating range",
                "ron range", "min and max octane"]
     description: Min/max/mean of the Octane Number (RON) analysis (verify the analysis code against the data).
     sql: |
-      SELECT ROUND(MIN(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS min_value,
-             ROUND(MAX(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS max_value,
-             ROUND(AVG(TRY_CONVERT(float, NUMERIC_ENTRY)), 2) AS mean_value,
+      SELECT ROUND(MIN({{num:NUMERIC_ENTRY}}), 2) AS min_value,
+             ROUND(MAX({{num:NUMERIC_ENTRY}}), 2) AS max_value,
+             ROUND(AVG({{num:NUMERIC_ENTRY}}), 2) AS mean_value,
              COUNT(*) AS n
-      FROM dbo.RESULT
+      FROM {{table:RESULT}}
       WHERE ANALYSIS = 'OCTANE_NO' AND NUMERIC_ENTRY IS NOT NULL

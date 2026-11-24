@@ -14,6 +14,8 @@ POSTGRES = "postgres"
 MYSQL = "mysql"
 SQLITE = "sqlite"
 ODBC = "odbc"
+DATABRICKS = "databricks"
+SNOWFLAKE = "snowflake"
 
 # Already-bounded markers — anchored so we don't false-match "top"/"limit" inside
 # a string literal or comment (which would skip the cap entirely).
@@ -75,7 +77,8 @@ def inject_row_limit(sql: str, source_type: str, n: int) -> str:
         if _TRAILING_FETCH_RE.search(s):
             return s
         return s + f"\nFETCH FIRST {n} ROWS ONLY"
-    if st in (POSTGRES, MYSQL, SQLITE):
+    # Databricks (Spark SQL) and Snowflake both cap with a trailing LIMIT n.
+    if st in (POSTGRES, MYSQL, SQLITE, DATABRICKS, SNOWFLAKE):
         if _TRAILING_LIMIT_RE.search(s) or _TRAILING_FETCH_RE.search(s):
             return s
         return s + f"\nLIMIT {n}"
@@ -91,5 +94,9 @@ def dialect_label(source_type: str) -> str:
         MYSQL: "MySQL (use LIMIT, CAST, NOW())",
         ORACLE: "Oracle (use FETCH FIRST n ROWS ONLY, TO_NUMBER, SYSDATE)",
         SQLITE: "SQLite (use LIMIT, CAST)",
+        DATABRICKS: ("Databricks SQL / Spark SQL (use LIMIT, try_cast(x AS DOUBLE), "
+                     "current_date(), date_sub(); tables are catalog.schema.table)"),
+        SNOWFLAKE: ("Snowflake (use LIMIT, TRY_TO_DOUBLE, CURRENT_DATE(), "
+                    "DATEADD/DATEDIFF; UNQUOTED identifiers fold to UPPER case)"),
         ODBC: "generic SQL",
     }.get(st, "generic SQL")

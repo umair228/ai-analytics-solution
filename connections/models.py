@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 
+from core.access import Visibility, can_view
 from core.encryption import decrypt, encrypt
 from core.models import TimeStampedModel
 
@@ -19,9 +20,7 @@ class DataSource(TimeStampedModel):
         OK = "ok", "Connected"
         FAILED = "failed", "Failed"
 
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "Private"
-        SHARED = "shared", "Shared"
+    Visibility = Visibility          # core.access — one rule, not four copies of it
 
     name = models.CharField(max_length=150)
     description = models.TextField(blank=True)
@@ -46,6 +45,10 @@ class DataSource(TimeStampedModel):
     )
     site = models.ForeignKey(
         "accounts.Site", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="data_sources",
+    )
+    lab = models.ForeignKey(
+        "accounts.Lab", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="data_sources",
     )
     visibility = models.CharField(
@@ -81,6 +84,4 @@ class DataSource(TimeStampedModel):
         return self.source_type in SourceType.FILE_TYPES
 
     def accessible_by(self, user) -> bool:
-        if user.is_admin or self.owner_id == user.id:
-            return True
-        return self.shared_with.filter(pk=user.pk).exists()
+        return can_view(self, user)

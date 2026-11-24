@@ -13,9 +13,9 @@ from .tables import STATUS_LABELS
 def quote_ident(name: str, dialect: str) -> str:
     if dialect == "mssql":
         return f"[{name}]"
-    if dialect == "mysql":
-        return f"`{name}`"
-    return f'"{name}"'  # postgres / sqlite / oracle — ANSI double quotes
+    if dialect in ("mysql", "databricks"):
+        return f"`{name}`"                # Spark SQL uses backticks
+    return f'"{name}"'  # postgres / sqlite / oracle / snowflake — ANSI double quotes
 
 
 def table_ref(table: str, schema: str | None, dialect: str) -> str:
@@ -31,10 +31,21 @@ def safe_float(expr: str, dialect: str) -> str:
                 f"THEN CAST({expr} AS double precision) END")
     if dialect == "mssql":
         return f"TRY_CONVERT(float, {expr})"
+    if dialect == "databricks":
+        return f"try_cast({expr} AS DOUBLE)"
+    if dialect == "snowflake":
+        return f"TRY_TO_DOUBLE({expr})"
     if dialect == "sqlite":
-        # SQLite has no regex by default; rely on a clean-numeric guard. CAST of a
-        # clean numeric string is exact; empty/NULL → NULL.
-        return f"CASE WHEN {expr} IS NOT NULL AND TRIM({expr}) <> '' THEN CAST({expr} AS REAL) END"
+        # SQLite has no REGEXP built in, and a bare CAST is actively WRONG here:
+        # CAST('<0.05' AS REAL) is 0.0, not NULL. LabWare is full of censored values
+        # ('<0.05', '>100', 'ND'), and reading one as zero drags an average down and
+        # can turn an off-spec batch into a passing one — it lands silently in
+        # mart_results.value. GLOB gives a real guard: only digits/dot/minus, and at
+        # least one digit. Keep this in step with semantics.metric_sql.safe_number.
+        return (f"CASE WHEN {expr} IS NOT NULL "
+                f"AND TRIM({expr}) NOT GLOB '*[^0-9.-]*' "
+                f"AND TRIM({expr}) GLOB '*[0-9]*' "
+                f"THEN CAST(TRIM({expr}) AS REAL) END")
     return f"CAST({expr} AS REAL)"
 
 

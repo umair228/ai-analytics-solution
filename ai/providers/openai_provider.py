@@ -6,6 +6,7 @@ import json
 
 from django.conf import settings
 
+from . import egress
 from .base import BaseProvider
 
 
@@ -17,13 +18,22 @@ class OpenAIProvider(BaseProvider):
 
     @property
     def configured(self) -> bool:
-        return bool(getattr(settings, "LLM_BASE_URL", ""))
+        url = getattr(settings, "LLM_BASE_URL", "")
+        return bool(url) and egress.endpoint_permitted(url)
 
     @property
     def model_name(self) -> str:
         return getattr(settings, "LLM_MODEL", "")
 
     def not_configured_message(self) -> str:
+        url = getattr(settings, "LLM_BASE_URL", "")
+        if url and not egress.endpoint_permitted(url):
+            return (
+                f"LLM_BASE_URL ({url}) is not an on-premise address, and "
+                "DSE_ALLOW_EXTERNAL_LLM is not enabled. This build will not send "
+                "prompts — which include sample LIMS rows — off-network. Point it "
+                "at your on-prem model server (Ollama or vLLM)."
+            )
         return (
             "No local LLM endpoint configured. Set LLM_BASE_URL (and LLM_MODEL) "
             "to your on-prem OpenAI-compatible server (Ollama or vLLM)."
@@ -31,6 +41,9 @@ class OpenAIProvider(BaseProvider):
 
     def _client_(self):
         if self._client is None:
+            # "Local" has to mean local: this client is a generic OpenAI-compatible
+            # one and would happily talk to api.openai.com if LLM_BASE_URL said so.
+            egress.assert_endpoint_permitted(settings.LLM_BASE_URL)
             try:
                 from openai import OpenAI
             except ModuleNotFoundError as exc:  # pragma: no cover
@@ -60,8 +73,15 @@ class OpenAIProvider(BaseProvider):
 
     @staticmethod
     def _tuning_kwargs():
-        """Temperature + (Ollama) context-window options shared by chat/complete."""
-        kwargs = {"temperature": getattr(settings, "LLM_TEMPERATURE", 0.2)}
+        """Sampling + (Ollama) context-window options shared by chat/complete.
+
+        ``seed`` is top-level: Ollama's OpenAI-compatible endpoint and vLLM both
+        accept it there. With temperature=0 it makes a re-run of the same question
+        reproduce the same answer — which is what a QC audit asks for."""
+        kwargs = {
+            "temperature": float(getattr(settings, "LLM_TEMPERATURE", 0.0)),
+            "seed": int(getattr(settings, "LLM_SEED", 42)),
+        }
         # Ollama reads `options` from the OpenAI endpoint via extra_body; vLLM
         # ignores it harmlessly (context/sampling are fixed at serve time).
         options = {}

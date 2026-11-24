@@ -64,6 +64,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # The image runs its own Operational Qualification at build time and carries the
+          # report. These name the build it is evidence about — without them the report
+          # says "unknown", which is honest but useless to an assessor.
+          build-args: |
+            DIS_GIT_SHA=${{ github.sha }}
+            DIS_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -18,6 +18,8 @@ Main AI Document Search endpoint.
 Mirrors the forecasting views' graceful-degradation contract: never returns 5xx
 for a normal query — partial failures are reported inside a 200 payload.
 """
+import json
+
 from django.conf import settings
 from rest_framework import status
 from rest_framework.response import Response
@@ -54,7 +56,25 @@ class DocSearchView(APIView):
             resp = {"question": question, "mode": mode, "sources": [],
                     "answer": "Document search hit an unexpected error. Please try again.",
                     "engine": "error"}
-        return Response(json_safe(resp), status=status.HTTP_200_OK)
+
+        # Serialize defensively. The payload can carry exotic values from
+        # retrieval (pandas Series / numpy scalars) or the SQL leg; json_safe
+        # coerces the known ones, but force-validate against the SAME
+        # allow_nan=False contract DRF renders with, so any residual
+        # non-serialisable value degrades to a minimal answer here (inside the
+        # try) instead of a render-time 500 that fires AFTER this method returns
+        # — where DRF/Django turn it into a bare HTML 500 the view can't catch.
+        payload = json_safe(resp)
+        try:
+            json.dumps(payload, allow_nan=False)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[doc-search] response not JSON-serialisable, stripping: {exc}")
+            ans = resp.get("answer")
+            payload = {"question": question, "mode": mode, "sources": [],
+                       "answer": ans if isinstance(ans, str) else
+                       "Document search returned a result that could not be displayed.",
+                       "engine": "error"}
+        return Response(payload, status=status.HTTP_200_OK)
 
     def _run(self, request, data, question, mode) -> dict:
         history = data.get("history") if isinstance(data.get("history"), list) else []

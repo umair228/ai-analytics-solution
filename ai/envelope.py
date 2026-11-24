@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, field
 
 from django.utils import timezone
 
+from . import confidence
+
 _TIME_NAME_RE = re.compile(r"date|time|month|year|day|week|quarter|period|_at\b", re.IGNORECASE)
 _ISO_DATE_RE = re.compile(r"^\d{4}[-/]\d{1,2}([-/]\d{1,2})?")
 
@@ -75,8 +77,17 @@ class AnswerEnvelope:
         "columns": [], "rows": [], "row_count": 0, "truncated": False})
     chart: dict | None = None
     provenance: dict = field(default_factory=dict)
+    # How much to trust this — a LEVEL with reasons, never a percentage. Built entirely from
+    # facts the runner already had and this envelope used to throw away: how many times the
+    # model's SQL failed validation, the post-execution sanity warnings, how stale the data
+    # is. See ai/confidence.py.
+    confidence: dict = field(default_factory=dict)
     error: str | None = None
     suggestions: list = field(default_factory=list)
+    # When we cannot answer: the certified metrics we CAN. A refusal that stops at "I don't
+    # know" is a dead end; one that says "not that — but I can tell you these, exactly, from
+    # approved SQL" is the product's argument made when it is most persuasive.
+    can_answer: list = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -102,20 +113,57 @@ def envelope_from_result(result, *, narrative="", understood=None, error=None,
         "sql": result.get("sql"),
         "path": result.get("path"),
         "freshness": result.get("freshness"),
+        # How old the underlying data is. Reserved in the export footer since day
+        # one and never populated — an answer off a 3-day-stale replica used to
+        # look identical to a live one. replication.freshness now fills it.
+        "data_as_of": result.get("data_as_of"),
+        "freshness_detail": result.get("freshness_detail"),
         "datasource": result.get("datasource"),
         "generated_at": _now_iso(),
     }
     prov.update(provenance or {})
     understood = result.get("understood", True) if understood is None else understood
+
+    # The runner counted `attempts` and collected `warnings` on every single request, and
+    # they died right here. An answer the model got right first time and one it got wrong
+    # twice looked identical on screen.
+    graded = confidence.grade({**result, "understood": understood})
+    prov["attempts"] = _attempts_int(result)
+    if result.get("warnings"):
+        prov["warnings"] = list(result["warnings"])
+
     return AnswerEnvelope(
         understood=bool(understood),
         narrative=narrative,
         result=res,
         chart=suggest_chart(columns, rows),
         provenance={k: v for k, v in prov.items() if v is not None},
+        confidence=graded,
         error=error or result.get("error"),
         suggestions=result.get("available_tables", []) if not understood else [],
+        can_answer=(confidence.what_i_can_answer(_datasource_of(result))
+                    if not understood else []),
     )
+
+
+def _attempts_int(result) -> int:
+    a = result.get("attempts")
+    if isinstance(a, int):
+        return a
+    if isinstance(a, list):
+        return len(a) + 1
+    return 1
+
+
+def _datasource_of(result):
+    """The DataSource the question was asked against, if we can still find it."""
+    ds = (result or {}).get("datasource") or {}
+    ds_id = ds.get("id") if isinstance(ds, dict) else None
+    if not ds_id:
+        return None
+    from connections.models import DataSource
+
+    return DataSource.objects.filter(pk=ds_id).first()
 
 
 def _tabular_from_trace(trace):

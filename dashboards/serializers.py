@@ -19,13 +19,15 @@ class DashboardSerializer(serializers.ModelSerializer):
     widgets = WidgetSerializer(many=True, read_only=True)
     owner_username = serializers.CharField(source="owner.username", read_only=True)
     widget_count = serializers.IntegerField(source="widgets.count", read_only=True)
+    lab_name = serializers.CharField(source="lab.name", read_only=True, default=None)
     datasource_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Dashboard
         fields = [
             "id", "name", "description", "owner", "owner_username", "site",
-            "visibility", "shared_with", "filters", "widgets", "widget_count",
+            "lab", "lab_name", "visibility", "shared_with", "filters", "widgets",
+            "widget_count",
             "datasource_names", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]

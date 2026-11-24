@@ -21,12 +21,16 @@ def _hours_between(start: str, end: str, dialect: str) -> str:
 
 
 def mart_definitions(dialect: str, schema: str | None) -> list[tuple[str, str]]:
-    """Return [(mart_table_name, SELECT sql), ...] for the target dialect."""
-    S = table_ref("SAMPLE", schema, dialect)
-    R = table_ref("RESULT", schema, dialect)
+    """Return [(mart_table_name, SELECT sql), ...] for the target dialect.
 
-    def c(alias, name):  # qualified, quoted column reference
-        return f"{alias}.{quote_ident(name, dialect)}"
+    Marts are built ON the replica, so they read the replica's canonical lower-case
+    identifiers (``replication.loader._canon``) — not LabWare's upper-case ones.
+    """
+    S = table_ref("sample", schema, dialect)
+    R = table_ref("result", schema, dialect)
+
+    def c(alias, name):  # qualified, quoted column ref — on the lower-case replica
+        return f"{alias}.{quote_ident(name.lower(), dialect)}"
 
     results = f"""
 SELECT

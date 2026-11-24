@@ -70,13 +70,23 @@ class MartSqlTests(SimpleTestCase):
     def test_postgres_marts_are_well_formed(self):
         defs = dict(mart_definitions("postgres", "egpc_replica"))
         self.assertEqual(set(defs), {"mart_results", "mart_samples", "mart_offspec"})
-        # schema-qualified + quoted raw refs, the join, and the decodes are present
-        self.assertIn('"egpc_replica"."RESULT"', defs["mart_results"])
-        self.assertIn('"SAMPLE_NUMBER"', defs["mart_results"])
+        # Marts read the replica, which is canonically LOWER case (loader._canon).
+        self.assertIn('"egpc_replica"."result"', defs["mart_results"])
+        self.assertIn('"sample_number"', defs["mart_results"])
         self.assertIn("double precision", defs["mart_results"])  # safe cast
         self.assertIn("is_off_spec", defs["mart_results"])
         self.assertIn("WHEN 'R' THEN 'Rejected'", defs["mart_samples"])
         self.assertIn("= 'F'", defs["mart_offspec"])  # off-spec filter
+
+    def test_marts_never_reference_labware_upper_case(self):
+        """The replica is lower case, so an upper-case ref would simply not resolve
+        in Postgres — and would do so *silently*, as a "relation does not exist"
+        long after the pipeline reported success."""
+        for dialect in ("postgres", "sqlite"):
+            for name, sql in mart_definitions(dialect, None):
+                self.assertNotIn('"RESULT"', sql, f"{dialect}/{name}")
+                self.assertNotIn('"SAMPLE"', sql, f"{dialect}/{name}")
+                self.assertNotIn('"SAMPLE_NUMBER"', sql, f"{dialect}/{name}")
 
 
 class StaleStateTests(SimpleTestCase):

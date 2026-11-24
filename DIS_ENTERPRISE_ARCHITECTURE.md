@@ -67,7 +67,10 @@ fact memorization** — see §7.
 
 - **Capacity**: size for concurrent users × tokens/sec; KV-cache dominates VRAM at
   high concurrency. Start 1× 48 GB (L40S/A6000/H100); 2× for HA. RTX 5070 (12 GB) = dev.
-- **No egress**: the GPU node stays inside the org network → fully air-gapped.
+- **No egress**: the GPU node stays inside the org network. Say **"on-premise, no
+  data egress"** — not *"air-gapped"*, which a CSV assessor reads literally and
+  which a tailnet-reachable host does not satisfy (`SECURITY.md §4`). The control
+  is enforced in code (`ai/providers/egress.py`), not by network topology alone.
 
 ## 3. Retrieval layer (RAG)
 - **Vector store**: `pgvector` (you already run Postgres) for moderate scale; **Milvus/
@@ -93,12 +96,16 @@ fact memorization** — see §7.
   docs* — **no retraining**. (This is the payoff of grounding.)
 
 ## 6. Security & compliance (regulated lab)
-- **Air-gapped** on-prem LLM + embeddings (no data leaves the org).
+- **On-prem LLM + embeddings, no data egress** (enforced in code — `SECURITY.md §4`).
 - **AuthN/Z**: SSO via **LDAP/AD / OIDC / SAML**; **RBAC** (the lab-role hierarchy);
-  least privilege; per-tenant isolation.
-- **Data integrity / ALCOA+ / ISO 17025 / 21 CFR Part 11**: immutable **audit trail**
-  of *who asked what, which tools ran, what data + which model/version* (extend the
-  existing `AuditLog`); versioned, approval-gated KB; e-signatures where required.
+  least privilege; per-tenant isolation. ⚠️ *Target state* — lab/site row-level
+  segregation is **not** implemented today (`SECURITY.md §7`).
+- **Data integrity / ALCOA+ / ISO 17025 / 21 CFR Part 11**: **append-only audit
+  trail** of *who asked what, which tools ran, what data + which model/version*.
+  Shipped today: append-only at the app layer, fail-closed writes, LLM-generated
+  SQL logged with its content, `temperature=0` + fixed seed. ⚠️ *Not yet*:
+  DB-level enforcement, before/after values, e-signatures, model pinned by digest.
+  DIS is **not Part 11-capable today** — see `SECURITY.md §7` for the full gap list.
 - **Guardrails**: tools are **read-only**; the agent loop is **bounded + traced**;
   **every answer cites its sources**; **refuse/▸"insufficient data"** instead of
   fabricating; human-in-the-loop for any action/write.

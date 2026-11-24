@@ -330,3 +330,68 @@ class SemanticIntegrationTests(TestCase):
         s = out.getvalue()
         self.assertIn("PASS", s)
         self.assertIn("certified_metric:samples_by_product", s)
+
+
+class QueryBuilderContractTests(TestCase):
+    """The shape the Query Builder reads off `GET /api/semantics/<id>/`.
+
+    This is a contract between two repos. The Query Builder's *certified joins* feature — the one
+    that exists because LabWare declares no foreign keys, so a join guessed wrong silently
+    multiplies rows instead of erroring — reads these exact keys in
+    `interactive-analytics-dse/src/lib/semanticLayer.js::normaliseJoin`.
+
+    It has already been got wrong once: the builder was written against `left_table`/`left_column`,
+    while the API has always emitted `left`/`right`/`on`. Nothing failed. The bundle compiled, every
+    test passed, and the certified-joins panel simply never appeared — a whole feature, silently
+    absent, because two field names did not agree.
+
+    So the field names are pinned here. If you rename one, this test fails and tells you where the
+    other half of the contract lives.
+    """
+
+    def _payload(self):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from connections.models import DataSource
+        from semantics import views
+
+        user = get_user_model().objects.create_user(
+            username="qb-contract", password="x", is_superuser=True, is_staff=True)
+        ds = DataSource.objects.create(
+            name="c", source_type="sqlite", database_name=":memory:", owner=user)
+
+        with mock.patch.object(views, "get_semantic_layer", return_value=_layer()):
+            request = APIRequestFactory().get("/")
+            force_authenticate(request, user=user)
+            response = views.layer_detail(request, ds.id)
+        self.assertEqual(response.status_code, 200, response.data)
+        return response.data
+
+    def test_join_keys_are_the_ones_the_builder_reads(self):
+        join = self._payload()["joins"][0]
+        self.assertEqual({"left", "right", "on", "description"}, set(join))
+
+        # `on` is a LIST of [left_column, right_column] pairs, because a key can be composite.
+        # The query compiler joins on exactly one pair, so the builder refuses to offer a
+        # composite join rather than drop half of it. That only works if `on` stays a list.
+        self.assertIsInstance(join["on"], list)
+        self.assertTrue(all(isinstance(p, (list, tuple)) and len(p) == 2 for p in join["on"]))
+
+    def test_column_keys_carry_the_meaning_the_builder_shows(self):
+        tables = self._payload()["tables"]
+        columns = {c["name"]: c for t in tables for c in t["columns"]}
+
+        # Pick "off-spec" in the filter row and the builder writes the F. That needs `encoding`.
+        self.assertEqual("T=in-spec, F=off-spec", columns["IN_SPEC"]["encoding"])
+        # The two traps the badges exist to catch.
+        self.assertTrue(columns["NUMERIC_ENTRY"]["needs_cast"])
+        self.assertTrue(columns["INSTRUMENT"]["do_not_group"])
+        for key in ("name", "description", "encoding", "needs_cast", "do_not_group", "synonyms"):
+            self.assertIn(key, columns["IN_SPEC"])
+
+    def test_metric_carries_runnable_sql(self):
+        # "Start from a question we have already certified" drops `sql_rendered` into the editor.
+        metric = self._payload()["metrics"][0]
+        self.assertIn("sql_rendered", metric)
+        self.assertTrue(metric["sql_rendered"].strip())
+        for key in ("key", "name", "description"):
+            self.assertIn(key, metric)

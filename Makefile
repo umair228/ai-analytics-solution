@@ -16,8 +16,8 @@ seed-users:   ## Seed only the refinery org/site/section-labs and user roster
 seed-docs:    ## Seed demo reference docs (ISO/IEC 17025) into Document Search + reindex
 	$(PY) manage.py seed_docsearch $(ARGS)
 
-test:         ## Deterministic unit + golden + authz tests (analytics, agent loop, NL->SQL, docsearch/RAG authz, executor, filter-heal)
-	$(PY) manage.py test analytics ai docsearch querybuilder datasets -v1
+test:         ## Deterministic unit + golden + authz + governance tests (ALL apps — incl. core audit trail, semantics, replication)
+	$(PY) manage.py test -v1
 
 eval:         ## ASTM/ISO retrieval eval (needs the doc index built)
 	$(PY) manage.py eval_astm
@@ -25,8 +25,17 @@ eval:         ## ASTM/ISO retrieval eval (needs the doc index built)
 eval-domain:  ## Compare a served model on domain Qs (needs an LLM endpoint)
 	$(PY) finetune/eval_domain.py --base-url $${LLM_BASE_URL:-http://127.0.0.1:11434/v1} --model $${LLM_MODEL:-qwen2.5:7b-instruct}
 
-ci: check test   ## The CI accuracy gate (deterministic — no GPU/LLM required)
-	@echo "✓ CI gate passed: django check + analytics/ai/NL->SQL golden + docsearch/RAG authz tests."
+qualify:      ## Run the Operational Qualification + emit the Validation Summary (CSV/GAMP 5)
+	$(PY) manage.py qualify --out docs/VALIDATION_SUMMARY.md --json
+	@echo "  The JSON report is what /validation serves. It is evidence about THIS build:"
+	@echo "  bake it into the image, or the deployed app will honestly report that it"
+	@echo "  carries no OQ evidence."
+
+matrix:       ## Prove the traceability matrix still names tests that exist (CSV/GAMP 5)
+	$(PY) manage.py qualify --matrix
+
+ci: check test matrix   ## The CI accuracy gate (deterministic — no GPU/LLM required)
+	@echo "✓ CI gate passed: django check + all-app tests + traceability matrix intact."
 
 build:        ## Build all container images
 	docker compose build

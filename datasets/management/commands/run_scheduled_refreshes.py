@@ -16,6 +16,9 @@ from datasets.services import refresh_dataset
 class Command(BaseCommand):
     help = "Refresh datasets whose scheduled next_refresh_at has passed."
 
+    # Scheduled. Decides for itself which datasets are due (next_refresh_at).
+    periodic = True
+
     def handle(self, *args, **options):
         now = timezone.now()
         due = Dataset.objects.exclude(

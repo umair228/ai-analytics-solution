@@ -9,6 +9,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
+from core.access import can_view, visibility_q, visible_to
 from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
@@ -25,13 +26,11 @@ class DashboardViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = Dashboard.objects.select_related("owner").prefetch_related(
+        qs = Dashboard.objects.select_related("owner", "lab").prefetch_related(
             "widgets", "widgets__dataset",
             "widgets__dataset__query__datasource", "shared_with"
         )
-        if user.is_admin:
-            return qs
-        return qs.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+        return visible_to(qs, user)
 
     def get_permissions(self):
         if self.action in ("list", "retrieve", "layout"):
@@ -116,17 +115,21 @@ class WidgetViewSet(viewsets.ModelViewSet):
         qs = Widget.objects.select_related("dashboard", "dataset")
         if user.is_admin:
             return qs
-        return qs.filter(
-            Q(dashboard__owner=user) | Q(dashboard__shared_with=user)
-        ).distinct()
+        return qs.filter(visibility_q(user, "dashboard")).distinct()
 
     def _ensure_access(self, dashboard):
+        """Gate on *writing* a widget onto a dashboard.
+
+        Deliberately NOT ``can_view``. Being able to see a dashboard because it is visible
+        to your laboratory — or to the whole organisation — does not make it yours to
+        change; routing this through the read rule would quietly turn LAB/ORG visibility
+        into LAB/ORG *write access*. Explicit ``shared_with`` still implies collaboration,
+        exactly as it did before: being named on a share is a stronger signal than being
+        in the same building.
+        """
         user = self.request.user
-        if not (
-            user.is_admin
-            or dashboard.owner_id == user.id
-            or dashboard.shared_with.filter(pk=user.pk).exists()
-        ):
+        if not (can_edit(dashboard, user)
+                or dashboard.shared_with.filter(pk=user.pk).exists()):
             raise PermissionDenied("You do not have access to this dashboard.")
 
     def perform_create(self, serializer):

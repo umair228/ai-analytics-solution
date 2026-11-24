@@ -76,8 +76,34 @@ def refresh_dataset(dataset, params: dict | None = None):
     return result
 
 
+def _threshold_value(alert, df):
+    """The old, and still most common, alert: an aggregate of one column."""
+    series = pd.to_numeric(df[alert.column], errors="coerce").dropna()
+    if series.empty:
+        return None
+    agg = alert.aggregation
+    if agg == "sum":
+        return float(series.sum())
+    if agg == "count":
+        return float(len(series))
+    if agg == "max":
+        return float(series.max())
+    if agg == "min":
+        return float(series.min())
+    if agg == "last":
+        return float(series.iloc[-1])
+    return float(series.mean())
+
+
 def evaluate_alerts(dataset):
-    """Check all active alerts for the dataset and fire AlertEvent records."""
+    """Check all active alerts for the dataset and fire AlertEvent records.
+
+    A threshold alert compares an aggregate of a column. An analytic alert (SPC,
+    capability, anomaly, forecast) compares the *outcome of an analysis* — see
+    ``datasets.alert_rules``. Both then go through the same condition/threshold
+    comparison and the same notification path.
+    """
+    from .alert_rules import RULES
     from .models import AlertEvent, DatasetAlert
 
     alerts = DatasetAlert.objects.filter(dataset=dataset, is_active=True)
@@ -90,43 +116,54 @@ def evaluate_alerts(dataset):
 
     now = timezone.now()
     for alert in alerts:
-        if alert.column not in df.columns:
+        if alert.column and alert.column not in df.columns:
             continue
 
-        series = pd.to_numeric(df[alert.column], errors="coerce").dropna()
-        if series.empty:
+        detail, subject, summary = {}, "", ""
+        rule = RULES.get(alert.kind)
+        try:
+            if rule is None:                       # threshold — the original path
+                value = _threshold_value(alert, df)
+                subject = f"{alert.aggregation}({alert.column})"
+            else:
+                outcome = rule(alert, df)
+                if outcome is None:                # the rule could not be evaluated
+                    DatasetAlert.objects.filter(pk=alert.pk).update(
+                        last_checked_at=now, updated_at=now)
+                    continue
+                value, subject, summary = outcome.value, outcome.subject, outcome.summary
+                detail = outcome.detail
+        except Exception as exc:  # noqa: BLE001 — one bad rule must not stop the rest
+            logger.exception("Alert %s (%s) failed to evaluate: %s",
+                             alert.pk, alert.kind, exc)
+            DatasetAlert.objects.filter(pk=alert.pk).update(
+                last_checked_at=now, updated_at=now)
             continue
 
-        agg = alert.aggregation
-        if agg == "avg":
-            value = float(series.mean())
-        elif agg == "sum":
-            value = float(series.sum())
-        elif agg == "count":
-            value = float(len(series))
-        elif agg == "max":
-            value = float(series.max())
-        elif agg == "min":
-            value = float(series.min())
-        elif agg == "last":
-            value = float(series.iloc[-1])
-        else:
-            value = float(series.mean())
+        if value is None:
+            continue
 
         op = _COND_OPS.get(alert.condition)
         triggered = op is not None and op(value, alert.threshold)
 
+        # A rule that keeps re-firing on the same unresolved violation is how a
+        # monitoring scheme gets ignored. Still record the check; just stay quiet.
+        if triggered and alert.in_cooldown(now):
+            DatasetAlert.objects.filter(pk=alert.pk).update(
+                last_checked_at=now, updated_at=now)
+            continue
+
         if triggered:
             label = _COND_LABELS.get(alert.condition, alert.condition)
-            message = (
-                f"Alert '{alert.name}' triggered: "
-                f"{agg}({alert.column}) {label} {alert.threshold} "
-                f"(current value: {value:.4g})"
-            )
+            condition = f"{subject} {label} {alert.threshold} (current value: {value:.4g})"
+            # Lead with WHAT happened; the arithmetic that tripped it comes second.
+            message = (f"Alert '{alert.name}' triggered: {summary} [{condition}]"
+                       if summary else f"Alert '{alert.name}' triggered: {condition}")
             AlertEvent.objects.create(
                 alert=alert,
                 triggered_value=value,
                 message=message,
+                detail=detail,
             )
             _notify(alert, message)
 
@@ -141,7 +178,7 @@ def _notify(alert, message: str) -> None:
     if alert.notify_email:
         try:
             send_mail(
-                subject=f"[DSE Alert] {alert.name}",
+                subject=f"[DIS Alert] {alert.name}",
                 message=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[alert.notify_email],

@@ -26,3 +26,7 @@ db.sqlite3-journal
 # NeuralProphet / PyTorch-Lightning training side-output
 lightning_logs/
 np_runtime/
+
+# OQ report — evidence about a BUILD, produced by CI / the image build.
+# Committing it would attribute one build's evidence to another.
+validation/oq_report.json

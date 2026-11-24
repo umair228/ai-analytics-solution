@@ -17,6 +17,14 @@ urlpatterns = [
     path("api/", include("ai.urls")),
     path("api/", include("forecasting.urls")),
     path("api/", include("docsearch.urls")),
+    # Where a number came from and how old it is (lineage/freshness), and the
+    # curated layer the trust story rests on (data dictionary + certified metrics).
+    # Both apps shipped with no API at all, so neither was visible to a customer.
+    path("api/", include("replication.urls")),
+    path("api/", include("semantics.urls")),
+    # Certificates of Analysis + Part 11 electronic signatures.
+    path("api/", include("coa.urls")),
+    path("api/", include("validation.urls")),
 ]
 
 # OIDC SSO routes (login/callback/logout) — only when enabled (see config.settings.sso).

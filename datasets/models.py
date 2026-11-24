@@ -4,15 +4,14 @@ from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
+from core.access import Visibility, can_view
 from core.models import TimeStampedModel
 
 
 class Dataset(TimeStampedModel):
     """A named, reusable result set backed by a saved query."""
 
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "Private"
-        SHARED = "shared", "Shared"
+    Visibility = Visibility          # core.access — one rule, not four copies of it
 
     class RefreshInterval(models.TextChoices):
         MANUAL = "manual", "Manual only"
@@ -33,6 +32,12 @@ class Dataset(TimeStampedModel):
     )
     site = models.ForeignKey(
         "accounts.Site", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="datasets",
+    )
+    # The laboratory this belongs to. It is what makes Visibility.LAB mean anything —
+    # without it, `User.labs` was decoration.
+    lab = models.ForeignKey(
+        "accounts.Lab", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="datasets",
     )
     visibility = models.CharField(
@@ -81,13 +86,28 @@ class Dataset(TimeStampedModel):
         return self.next_refresh_at
 
     def accessible_by(self, user) -> bool:
-        if user.is_admin or self.owner_id == user.id:
-            return True
-        return self.shared_with.filter(pk=user.pk).exists()
+        return can_view(self, user)
 
 
 class DatasetAlert(TimeStampedModel):
-    """A threshold alert on a dataset column — fires an event on refresh."""
+    """An alert on a dataset — fires an event on refresh.
+
+    Two families, sharing one comparison. A THRESHOLD alert compares an aggregate of
+    a column ("average(sulphur) > 12"). The others compare the *outcome of an
+    analysis* — a Westgard rejection count, a Cpk, an anomaly count, a projected
+    value — because that is what a laboratory actually monitors, and none of it can
+    be expressed as a number sitting in a column. See ``datasets.alert_rules``.
+
+    In both cases ``condition``/``threshold`` do the comparing, so "reject when the
+    rejection count > 0" reuses the existing machinery rather than reinventing it.
+    """
+
+    class Kind(models.TextChoices):
+        THRESHOLD  = "threshold",  "Threshold on a column"
+        SPC        = "spc",        "Control-chart rule violated (Westgard / Nelson)"
+        CAPABILITY = "capability", "Process capability (Cpk) below target"
+        ANOMALY    = "anomaly",    "Anomalies detected"
+        FORECAST   = "forecast",   "Forecast breaches a limit"
 
     class Condition(models.TextChoices):
         GT  = "gt",  "Greater than"
@@ -106,13 +126,26 @@ class DatasetAlert(TimeStampedModel):
 
     name        = models.CharField(max_length=200)
     dataset     = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="alerts")
+    kind        = models.CharField(max_length=12, choices=Kind.choices,
+                                   default=Kind.THRESHOLD)
     column      = models.CharField(max_length=200)
+    # Threshold alerts only; ignored by the analytic kinds, which compute their own
+    # scalar (rejection count, Cpk, anomaly count, projected value).
     aggregation = models.CharField(
         max_length=10, choices=Aggregation.choices, default=Aggregation.AVG
     )
     condition   = models.CharField(max_length=5, choices=Condition.choices)
     threshold   = models.FloatField()
+    # Analysis parameters for the analytic kinds, e.g. for SPC:
+    #   {"test": "levey_jennings", "mean": 100, "sd": 2, "rules": "westgard"}
+    config      = models.JSONField(default=dict, blank=True)
     is_active   = models.BooleanField(default=True)
+
+    # Minutes to stay quiet after firing. 0 = fire on every check, which is the old
+    # behaviour and is kept as the default so existing alerts are unchanged — but an
+    # SPC alert re-firing hourly on the same unresolved violation is precisely how a
+    # monitoring scheme gets switched off. Set this on any analytic alert.
+    cooldown_minutes = models.PositiveIntegerField(default=0)
 
     # Notification targets — both optional
     notify_email   = models.EmailField(blank=True)
@@ -131,6 +164,12 @@ class DatasetAlert(TimeStampedModel):
     def __str__(self):
         return self.name
 
+    def in_cooldown(self, now) -> bool:
+        if not self.cooldown_minutes or not self.last_triggered_at:
+            return False
+        from datetime import timedelta
+        return (now - self.last_triggered_at) < timedelta(minutes=self.cooldown_minutes)
+
 
 class AlertEvent(TimeStampedModel):
     """A single firing of a DatasetAlert — created when the condition is met."""
@@ -138,6 +177,10 @@ class AlertEvent(TimeStampedModel):
     alert           = models.ForeignKey(DatasetAlert, on_delete=models.CASCADE, related_name="events")
     triggered_value = models.FloatField()
     message         = models.TextField()
+    # The evidence behind the firing — for an SPC alert, which rules fired, over
+    # which points, and whether the error is random or systematic. "Out of control"
+    # is a verdict; this is what tells the analyst where to look.
+    detail          = models.JSONField(default=dict, blank=True)
     acknowledged    = models.BooleanField(default=False)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     acknowledged_by = models.ForeignKey(
@@ -189,3 +232,78 @@ class DatasetReport(TimeStampedModel):
 
     def __str__(self):
         return f"{self.name} ({self.schedule})"
+
+
+class SavedView(TimeStampedModel):
+    """A named, shareable exploration — the thing the Data Explorer never had.
+
+    Explorer state lived in **one browser's localStorage**, keyed by dataset, unnamed. The
+    QA manager's Monday-morning view — the filters, the grouping, the chart, the date window
+    she has tuned over months — existed only on the laptop she happened to build it on. She
+    could not name it, could not hand it to the analyst covering for her, and clearing the
+    cache destroyed it. Every colleague who wanted the same view had to rebuild it from
+    memory, and any two of them would build it slightly differently.
+
+    So: give it a name, and let her share it.
+
+    **The security property is the whole design.** A saved view is a *configuration*, not
+    data — and a sharing feature is exactly where an access-control bypass likes to hide. If
+    Nadia shares an organisation-wide view of a Crude-Distillation dataset, Omar in
+    Lubricants must not get the rows by opening it. He must not even see the view exists,
+    because a view named "Crude Distillation — off-spec batches" leaks the dataset by leaking
+    its title.
+
+    Hence :meth:`SavedView.visible_to`: a view is visible only if the user may see **both the
+    view and the dataset it points at**. Sharing a view can never widen access to data.
+    """
+
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+
+    dataset = models.ForeignKey(
+        Dataset, on_delete=models.CASCADE, related_name="saved_views",
+    )
+    # The screen this view belongs to. One today; the field exists so that adding another
+    # does not need a migration and a second model that drifts from this one.
+    page = models.CharField(max_length=32, default="explorer")
+    # The state itself: chart types, x/y fields, aggregation, group-by, filters, date window.
+    config = models.JSONField(default=dict, blank=True)
+
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="saved_views",
+    )
+    lab = models.ForeignKey(
+        "accounts.Lab", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="saved_views",
+    )
+    visibility = models.CharField(
+        max_length=10, choices=Visibility.choices, default=Visibility.PRIVATE
+    )
+    shared_with = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, blank=True, related_name="shared_saved_views"
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    @classmethod
+    def visible_to(cls, user):
+        """Views this user may open — **and whose data they may also read.**
+
+        The second half is the point. Filtering only on the view's own visibility would let
+        a shared view act as a key to a dataset the user is not allowed to see, which would
+        make the sharing feature a hole in URS-032 rather than a feature built on it.
+        """
+        from core.access import visibility_q, visible_to as _visible
+
+        qs = _visible(cls.objects.select_related("dataset", "owner", "lab"), user)
+        if getattr(user, "is_admin", False):
+            return qs
+        # …and the dataset behind it.
+        return qs.filter(visibility_q(user, "dataset")).distinct()
+
+    def accessible_by(self, user) -> bool:
+        return self.__class__.visible_to(user).filter(pk=self.pk).exists()
+
+    def __str__(self):
+        return self.name
