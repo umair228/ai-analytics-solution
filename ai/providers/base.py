@@ -70,7 +70,10 @@ _CACHE: dict[str, BaseProvider] = {}
 
 
 def get_provider() -> BaseProvider:
-    name = (getattr(settings, "LLM_PROVIDER", "anthropic") or "anthropic").lower()
+    # Falls back to "local", never "anthropic": an absent or empty LLM_PROVIDER is
+    # a misconfiguration, and the safe way to fail a misconfiguration is on-prem.
+    # (settings.LLM_PROVIDER defaults to "local" too — this is the second latch.)
+    name = (getattr(settings, "LLM_PROVIDER", "local") or "local").lower()
     if name not in _CACHE:
         if name == "local":
             from .openai_provider import OpenAIProvider

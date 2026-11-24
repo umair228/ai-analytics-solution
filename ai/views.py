@@ -305,14 +305,18 @@ def ask_live(request):
                         status=status.HTTP_502_BAD_GATEWAY)
 
     envelope = envelope_from_agent_run(run, model=active_model(), user_id=request.user.id)
-    ChatMessage.objects.create(
+    message = ChatMessage.objects.create(
         conversation=conversation, role=ChatMessage.Role.ASSISTANT,
         content=run.answer, metadata={"trace": run.trace, "envelope": envelope.as_dict()})
     conversation.save(update_fields=["updated_at"])
     record_audit(request, AuditLog.Action.QUERY, target_type="Conversation",
                  target_id=conversation.id, summary="AI ask-live (envelope)")
 
-    return Response({"conversation_id": conversation.id, "envelope": envelope.as_dict()})
+    # message_id, so the answer can be judged. Without it the client has an answer and no
+    # way to say anything about it — which is how we ended up with no signal at all on
+    # whether we are right.
+    return Response({"conversation_id": conversation.id, "message_id": message.id,
+                     "envelope": envelope.as_dict()})
 
 
 @api_view(["POST"])
@@ -375,13 +379,19 @@ def save_dataset(request):
         return Response({"error": True, "detail": f"Only a read-only SELECT can be saved: {exc}"},
                         status=status.HTTP_400_BAD_REQUEST)
 
+    # PRIVATE, not shared. This used to say SHARED, which — because nothing read the field
+    # — granted nobody anything, so PRIVATE is what it has always actually been. Now that
+    # the field means something, publishing every saved answer to the whole organisation
+    # by default would be a widening the person who clicked "save" never asked for. They
+    # can share it, deliberately, from the dataset itself.
     query = QueryDefinition.objects.create(
         name=name, description="Saved from an Ask-the-Database answer.",
         datasource=ds, mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
-        owner=request.user, visibility=QueryDefinition.Visibility.SHARED)
+        owner=request.user, visibility=QueryDefinition.Visibility.PRIVATE, lab=ds.lab)
     dataset = Dataset.objects.create(
         name=name, description="Saved from an Ask-the-Database answer.",
-        query=query, owner=request.user, visibility=Dataset.Visibility.SHARED)
+        query=query, owner=request.user, visibility=Dataset.Visibility.PRIVATE,
+        lab=ds.lab)
     row_count = None
     try:
         row_count = refresh_dataset(dataset).get("row_count")
