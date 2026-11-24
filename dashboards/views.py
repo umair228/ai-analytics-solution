@@ -9,7 +9,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from core.access import can_view, visibility_q, visible_to
+from core.access import can_edit, can_view, visibility_q, visible_to
 from core.audit import record_audit
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly

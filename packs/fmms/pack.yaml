@@ -376,12 +376,31 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT DISTINCT step_name, approver_role,
-             COUNT(*) OVER (PARTITION BY step_name, approver_role) AS pending_steps,
-             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)
-                  OVER (PARTITION BY step_name, approver_role) AS decimal(6,1)) AS median_age_days
-      FROM rpt.gov_approval_step
-      WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_excluded = 0
+      SELECT step_name,
+             CASE
+                     WHEN approver_role IS NULL THEN 'Not assigned'
+                     WHEN approver_role = 'planner' THEN 'Planner'
+                     WHEN approver_role = 'bd' THEN 'Business development'
+                     WHEN approver_role = 'bd_coordinator' THEN 'BD coordinator'
+                     WHEN approver_role = 'bd_manager' THEN 'BD manager'
+                     WHEN approver_role = 'estimator' THEN 'Estimator'
+                     WHEN approver_role = 'engineering_manager' THEN 'Engineering manager'
+                     WHEN approver_role = 'project_manager' THEN 'Project manager'
+                     WHEN approver_role = 'finance' THEN 'Finance'
+                     WHEN approver_role = 'qc_manager' THEN 'QC manager'
+                     WHEN approver_role = 'composite' THEN 'Several roles together'
+                     WHEN approver_role = 'attr:record.estimation_engineer_id' THEN 'Assigned estimation engineer'
+                     WHEN approver_role LIKE 'attr:record.%' THEN 'The person assigned on the record'
+                     ELSE UPPER(LEFT(approver_role, 1)) + REPLACE(SUBSTRING(approver_role, 2, 200), '_', ' ')
+                   END AS approver_role,
+             pending_steps, median_age_days
+      FROM (SELECT DISTINCT step_name, approver_role,
+                   COUNT(*) OVER (PARTITION BY step_name, approver_role) AS pending_steps,
+                   CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY age_days)
+                        OVER (PARTITION BY step_name, approver_role) AS decimal(6,1)) AS median_age_days
+            FROM rpt.gov_approval_step
+            WHERE is_pending = 1 AND module_code = 'commercial.rfq' AND is_excluded = 0) s
+      ORDER BY pending_steps DESC, step_name
 
   # ---------------------------------------------------------------- projects & gates
   - key: prj_by_origin
@@ -390,7 +409,10 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT origin, COUNT(*) AS projects
+      SELECT CASE origin WHEN 'converted_from_rfq' THEN 'Won through the bid process'
+                         WHEN 'direct_or_migrated' THEN 'Created directly or migrated'
+                         ELSE REPLACE(origin, '_', ' ') END AS origin,
+             COUNT(*) AS projects
       FROM rpt.dim_project
       WHERE is_excluded = 0
       GROUP BY origin
@@ -415,7 +437,11 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT project_number, origin, status_label AS status, opco,
+      SELECT project_number,
+             CASE origin WHEN 'converted_from_rfq' THEN 'Won through the bid process'
+                         WHEN 'direct_or_migrated' THEN 'Created directly or migrated'
+                         ELSE REPLACE(origin, '_', ' ') END AS origin,
+             status_label AS status, opco,
              CASE WHEN has_contract_value = 1 THEN 'yes' ELSE 'no' END AS contract_value,
              CASE WHEN planned_end_date IS NOT NULL THEN 'yes' ELSE 'no' END AS planned_end,
              CASE WHEN has_project_manager = 1 THEN 'yes' ELSE 'no' END AS project_manager,
@@ -457,7 +483,9 @@ datasets:
     sql: |
       SELECT w.week_start,
              CAST(w.planned_cum AS decimal(12,0)) AS [Planned cumulative],
-             CAST(SUM(w.earned) OVER (ORDER BY w.week_start ROWS UNBOUNDED PRECEDING) AS decimal(12,0)) AS [Earned cumulative]
+             CASE WHEN w.week_start <= MAX(CASE WHEN w.earned > 0 THEN w.week_start END) OVER ()
+                  THEN CAST(SUM(w.earned) OVER (ORDER BY w.week_start ROWS UNBOUNDED PRECEDING) AS decimal(12,0))
+             END AS [Earned cumulative]
       FROM (SELECT week_start, SUM(planned_hours_cum) AS planned_cum, SUM(earned_hours) AS earned
             FROM rpt.p6_hours_weekly
             WHERE resource_type = 'labor' AND is_p6_duplicate = 0 AND is_excluded = 0
@@ -469,7 +497,9 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT resource_type,
+      SELECT CASE resource_type WHEN 'labor' THEN 'Labour' WHEN 'equipment' THEN 'Equipment'
+                                WHEN 'material' THEN 'Material'
+                                ELSE UPPER(LEFT(resource_type, 1)) + SUBSTRING(resource_type, 2, 200) END AS resource_type,
              CAST(SUM(budget_hours) AS decimal(12,0)) AS [Budget hours],
              CAST(SUM(actual_hours) AS decimal(12,0)) AS [Actual hours],
              CAST(SUM(earned_hours) AS decimal(12,0)) AS [Earned hours]
@@ -556,7 +586,8 @@ datasets:
     datasource: default
     refresh: daily
     sql: |
-      SELECT module, CAST(SUM(active_hours) AS decimal(10,1)) AS active_hours
+      SELECT UPPER(LEFT(module, 1)) + REPLACE(SUBSTRING(module, 2, 200), '_', ' ') AS module,
+             CAST(SUM(active_hours) AS decimal(10,1)) AS active_hours
       FROM rpt.sys_activity_daily
       WHERE activity_date >= DATEADD(day, -30, (SELECT today_riyadh FROM rpt.v_clock))
       GROUP BY module
@@ -666,147 +697,191 @@ dashboards:
       - {title: "Engineering progress", type: kpi, dataset: kpi_eng01, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Engineering progress", caption: "Share of all document work completed, weighted by progress credit."}, layout: {x: 0, y: 2, w: 3, h: 4}}
       - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {value_field: value, rollup: sum, direction: lower_better, label: "Overdue documents", caption: "Past their submission date and not yet done."}, layout: {x: 3, y: 2, w: 3, h: 4}}
       - {title: "Waiting for the client", type: kpi, dataset: kpi_eng13, config: {value_field: value, rollup: sum, direction: lower_better, label: "Documents waiting for the client", caption: "Issued to the client and awaiting their response."}, layout: {x: 6, y: 2, w: 3, h: 4}}
-      - {title: "Client turnaround", type: kpi, dataset: eng_turnaround_monthly, config: {value_field: median_days, trend_field: median_days, value_from: last, rollup: avg, unit: d, direction: lower_better, delta_label: "vs previous month", label: "Client turnaround, latest month (median days)", caption: "How long the client takes to return our documents."}, layout: {x: 9, y: 2, w: 3, h: 4}}
-      - {title: "Projects with the most overdue documents", type: bar_list, dataset: mgmt_overdue_by_project, config: {category_field: project_number, value_field: overdue_documents, limit: 8, caption: "Where delivery is slipping: start the conversation here."}, layout: {x: 0, y: 6, w: 6, h: 7}}
-      - {title: "Engineering progress by project", type: progress, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, target: 100, unit: "%", direction: higher_better, limit: 8, caption: "Largest projects by document count."}, layout: {x: 6, y: 6, w: 6, h: 7}}
-      - {title: "How late the overdue documents are", type: bar, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, rollup: none, caption: "Older items need escalation, not reminders."}, layout: {x: 0, y: 13, w: 6, h: 6}}
-      - {title: "Where the documents are now", type: bar_list, dataset: eng_pipeline, config: {category_field: pipeline_state, value_field: documents, limit: 8, caption: "Every document by the step it is waiting in."}, layout: {x: 6, y: 13, w: 6, h: 6}}
+      - {title: "Client turnaround", type: kpi, dataset: eng_turnaround_monthly, config: {value_field: median_days, trend_field: median_days, value_from: last, rollup: avg, unit: d, direction: lower_better, delta_label: "vs previous month", label: "Client turnaround, latest month", caption: "Median days to return our documents."}, layout: {x: 9, y: 2, w: 3, h: 4}}
+      - {title: "Projects with the most overdue documents", type: bar_list, dataset: mgmt_overdue_by_project, config: {category_field: project_number, value_field: overdue_documents, limit: 6, caption: "Where delivery is slipping: start the conversation here."}, layout: {x: 0, y: 6, w: 6, h: 7}}
+      - {title: "Engineering progress by project", type: progress, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, target: 100, unit: "%", direction: higher_better, limit: 5, caption: "Largest projects by document count."}, layout: {x: 6, y: 6, w: 6, h: 7}}
+      - {title: "How late the overdue documents are", type: bar_list, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, sort: false, tones: {"1-7 days": neutral, "8-14 days": watch, "15-30 days": serious, "More than 30 days": act}, caption: "Older items need escalation, not reminders."}, layout: {x: 0, y: 13, w: 6, h: 6}}
+      - {title: "Where the documents are now", type: bar_list, dataset: eng_pipeline, config: {category_field: pipeline_state, value_field: documents, limit: 5, caption: "Every document by the step it is waiting in."}, layout: {x: 6, y: 13, w: 6, h: 6}}
 
       # ---- 2. Winning work ---------------------------------------------------------
       - {title: "Winning work", type: text, config: {content: "Are enquiries coming in, and are we converting them into projects?"}, layout: {x: 0, y: 19, w: 12, h: 2}}
       - {title: "Open enquiries", type: kpi, dataset: kpi_com11, config: {value_field: value, rollup: sum, label: "Enquiries open in the bid process", caption: "RFQs still being worked by business development."}, layout: {x: 0, y: 21, w: 3, h: 4}}
-      - {title: "New enquiries", type: kpi, dataset: com_rfqs_monthly, config: {value_field: rfqs, trend_field: rfqs, value_from: last, rollup: sum, direction: higher_better, delta_label: "vs previous month", label: "Enquiries received, latest month", caption: "The month is counted to date."}, layout: {x: 3, y: 21, w: 3, h: 4}}
+      - {title: "New enquiries", type: kpi, dataset: com_rfqs_monthly, config: {value_field: rfqs, trend_field: rfqs, value_from: last_complete, rollup: sum, direction: higher_better, delta_label: "vs the month before", label: "Enquiries received, last full month", caption: "The running month is left out until it ends."}, layout: {x: 3, y: 21, w: 3, h: 4}}
       - {title: "Bids won", type: kpi, dataset: kpi_com09, config: {value_field: value, rollup: sum, direction: higher_better, label: "Bids won", caption: "Awarded or purchase order received."}, layout: {x: 6, y: 21, w: 3, h: 4}}
       - {title: "Waiting for a decision", type: kpi, dataset: kpi_com16, config: {value_field: value, rollup: sum, direction: lower_better, label: "Enquiries waiting for a BD approval", caption: "A bid cannot move until someone approves it."}, layout: {x: 9, y: 21, w: 3, h: 4}}
       - {title: "From enquiry to project", type: funnel, dataset: mgmt_bid_conversion, config: {category_field: stage, value_field: rfqs, caption: "Each step as a share of all enquiries received."}, layout: {x: 0, y: 25, w: 6, h: 6}}
       - {title: "Where open enquiries are waiting", type: bar_list, dataset: com_open_ageing, config: {category_field: stage, value_field: open_rfqs, limit: 8, caption: "Open RFQs by the stage they sit in."}, layout: {x: 6, y: 25, w: 6, h: 6}}
-      - {title: "Enquiries received per month", type: bar, dataset: com_rfqs_monthly, config: {category_field: received_month, category_format: month, value_field: rfqs, rollup: none, caption: "Is the pipeline filling up or drying out?"}, layout: {x: 0, y: 31, w: 12, h: 5}}
+      - {title: "Enquiries received per month", type: bar, dataset: com_rfqs_monthly, config: {category_field: received_month, category_format: month, value_field: rfqs, rollup: none, caption: "Is the pipeline filling up or drying out?"}, layout: {x: 0, y: 31, w: 12, h: 6}}
 
       # ---- 3. Bottlenecks ----------------------------------------------------------
-      - {title: "Bottlenecks", type: text, config: {content: "Which approvals are holding work up, and for how long?"}, layout: {x: 0, y: 36, w: 12, h: 2}}
-      - {title: "Approvals waiting", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, direction: lower_better, label: "Approval steps waiting for someone", caption: "Across every module: bids, MTOs, WBS, documents."}, layout: {x: 0, y: 38, w: 3, h: 6}}
-      - {title: "Who the approvals are waiting for", type: bar_list, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, limit: 8, caption: "The roles with the longest queues."}, layout: {x: 3, y: 38, w: 5, h: 6}}
-      - {title: "How long approvals have waited", type: bar, dataset: prc_pending_by_age, config: {category_field: waiting, value_field: pending_steps, rollup: none, caption: "Anything over 30 days is a stalled decision."}, layout: {x: 8, y: 38, w: 4, h: 6}}
+      - {title: "Bottlenecks", type: text, config: {content: "Which approvals are holding work up, and for how long?"}, layout: {x: 0, y: 37, w: 12, h: 2}}
+      - {title: "Approvals waiting", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, direction: lower_better, label: "Approval steps waiting for someone", caption: "Across every module: bids, MTOs, WBS, documents."}, layout: {x: 0, y: 39, w: 3, h: 6}}
+      - {title: "Who the approvals are waiting for", type: bar_list, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, limit: 5, caption: "The roles with the longest queues."}, layout: {x: 3, y: 39, w: 5, h: 6}}
+      - {title: "How long approvals have waited", type: bar_list, dataset: prc_pending_by_age, config: {category_field: waiting, value_field: pending_steps, sort: false, tones: {"0-2 days": neutral, "3-7 days": neutral, "8-30 days": watch, "over 30 days": act}, caption: "Anything over 30 days is a stalled decision."}, layout: {x: 8, y: 39, w: 4, h: 6}}
 
       # ---- 4. Schedule and hours ---------------------------------------------------
-      - {title: "Schedule and hours", type: text, config: {content: "Are we spending hours as planned? (P6 figures use the latest draft schedule: no revision is approved yet.)"}, layout: {x: 0, y: 44, w: 12, h: 2}}
-      - {title: "Labour hours spent against budget", type: progress, dataset: mgmt_labour_by_project, config: {category_field: project_number, value_field: hours_spent, target_field: hours_budget, unit: h, direction: lower_better, caption: "Over 100% means the budget is spent."}, layout: {x: 0, y: 46, w: 6, h: 5}}
-      - {title: "Labour productivity", type: kpi, dataset: kpi_pro11, config: {value_field: value, rollup: sum, unit: ratio, direction: higher_better, label: "Earned hours per hour spent", caption: "1.0 means on plan; below 1.0, hours run ahead of progress."}, layout: {x: 6, y: 46, w: 3, h: 5}}
-      - {title: "Schedules not yet approved", type: kpi, dataset: kpi_pln01, config: {value_field: value, rollup: sum, direction: lower_better, label: "Projects reported on a draft schedule", caption: "Hours and progress here are only as good as the draft."}, layout: {x: 9, y: 46, w: 3, h: 5}}
+      - {title: "Schedule and hours", type: text, config: {content: "Are we spending hours as planned? (P6 figures use the latest draft schedule: no revision is approved yet.)"}, layout: {x: 0, y: 45, w: 12, h: 2}}
+      - {title: "Labour hours spent against budget", type: progress, dataset: mgmt_labour_by_project, config: {category_field: project_number, value_field: hours_spent, target_field: hours_budget, unit: h, direction: lower_better, caption: "Over 100% means the budget is spent."}, layout: {x: 0, y: 47, w: 6, h: 5}}
+      - {title: "Labour productivity", type: kpi, dataset: kpi_pro11, config: {value_field: value, rollup: sum, unit: ratio, direction: higher_better, label: "Earned hours per hour spent", caption: "1.0 means on plan; below 1.0, hours run ahead of progress."}, layout: {x: 6, y: 47, w: 3, h: 5}}
+      - {title: "Schedules not yet approved", type: kpi, dataset: kpi_pln01, config: {value_field: value, rollup: sum, direction: lower_better, label: "Projects reported on a draft schedule", caption: "Hours and progress here are only as good as the draft."}, layout: {x: 9, y: 47, w: 3, h: 5}}
 
       # ---- 5. Portfolio and adoption -----------------------------------------------
-      - {title: "Portfolio and adoption", type: text, config: {content: "How big is the portfolio, and is the team using the system?"}, layout: {x: 0, y: 51, w: 12, h: 2}}
-      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects", caption: "Projects with status active."}, layout: {x: 0, y: 53, w: 3, h: 4}}
-      - {title: "Gates passed", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Project gates passed", caption: "Share of gates on active projects that are signed off."}, layout: {x: 3, y: 53, w: 3, h: 4}}
-      - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 6, y: 53, w: 3, h: 4}}
-      - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch figures appear once those modules are used."}, layout: {x: 9, y: 53, w: 3, h: 4}}
+      - {title: "Portfolio and adoption", type: text, config: {content: "How big is the portfolio, and is the team using the system?"}, layout: {x: 0, y: 52, w: 12, h: 2}}
+      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects", caption: "Projects with status active."}, layout: {x: 0, y: 54, w: 3, h: 4}}
+      - {title: "Gates passed", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Project gates passed", caption: "Share of gates on active projects that are signed off."}, layout: {x: 3, y: 54, w: 3, h: 4}}
+      - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 6, y: 54, w: 3, h: 4}}
+      - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch figures appear once those modules are used."}, layout: {x: 9, y: 54, w: 3, h: 4}}
 
   # ======================================================================== ENGINEERING
   - key: engineering
     name: "Engineering & Document Control"
-    description: "Document register progress, pipeline, overdue, client turnaround and transmittals (BRD §4.9.3)."
+    description: "How far engineering has got, what is late, and how fast the client responds. Registers for follow-up at the end."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "Engineering progress (%)", type: kpi, dataset: kpi_eng01, config: {value_field: value, rollup: sum, label: "Engineering progress (document credit)", unit: "%"}, layout: {x: 0, y: 3, w: 3, h: 3}}
-      - {title: "AFC drawing coverage (%)", type: kpi, dataset: kpi_eng06, config: {value_field: value, rollup: sum, label: "Drawings approved for construction", unit: "%"}, layout: {x: 3, y: 3, w: 3, h: 3}}
-      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {value_field: value, rollup: sum, label: "Not-done documents past their target date"}, layout: {x: 6, y: 3, w: 3, h: 3}}
-      - {title: "Client submissions responded (%)", type: kpi, dataset: kpi_eng11, config: {value_field: value, rollup: sum, label: "Client submissions with a response", unit: "%"}, layout: {x: 9, y: 3, w: 3, h: 3}}
-      - {title: "Client turnaround (median days)", type: kpi, dataset: kpi_eng12, config: {value_field: value, rollup: sum, label: "Median days from issue to client return", unit: "days"}, layout: {x: 0, y: 6, w: 3, h: 3}}
-      - {title: "External transmittals issued", type: kpi, dataset: kpi_eng25, config: {value_field: value, rollup: sum, label: "External transmittals issued"}, layout: {x: 3, y: 6, w: 3, h: 3}}
-      - {title: "Superseded revisions", type: kpi, dataset: kpi_eng30, config: {value_field: value, rollup: sum, label: "Revisions superseded by a later revision"}, layout: {x: 6, y: 6, w: 3, h: 3}}
-      - {title: "BOM take-off coverage (%, PCS)", type: kpi, dataset: kpi_mto01, config: {value_field: value, rollup: sum, label: "BOM quantity covered by MTO (PCS lines)", unit: "%"}, layout: {x: 9, y: 6, w: 3, h: 3}}
-      - {title: "Progress by project (%)", type: bar, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, rollup: none}, layout: {x: 0, y: 9, w: 6, h: 7}}
-      - {title: "Where documents are", type: pie, dataset: eng_pipeline, config: {category_field: pipeline_state, value_field: documents, rollup: none}, layout: {x: 6, y: 9, w: 6, h: 7}}
-      - {title: "Transmittals issued per month", type: line, dataset: eng_transmittals_monthly, config: {category_field: issued_month, value_fields: [External (client), Internal, Vendor, Other], rollup: none}, layout: {x: 0, y: 16, w: 6, h: 7}}
-      - {title: "Client turnaround by month (median days)", type: line, dataset: eng_turnaround_monthly, config: {category_field: return_month, value_field: median_days, rollup: none}, layout: {x: 6, y: 16, w: 6, h: 7}}
-      - {title: "Overdue documents by age", type: bar, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, rollup: none}, layout: {x: 0, y: 23, w: 4, h: 7}}
-      - {title: "SDRL submission status (601)", type: bar, dataset: eng_sdrl_601, config: {category_field: submission_status, value_field: documents, rollup: none}, layout: {x: 4, y: 23, w: 4, h: 7}}
-      - {title: "Documents with client by project", type: bar, dataset: eng_with_client_by_project, config: {category_field: project_number, value_field: documents_with_client, rollup: none}, layout: {x: 8, y: 23, w: 4, h: 7}}
-      - {title: "BOM take-off coverage by unit", type: table, dataset: eng_bom_coverage_units, config: {}, layout: {x: 0, y: 30, w: 12, h: 5}}
-      - {title: "Overdue document register", type: table, dataset: eng_overdue_register, config: {}, layout: {x: 0, y: 35, w: 12, h: 10}}
+      # ---- 1. Delivery -------------------------------------------------------------
+      - {title: "Delivery", type: text, config: {content: "How far has engineering got, and where are the documents now?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Engineering progress", type: kpi, dataset: kpi_eng01, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Engineering progress", caption: "Document work completed, weighted by progress credit. The official progress basis is still to be agreed."}, layout: {x: 0, y: 2, w: 3, h: 4}}
+      - {title: "Drawings approved for construction", type: kpi, dataset: kpi_eng06, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Drawings approved for construction", caption: "Share of drawings the shop can build from."}, layout: {x: 3, y: 2, w: 3, h: 4}}
+      - {title: "Material take-off coverage", type: kpi, dataset: kpi_mto01, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Bill of materials covered by take-off", caption: "Piece-count lines; other units are in the detail below."}, layout: {x: 6, y: 2, w: 3, h: 4}}
+      - {title: "Revisions replaced", type: kpi, dataset: kpi_eng30, config: {value_field: value, rollup: sum, label: "Revisions replaced by a newer one", caption: "Normal while a design develops; a sharp rise means rework."}, layout: {x: 9, y: 2, w: 3, h: 4}}
+      - {title: "Engineering progress by project", type: progress, dataset: eng_progress_by_project, config: {category_field: project_number, value_field: progress_pct, target: 100, unit: "%", direction: higher_better, limit: 5, caption: "Largest projects by document count."}, layout: {x: 0, y: 6, w: 6, h: 7}}
+      - {title: "Where the documents are now", type: bar_list, dataset: eng_pipeline, config: {category_field: pipeline_state, value_field: documents, limit: 8, caption: "Every document by the step it is waiting in."}, layout: {x: 6, y: 6, w: 6, h: 7}}
+
+      # ---- 2. Late documents -------------------------------------------------------
+      - {title: "Late documents", type: text, config: {content: "What is overdue, how late, and where? Target dates are still placeholders, so these counts overstate the backlog."}, layout: {x: 0, y: 13, w: 12, h: 2}}
+      - {title: "Overdue documents", type: kpi, dataset: kpi_eng07, config: {value_field: value, rollup: sum, direction: lower_better, label: "Overdue documents", caption: "Past their target date and not yet done."}, layout: {x: 0, y: 15, w: 4, h: 4}}
+      - {title: "How late they are", type: bar_list, dataset: eng_overdue_aging, config: {category_field: overdue_age, value_field: documents, sort: false, tones: {"1-7 days": neutral, "8-14 days": watch, "15-30 days": serious, "More than 30 days": act}, caption: "Older items need escalation, not reminders."}, layout: {x: 0, y: 19, w: 4, h: 5}}
+      - {title: "Projects with the most overdue documents", type: bar_list, dataset: mgmt_overdue_by_project, config: {category_field: project_number, value_field: overdue_documents, limit: 8, caption: "Where delivery is slipping."}, layout: {x: 4, y: 15, w: 8, h: 9}}
+
+      # ---- 3. The client -----------------------------------------------------------
+      - {title: "The client", type: text, config: {content: "Is the client responding, and how fast?"}, layout: {x: 0, y: 24, w: 12, h: 2}}
+      - {title: "Client turnaround", type: kpi, dataset: eng_turnaround_monthly, config: {value_field: median_days, trend_field: median_days, value_from: last, rollup: avg, unit: d, direction: lower_better, delta_label: "vs previous month", label: "Client turnaround, latest month", caption: "Median days to return our documents."}, layout: {x: 0, y: 26, w: 3, h: 4}}
+      - {title: "Submissions answered", type: kpi, dataset: kpi_eng11, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Client submissions answered", caption: "Share of our submissions the client has returned."}, layout: {x: 3, y: 26, w: 3, h: 4}}
+      - {title: "Waiting for the client", type: kpi, dataset: kpi_eng13, config: {value_field: value, rollup: sum, direction: lower_better, label: "Documents waiting for the client", caption: "Issued and awaiting the client's response."}, layout: {x: 6, y: 26, w: 3, h: 4}}
+      - {title: "Transmittals to the client", type: kpi, dataset: kpi_eng25, config: {value_field: value, rollup: sum, label: "Transmittals issued to the client", caption: "Formal issues to the client, all time."}, layout: {x: 9, y: 26, w: 3, h: 4}}
+      - {title: "Client turnaround by month", type: line, dataset: eng_turnaround_monthly, config: {category_field: return_month, category_format: month, value_field: median_days, unit: d, rollup: none, caption: "Median days from our issue to the client's return. Lower is better."}, layout: {x: 0, y: 30, w: 7, h: 8}}
+      - {title: "Documents waiting with the client, by project", type: bar_list, dataset: eng_with_client_by_project, config: {category_field: project_number, value_field: documents_with_client, detail_field: median_age_days, detail_format: "median {value} days waiting", limit: 6, caption: "Long waits are for the project manager to raise with the client."}, layout: {x: 7, y: 30, w: 5, h: 8}}
+
+      # ---- 4. Output ---------------------------------------------------------------
+      - {title: "Output", type: text, config: {content: "What engineering is issuing, month by month."}, layout: {x: 0, y: 38, w: 12, h: 2}}
+      - {title: "Transmittals issued per month", type: bar, dataset: eng_transmittals_monthly, config: {category_field: issued_month, category_format: month, value_fields: [External (client), Internal, Vendor, Other], stacked: true, rollup: none, caption: "Every transmittal, by who it went to."}, layout: {x: 0, y: 40, w: 8, h: 7}}
+      - {title: "Contract document list (NMR 601)", type: bar_list, dataset: eng_sdrl_601, config: {category_field: submission_status, value_field: documents, tones: {Approved: good, "With client": info, "Within company (correction)": watch, "Within company (MIS)": neutral, "With vendor": neutral}, caption: "Where each document on the contract's submission list stands."}, layout: {x: 8, y: 40, w: 4, h: 7}}
+
+      # ---- 5. Detail ---------------------------------------------------------------
+      - {title: "Detail", type: text, config: {content: "Registers for follow-up: sort by any column, export from the widget menu."}, layout: {x: 0, y: 47, w: 12, h: 2}}
+      - {title: "Overdue document register", type: table, dataset: eng_overdue_register, config: {page_size: 12, columns: [{field: project_number, label: Project}, {field: document_number, label: Document}, {field: document_type, label: Type}, {field: pipeline_state, label: "Where it is"}, {field: current_status, label: Status}, {field: revision, label: Revision}, {field: target_date, label: "Target date"}, {field: days_overdue, label: "Days overdue"}]}, layout: {x: 0, y: 49, w: 12, h: 11}}
+      - {title: "Material take-off coverage by unit", type: table, dataset: eng_bom_coverage_units, config: {columns: [{field: bom_unit, label: Unit}, {field: bom_lines, label: "BOM lines"}, {field: bom_qty, label: "BOM quantity"}, {field: covered_qty, label: "Covered by take-off"}, {field: coverage_pct, label: "Coverage %"}], caption: "Never add coverage across units."}, layout: {x: 0, y: 60, w: 12, h: 6}}
 
   # ======================================================================== COMMERCIAL
   - key: commercial
     name: "Commercial & Bids"
-    description: "RFQ intake, funnel, outcomes, ageing and BD approvals (values are on the restricted board)."
+    description: "Is work coming in, where are bids waiting, and what happened to them? Values are on the restricted board."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "RFQs received", type: kpi, dataset: kpi_com01, config: {value_field: value, rollup: sum, label: "RFQs received (test RFQs not yet excluded)"}, layout: {x: 0, y: 3, w: 3, h: 3}}
-      - {title: "Bids awarded", type: kpi, dataset: kpi_com09, config: {value_field: value, rollup: sum, label: "RFQs awarded (won or PO received)"}, layout: {x: 3, y: 3, w: 3, h: 3}}
-      - {title: "Open RFQs", type: kpi, dataset: kpi_com11, config: {value_field: value, rollup: sum, label: "RFQs open in the bid flow"}, layout: {x: 6, y: 3, w: 3, h: 3}}
-      - {title: "Pending BD approvals", type: kpi, dataset: kpi_com16, config: {value_field: value, rollup: sum, label: "RFQs waiting on a BD approval"}, layout: {x: 9, y: 3, w: 3, h: 3}}
-      - {title: "RFQs received per month", type: line, dataset: com_rfqs_monthly, config: {category_field: received_month, value_field: rfqs, rollup: none}, layout: {x: 0, y: 6, w: 6, h: 7}}
-      - {title: "Bid inquiry outcomes", type: bar, dataset: com_outcomes, config: {category_field: outcome, value_field: rfqs, rollup: none}, layout: {x: 6, y: 6, w: 6, h: 7}}
-      - {title: "Bid funnel by position", type: bar, dataset: com_funnel, config: {category_field: funnel_position, value_field: rfqs, rollup: none}, layout: {x: 0, y: 13, w: 6, h: 7}}
-      - {title: "Open RFQs by stage", type: bar, dataset: com_open_ageing, config: {category_field: stage, value_field: open_rfqs, rollup: none}, layout: {x: 6, y: 13, w: 6, h: 7}}
-      - {title: "RFQs flagged as test (pending confirmation)", type: kpi, dataset: kpi_com_test_rfqs, config: {value_field: value, rollup: sum, label: "RFQs proposed for exclusion (awaiting confirmation)"}, layout: {x: 0, y: 20, w: 3, h: 3}}
-      - {title: "Pending BD approval steps", type: table, dataset: com_pending_approvals, config: {}, layout: {x: 3, y: 20, w: 9, h: 5}}
-      - {title: "RFQ summary register", type: table, dataset: com_rfq_register, config: {}, layout: {x: 0, y: 25, w: 12, h: 10}}
+      # ---- 1. Pipeline -------------------------------------------------------------
+      - {title: "Pipeline", type: text, config: {content: "Is work coming in, and are we winning it?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Enquiries received", type: kpi, dataset: kpi_com01, config: {value_field: value, rollup: sum, label: "Enquiries received", caption: "All to date, including test entries awaiting exclusion."}, layout: {x: 0, y: 2, w: 3, h: 4}}
+      - {title: "New enquiries", type: kpi, dataset: com_rfqs_monthly, config: {value_field: rfqs, trend_field: rfqs, value_from: last_complete, rollup: sum, direction: higher_better, delta_label: "vs the month before", label: "Enquiries received, last full month", caption: "The running month is left out until it ends."}, layout: {x: 3, y: 2, w: 3, h: 4}}
+      - {title: "Bids won", type: kpi, dataset: kpi_com09, config: {value_field: value, rollup: sum, direction: higher_better, label: "Bids won", caption: "Awarded or purchase order received."}, layout: {x: 6, y: 2, w: 3, h: 4}}
+      - {title: "Open enquiries", type: kpi, dataset: kpi_com11, config: {value_field: value, rollup: sum, label: "Enquiries open in the bid process", caption: "Still being worked by business development."}, layout: {x: 9, y: 2, w: 3, h: 4}}
+      - {title: "From enquiry to project", type: funnel, dataset: mgmt_bid_conversion, config: {category_field: stage, value_field: rfqs, caption: "Each step as a share of all enquiries received."}, layout: {x: 0, y: 6, w: 5, h: 7}}
+      - {title: "Enquiries received per month", type: bar, dataset: com_rfqs_monthly, config: {category_field: received_month, category_format: month, value_field: rfqs, rollup: none, caption: "Is the pipeline filling up or drying out?"}, layout: {x: 5, y: 6, w: 7, h: 7}}
+
+      # ---- 2. Where bids are waiting -----------------------------------------------
+      - {title: "Where bids are waiting", type: text, config: {content: "Which stage holds the open enquiries, and which approvals must come first?"}, layout: {x: 0, y: 13, w: 12, h: 2}}
+      - {title: "Open enquiries by stage", type: bar_list, dataset: com_open_ageing, config: {category_field: stage, value_field: open_rfqs, detail_field: median_days_in_stage, detail_format: "median {value} days in this stage", limit: 8, caption: "Where the open bids sit, and for how long."}, layout: {x: 0, y: 15, w: 6, h: 7}}
+      - {title: "Approvals the bids are waiting for", type: bar_list, dataset: com_pending_approvals, config: {category_field: step_name, value_field: pending_steps, detail_field: approver_role, detail_format: "waiting for: {value}", limit: 6, caption: "No due dates are configured, so none counts as overdue yet."}, layout: {x: 6, y: 15, w: 6, h: 7}}
+
+      # ---- 3. Outcomes -------------------------------------------------------------
+      - {title: "Outcomes", type: text, config: {content: "What happened to the enquiries we received?"}, layout: {x: 0, y: 22, w: 12, h: 2}}
+      - {title: "Bid outcomes", type: bar, dataset: com_outcomes, config: {category_field: outcome, value_field: rfqs, rollup: none, tones: {Awarded: good, "Converted to project": good, Declined: watch, Cancelled: neutral, Lost: act}, caption: "Lost bids are not recorded yet, so a win rate cannot be computed."}, layout: {x: 0, y: 24, w: 6, h: 8}}
+      - {title: "Where every enquiry is today", type: bar_list, dataset: com_funnel, config: {category_field: funnel_position, value_field: rfqs, limit: 8, caption: "Each enquiry by its current step in the bid workflow."}, layout: {x: 6, y: 24, w: 6, h: 8}}
+
+      # ---- 4. Detail ---------------------------------------------------------------
+      - {title: "Detail", type: text, config: {content: "The enquiry register for follow-up: sort by any column, export from the widget menu."}, layout: {x: 0, y: 32, w: 12, h: 2}}
+      - {title: "Test enquiries awaiting exclusion", type: kpi, dataset: kpi_com_test_rfqs, config: {value_field: value, rollup: sum, direction: lower_better, label: "Enquiries that look like tests", caption: "Counted above until the business confirms they can be excluded."}, layout: {x: 0, y: 34, w: 3, h: 4}}
+      - {title: "Enquiry register", type: table, dataset: com_rfq_register, config: {page_size: 10, columns: [{field: rfq_number, label: RFQ}, {field: bid_number, label: Bid}, {field: client_code, label: Client}, {field: fabrication_category, label: Category}, {field: rfq_type, label: Type}, {field: funnel_position, label: "Where it is"}, {field: current_stage, label: Stage}, {field: received_on, label: Received}, {field: bid_deadline_riyadh, label: "Bid deadline"}, {field: submission_date, label: Submitted}, {field: probability_pct, label: "Win probability %"}, {field: open_stage_age_days, label: "Days in stage"}, {field: data_flag, label: "Data flag"}]}, layout: {x: 3, y: 34, w: 9, h: 10}}
 
   # ======================================================================== PROJECTS
   - key: projects
     name: "Projects & Gates"
-    description: "Portfolio, stage gates, WBS approval and project master-data completeness."
+    description: "How many projects are running, whether they move through their gates, and whether their set-up is complete."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects"}, layout: {x: 0, y: 3, w: 4, h: 3}}
-      - {title: "Gates passed (%)", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, label: "Gate instances passed", unit: "%"}, layout: {x: 4, y: 3, w: 4, h: 3}}
-      - {title: "Projects KPI-ready (%)", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, label: "Projects with contract value and planned end", unit: "%"}, layout: {x: 8, y: 3, w: 4, h: 3}}
-      - {title: "Projects by origin", type: pie, dataset: prj_by_origin, config: {category_field: origin, value_field: projects, rollup: none}, layout: {x: 0, y: 6, w: 4, h: 7}}
-      - {title: "Gate instances by gate and status", type: bar, dataset: prj_gates_by_status, config: {category_field: gate, value_fields: [Pending, In review, Passed, Blocked], stacked: true, rollup: none}, layout: {x: 4, y: 6, w: 8, h: 7}}
-      - {title: "WBS nodes by approval status", type: bar, dataset: prj_wbs_status, config: {category_field: wbs_status, value_field: wbs_nodes, rollup: none}, layout: {x: 0, y: 13, w: 4, h: 6}}
-      - {title: "Project master-data completeness", type: table, dataset: prj_master_completeness, config: {}, layout: {x: 4, y: 13, w: 8, h: 10}}
+      # ---- 1. Portfolio ------------------------------------------------------------
+      - {title: "Portfolio", type: text, config: {content: "How many projects are running, and are they moving through their gates?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Active projects", type: kpi, dataset: kpi_prj01, config: {value_field: value, rollup: sum, label: "Active projects", caption: "Includes projects carried over from the previous system as shells."}, layout: {x: 0, y: 2, w: 4, h: 4}}
+      - {title: "Gates passed", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Project gates passed", caption: "Only projects converted from a won bid have stage gates."}, layout: {x: 4, y: 2, w: 4, h: 4}}
+      - {title: "Projects ready for reporting", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Projects ready for KPI reporting", caption: "Have a contract value and a planned end date; the others cannot be measured yet."}, layout: {x: 8, y: 2, w: 4, h: 4}}
+      - {title: "Stage gates", type: bar, dataset: prj_gates_by_status, config: {category_field: gate, value_fields: [Passed, In review, Blocked, Pending], stacked: true, rollup: none, tones: {Passed: good, "In review": info, Blocked: act, Pending: neutral}, caption: "Each gate across the projects that have gates. Blocked needs a decision."}, layout: {x: 0, y: 6, w: 6, h: 7}}
+      - {title: "Project origin", type: bar_list, dataset: prj_by_origin, config: {category_field: origin, value_field: projects, caption: "Active projects by how they entered the system."}, layout: {x: 6, y: 6, w: 3, h: 7}}
+      - {title: "WBS approval", type: bar_list, dataset: prj_wbs_status, config: {category_field: wbs_status, value_field: wbs_nodes, tones: {Approved: good, Submitted: watch, Draft: neutral, Rejected: act}, caption: "Nodes waiting for approval hold up planning."}, layout: {x: 9, y: 6, w: 3, h: 7}}
+
+      # ---- 2. Set-up ---------------------------------------------------------------
+      - {title: "Set-up", type: text, config: {content: "Which projects are missing the master data that reporting depends on?"}, layout: {x: 0, y: 13, w: 12, h: 2}}
+      - {title: "Project master-data completeness", type: table, dataset: prj_master_completeness, config: {page_size: 12, columns: [{field: project_number, label: Project}, {field: origin, label: Origin}, {field: status, label: Status}, {field: opco, label: "Operating company"}, {field: contract_value, label: "Contract value"}, {field: planned_end, label: "Planned end"}, {field: project_manager, label: "Project manager"}, {field: p6_schedule, label: "P6 schedule"}, {field: wbs, label: WBS}, {field: gates, label: Gates}, {field: document_count, label: Documents}]}, layout: {x: 0, y: 15, w: 12, h: 11}}
 
   # ======================================================================== PLANNING
   - key: planning
     name: "Planning (P6 hours)"
-    description: "P6 schedule status and labour hours. Reported on the latest draft until a revision is approved."
+    description: "Are we earning the hours we spend? Reported on the latest draft schedule until a revision is approved."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "P6 projects without an approved revision", type: kpi, dataset: kpi_pln01, config: {value_field: value, rollup: sum, label: "P6 projects reported on an unapproved draft", thresholds: [{op: gt, value: 0, color: amber}]}, layout: {x: 0, y: 3, w: 4, h: 3}}
-      - {title: "Labour hours consumed (%, latest draft)", type: kpi, dataset: kpi_pln12, config: {value_field: value, rollup: sum, label: "P6 labour hours consumed vs budget (latest draft)", unit: "%"}, layout: {x: 4, y: 3, w: 4, h: 3}}
-      - {title: "Productivity factor (P6 basis, latest draft)", type: kpi, dataset: kpi_pro11, config: {value_field: value, rollup: sum, label: "Productivity factor: earned / actual hours (P6)", thresholds: [{op: lt, value: 0.9, color: red}, {op: lt, value: 0.95, color: amber}, {op: gte, value: 0.95, color: green}]}, layout: {x: 8, y: 3, w: 4, h: 3}}
-      - {title: "Schedule status (which revision is reported)", type: table, dataset: pln_schedule_status, config: {}, layout: {x: 0, y: 6, w: 12, h: 4}}
-      - {title: "Labour hours S-curve: planned vs earned (latest draft)", type: line, dataset: pln_labour_scurve, config: {category_field: week_start, value_fields: [Planned cumulative, Earned cumulative], rollup: none}, layout: {x: 0, y: 10, w: 8, h: 8}}
-      - {title: "Activities by status", type: pie, dataset: pln_activity_status, config: {category_field: activity_status, value_field: activities, rollup: none}, layout: {x: 8, y: 10, w: 4, h: 8}}
-      - {title: "Hours by resource type: budget, actual, earned", type: bar, dataset: pln_hours_by_type, config: {category_field: resource_type, value_fields: [Budget hours, Actual hours, Earned hours], rollup: none}, layout: {x: 0, y: 18, w: 12, h: 7}}
+      # ---- 1. Hours ----------------------------------------------------------------
+      - {title: "Hours", type: text, config: {content: "Are we earning the hours we spend? All figures use the latest draft P6 schedule: no revision is approved yet."}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Hours spent against budget", type: kpi, dataset: kpi_pln12, config: {value_field: value, rollup: sum, unit: "%", label: "Labour hours spent against budget", caption: "Share of the budgeted labour hours already used."}, layout: {x: 0, y: 2, w: 4, h: 4}}
+      - {title: "Labour productivity", type: kpi, dataset: kpi_pro11, config: {value_field: value, rollup: sum, unit: ratio, direction: higher_better, label: "Earned hours per hour spent", caption: "1.0 is on plan; below 1.0, hours run ahead of progress.", thresholds: [{op: lt, value: 0.9, color: red, label: "Behind plan"}, {op: lt, value: 0.95, color: amber, label: "Watch"}, {op: gte, value: 0.95, color: green, label: "On plan"}]}, layout: {x: 4, y: 2, w: 4, h: 4}}
+      - {title: "Schedules not yet approved", type: kpi, dataset: kpi_pln01, config: {value_field: value, rollup: sum, direction: lower_better, label: "Projects reported on a draft schedule", caption: "Hours and progress are only as good as the draft.", thresholds: [{op: gt, value: 0, color: amber, label: "Draft only"}]}, layout: {x: 8, y: 2, w: 4, h: 4}}
+      - {title: "Planned against earned hours", type: line, dataset: pln_labour_scurve, config: {category_field: week_start, value_fields: [Planned cumulative, Earned cumulative], unit: h, rollup: none, tones: {"Planned cumulative": neutral}, caption: "When earned hours fall below planned, the work is behind schedule."}, layout: {x: 0, y: 6, w: 8, h: 8}}
+      - {title: "Activities by status", type: bar_list, dataset: pln_activity_status, config: {category_field: activity_status, value_field: activities, sort: false, tones: {Completed: good, "In Progress": info, "Not Started": neutral}, caption: "Activities in the latest draft schedule."}, layout: {x: 8, y: 6, w: 4, h: 4}}
+      - {title: "Labour hours against budget, by project", type: progress, dataset: mgmt_labour_by_project, config: {category_field: project_number, value_field: hours_spent, target_field: hours_budget, unit: h, direction: lower_better, caption: "Over 100% means the budget is spent."}, layout: {x: 8, y: 10, w: 4, h: 4}}
+
+      # ---- 2. Budget ---------------------------------------------------------------
+      - {title: "Budget", type: text, config: {content: "Where are the hours going?"}, layout: {x: 0, y: 14, w: 12, h: 2}}
+      - {title: "Hours by resource type", type: bar, dataset: pln_hours_by_type, config: {category_field: resource_type, value_fields: [Budget hours, Actual hours, Earned hours], unit: h, rollup: none, orientation: horizontal, tones: {"Budget hours": neutral}, caption: "Earned below actual means hours are not turning into progress."}, layout: {x: 0, y: 16, w: 12, h: 6}}
+
+      # ---- 3. Detail ---------------------------------------------------------------
+      - {title: "Detail", type: text, config: {content: "Which schedule revision each project is reported on, and why."}, layout: {x: 0, y: 22, w: 12, h: 2}}
+      - {title: "Schedule status", type: table, dataset: pln_schedule_status, config: {columns: [{field: project_number, label: Project}, {field: reported_on, label: "Reported on"}, {field: revision_number, label: Revision}, {field: revision_status, label: "Revision status"}, {field: data_date, label: "Data date"}, {field: data_date_age_days, label: "Days since data date"}, {field: activity_count, label: Activities}, {field: status_reason, label: Reason}, {field: note, label: Note}]}, layout: {x: 0, y: 24, w: 12, h: 6}}
 
   # ======================================================================== PROCESS & ADOPTION
   - key: process
     name: "Process & Adoption"
-    description: "Approval backlog and bottlenecks, and how the platform is being used."
+    description: "Which decisions are waiting and for how long, and whether the team is using the system."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "Pending approval steps", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, label: "Approval steps waiting for action"}, layout: {x: 0, y: 3, w: 3, h: 3}}
-      - {title: "Pending at the top bottleneck role", type: kpi, dataset: kpi_prc05, config: {value_field: value, rollup: sum, label: "Waiting at the busiest approver role"}, layout: {x: 3, y: 3, w: 3, h: 3}}
-      - {title: "Active users this month", type: kpi, dataset: kpi_adp01, config: {value_field: value, rollup: sum, label: "Users active this month"}, layout: {x: 6, y: 3, w: 3, h: 3}}
-      - {title: "Audited exports (PMSv2)", type: kpi, dataset: kpi_adp04, config: {value_field: value, rollup: sum, label: "Audited exports in PMSv2"}, layout: {x: 9, y: 3, w: 3, h: 3}}
-      - {title: "Pending approvals by role", type: bar, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, rollup: none}, layout: {x: 0, y: 6, w: 6, h: 7}}
-      - {title: "Pending approvals by waiting time", type: bar, dataset: prc_pending_by_age, config: {category_field: waiting, value_field: pending_steps, rollup: none}, layout: {x: 6, y: 6, w: 6, h: 7}}
-      - {title: "Pending approvals by module", type: pie, dataset: prc_pending_by_module, config: {category_field: module, value_field: pending_steps, rollup: none}, layout: {x: 0, y: 13, w: 4, h: 7}}
-      - {title: "Active users per month", type: line, dataset: adp_active_users_monthly, config: {category_field: activity_month, value_field: active_users, rollup: none}, layout: {x: 4, y: 13, w: 4, h: 7}}
-      - {title: "Active hours by module (30 days)", type: bar, dataset: adp_hours_by_module, config: {category_field: module, value_field: active_hours, rollup: none}, layout: {x: 8, y: 13, w: 4, h: 7}}
+      # ---- 1. Approvals ------------------------------------------------------------
+      - {title: "Approvals", type: text, config: {content: "Which decisions are waiting, who for, and for how long?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Approvals waiting", type: kpi, dataset: kpi_prc03, config: {value_field: value, rollup: sum, direction: lower_better, label: "Approval steps waiting for someone", caption: "Across bids, material take-offs, WBS and documents."}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "At the busiest role", type: kpi, dataset: kpi_prc05, config: {value_field: value, rollup: sum, direction: lower_better, label: "Waiting at the busiest approver role", caption: "One role holds most of the queue."}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Approvals waiting, by module", type: bar_list, dataset: prc_pending_by_module, config: {category_field: module, value_field: pending_steps, caption: "Which part of the business the queue belongs to."}, layout: {x: 6, y: 2, w: 6, h: 5}}
+      - {title: "Who the approvals are waiting for", type: bar_list, dataset: prc_pending_by_role, config: {category_field: approver_role, value_field: pending_steps, limit: 8, caption: "Roles, never people."}, layout: {x: 0, y: 7, w: 6, h: 8}}
+      - {title: "How long approvals have waited", type: bar_list, dataset: prc_pending_by_age, config: {category_field: waiting, value_field: pending_steps, sort: false, tones: {"0-2 days": neutral, "3-7 days": neutral, "8-30 days": watch, "over 30 days": act}, caption: "Anything over 30 days is a stalled decision."}, layout: {x: 6, y: 7, w: 6, h: 8}}
+
+      # ---- 2. Adoption -------------------------------------------------------------
+      - {title: "Adoption", type: text, config: {content: "Is the team using the system?"}, layout: {x: 0, y: 15, w: 12, h: 2}}
+      - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 0, y: 17, w: 3, h: 4}}
+      - {title: "Hours of use", type: kpi, dataset: adp_hours_by_module, config: {value_field: active_hours, rollup: sum, unit: h, direction: higher_better, label: "Hours of active use, last 30 days", caption: "Time people actively spent in PMSv2."}, layout: {x: 3, y: 17, w: 3, h: 4}}
+      - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch appear once those modules are used."}, layout: {x: 6, y: 17, w: 3, h: 4}}
+      - {title: "Audited exports", type: kpi, dataset: kpi_adp04, config: {value_field: value, rollup: sum, label: "Exports recorded in the audit trail", caption: "Every download of PMSv2 data is logged."}, layout: {x: 9, y: 17, w: 3, h: 4}}
+      - {title: "Active users per month", type: bar, dataset: adp_active_users_monthly, config: {category_field: activity_month, category_format: month, value_field: active_users, rollup: none, caption: "Is use growing as modules go live?"}, layout: {x: 0, y: 21, w: 6, h: 8}}
+      - {title: "Where people spend their time", type: bar_list, dataset: adp_hours_by_module, config: {category_field: module, value_field: active_hours, unit: h, limit: 8, caption: "Active hours by module, last 30 days."}, layout: {x: 6, y: 21, w: 6, h: 8}}
 
   # ======================================================================== DATA READINESS (PMO)
   - key: data_readiness
     name: "Data Readiness"
-    description: "PMO board: which modules hold data, data-quality checks, proposed exclusions, load provenance."
+    description: "PMO board: which modules hold data, what must be fixed before each KPI can be trusted, proposed exclusions and load provenance."
     filters: []
     widgets:
-      - {title: "Data as of", type: table, dataset: data_freshness, config: {}, layout: {x: 0, y: 0, w: 12, h: 3}}
-      - {title: "Modules live (holding data)", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, label: "PMSv2 modules holding data"}, layout: {x: 0, y: 3, w: 3, h: 3}}
-      - {title: "Projects KPI-ready (%)", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, label: "Projects with contract value and planned end", unit: "%"}, layout: {x: 3, y: 3, w: 3, h: 3}}
-      - {title: "DMS revisions from the migration (%)", type: kpi, dataset: kpi_eng31, config: {value_field: value, rollup: sum, label: "DMS revisions entered by the migration", unit: "%"}, layout: {x: 6, y: 3, w: 3, h: 3}}
-      - {title: "Active users this month", type: kpi, dataset: kpi_adp01, config: {value_field: value, rollup: sum, label: "Users active this month"}, layout: {x: 9, y: 3, w: 3, h: 3}}
-      - {title: "Module liveness", type: table, dataset: dq_module_liveness, config: {}, layout: {x: 0, y: 6, w: 12, h: 8}}
-      - {title: "Data readiness checks", type: table, dataset: dq_readiness_checks, config: {}, layout: {x: 0, y: 14, w: 12, h: 8}}
-      - {title: "Proposed exclusions (awaiting confirmation)", type: table, dataset: dq_exclusion_candidates, config: {}, layout: {x: 0, y: 22, w: 12, h: 6}}
-      - {title: "Restore and load information", type: table, dataset: dq_load_info, config: {}, layout: {x: 0, y: 28, w: 12, h: 4}}
+      - {title: "Readiness", type: text, config: {content: "Which modules hold data, and what must be fixed before each KPI can be trusted?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Modules holding data", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "A module counts once its key tables hold records."}, layout: {x: 0, y: 2, w: 3, h: 4}}
+      - {title: "Projects ready for reporting", type: kpi, dataset: kpi_prj11, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Projects ready for KPI reporting", caption: "Contract value and planned end date both recorded."}, layout: {x: 3, y: 2, w: 3, h: 4}}
+      - {title: "Document history from the migration", type: kpi, dataset: kpi_eng31, config: {value_field: value, rollup: sum, unit: "%", label: "Document revisions loaded by the migration", caption: "Stage dates before go-live are estimated, not recorded."}, layout: {x: 6, y: 2, w: 3, h: 4}}
+      - {title: "Active users this month", type: kpi, dataset: kpi_adp01, config: {value_field: value, rollup: sum, direction: higher_better, label: "Users active this month", caption: "From usage telemetry and the audit trail."}, layout: {x: 9, y: 2, w: 3, h: 4}}
+      - {title: "Module status", type: table, dataset: dq_module_liveness, config: {page_size: 20, columns: [{field: module, label: Module}, {field: data_status, label: Status}, {field: key_table_rows, label: Records}, {field: first_business_date, label: "First entry"}, {field: last_business_date, label: "Latest entry"}, {field: days_since_last_entry, label: "Days since last entry"}, {field: go_live_note, label: Note}], row_rules: [{column: data_status, op: contains, value: "Awaiting", bg_color: "var(--mg-watch-soft)"}]}, layout: {x: 0, y: 6, w: 12, h: 10}}
+      - {title: "Data checks", type: table, dataset: dq_readiness_checks, config: {page_size: 10, columns: [{field: check_name, label: Check}, {field: kpi_id, label: KPI}, {field: affected, label: Affected}, {field: population, label: "Out of"}, {field: affected_pct, label: "Affected %"}, {field: backlog_item, label: "Backlog item"}], row_rules: [{column: affected_pct, op: gte, value: 50, bg_color: "var(--mg-act-soft)"}]}, layout: {x: 0, y: 16, w: 12, h: 10}}
+      - {title: "Proposed exclusions (awaiting confirmation)", type: table, dataset: dq_exclusion_candidates, config: {columns: [{field: entity_type, label: "Record type"}, {field: candidate_reason, label: Reason}, {field: proposed_action, label: "Proposed action"}, {field: status, label: Status}, {field: candidates, label: Records}, {field: rows_affected, label: "Rows affected"}]}, layout: {x: 0, y: 26, w: 12, h: 6}}
+      - {title: "Restore and load information", type: table, dataset: dq_load_info, config: {columns: [{field: backup_finish_riyadh, label: "Backup finished (Riyadh)"}, {field: snapshot_date, label: "Snapshot date"}, {field: backup_type, label: "Backup type"}, {field: has_backup_checksums, label: Checksums}, {field: restored_at_utc, label: "Restored (UTC)"}, {field: conditioned_at_utc, label: "Prepared (UTC)"}, {field: layer_version, label: "Reporting layer"}, {field: freshness_status, label: Freshness}]}, layout: {x: 0, y: 32, w: 12, h: 4}}
 
 # ---- scheduled management pack ---------------------------------------------------------------
 # Audited exports of the datasets above, sent by send_scheduled_reports (Riyadh, 06:00, calendar

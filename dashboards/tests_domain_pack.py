@@ -326,3 +326,45 @@ class DomainPackTests(TestCase):
         with self.assertRaises(CommandError) as ctx:
             self.seed(pack=self.write_pack(doc))
         return ctx.exception
+
+
+FMMS_PACK = Path(settings.BASE_DIR) / "packs" / "fmms" / "pack.yaml"
+
+
+class PmsV2PackTests(TestCase):
+    """The PMSv2 management pack itself: it must validate, and its boards must be laid out
+    so the UI can place them by position (src/lib/boardLayout.js: inside 12 columns,
+    nothing overlapping), with every KPI saying in words what it counts."""
+
+    def setUp(self):
+        from dashboards.domain_pack import load_pack
+        admin = User.objects.create_superuser("pmsv2-pack", "p@x.co", "x")
+        DataSource.objects.create(name="PMSv2 Reporting", source_type="mssql", owner=admin)
+        self.pack = load_pack(FMMS_PACK)          # raises PackError listing every problem
+
+    def test_boards_have_usable_positions(self):
+        for board in self.pack.dashboards:
+            cells = {}
+            for w in board.widgets:
+                x, y, width, height = (w.layout.get(k) for k in ("x", "y", "w", "h"))
+                self.assertTrue(all(isinstance(v, int) for v in (x, y, width, height)),
+                                f"{board.name} / {w.title}: layout needs x, y, w and h")
+                self.assertLessEqual(x + width, 12, f"{board.name} / {w.title}: past 12 columns")
+                for row in range(y, y + height):
+                    for col in range(x, x + width):
+                        other = cells.setdefault((row, col), w.title)
+                        self.assertEqual(other, w.title,
+                                         f"{board.name}: '{w.title}' overlaps '{other}'")
+
+    def test_kpis_and_management_views_speak_plainly(self):
+        for board in self.pack.dashboards:
+            for w in board.widgets:
+                if w.type == "kpi":
+                    self.assertTrue(w.config.get("label"), f"{board.name} / {w.title}: KPI needs a label")
+                if w.type in ("bar_list", "funnel", "progress"):
+                    self.assertTrue(w.config.get("category_field") and w.config.get("value_field"),
+                                    f"{board.name} / {w.title}: needs category_field and value_field")
+                tones = w.config.get("tones") or {}
+                bad = {k: v for k, v in tones.items()
+                       if v not in ("good", "watch", "serious", "act", "info", "neutral")}
+                self.assertFalse(bad, f"{board.name} / {w.title}: unknown tones {bad}")
