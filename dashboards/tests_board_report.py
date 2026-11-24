@@ -201,6 +201,18 @@ class BoardReportTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn("shared by link only", str(resp.content))
 
+    def test_a_one_record_board_is_not_emailed_whole(self):
+        self.board.filters = [{"id": "project", "type": "picker", "required": True}]
+        self.board.save()
+        api = APIClient()
+        api.force_authenticate(self.owner)
+        resp = api.post("/api/reports/", {"kind": "board", "dashboard": self.board.id,
+                                          "name": "x", "recipient_emails": "a@b.co",
+                                          "schedule": "weekly"}, format="json")
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("one record at a time", str(resp.content))
+        self.assertEqual(api.get(f"/api/dashboards/{self.board.id}/report-pdf/").status_code, 400)
+
     def send(self):
         out, err = StringIO(), StringIO()
         call_command("send_scheduled_reports", stdout=out, stderr=err)

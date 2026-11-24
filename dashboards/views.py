@@ -71,6 +71,9 @@ class DashboardViewSet(viewsets.ModelViewSet):
         from .board_report import audit_detail, board_report_pdf
 
         board = self.get_object()
+        if any(isinstance(f, dict) and f.get("required") for f in board.filters or []):
+            return Response({"detail": "This board shows one record at a time; export it "
+                                       "from the board with the record chosen."}, status=400)
         out, filename = board_report_pdf(
             board, user=request.user, generated_by=f"downloaded by {user_label(request.user)}")
         try:

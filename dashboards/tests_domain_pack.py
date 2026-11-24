@@ -312,6 +312,19 @@ class DomainPackTests(TestCase):
         doc["reports"][0]["dataset"] = doc["datasets"][0]["key"]
         self.assert_invalid(doc, "name either a dataset or a board, not both")
 
+    def test_a_board_filter_names_a_pack_dataset_by_key(self):
+        doc = self.example()
+        flt = {"id": "status", "type": "picker", "apply": "param", "param": "status",
+               "dataset": "nope", "column": "status", "required": True}
+        doc["dashboards"][0]["filters"] = [flt]
+        self.assert_invalid(doc, "filters[0].dataset: 'nope' is not a dataset key of this pack")
+        flt["dataset"] = "orders_by_status"
+        self.seed(pack=self.write_pack(doc))
+        board = Dashboard.objects.get(name=doc["dashboards"][0]["name"])
+        stored = board.filters[0]
+        self.assertEqual(stored["dataset"], Dataset.objects.get(name=doc["datasets"][0]["name"]).id)
+        self.assertEqual(stored["dataset_key"], "orders_by_status")
+
     def test_board_position_must_be_a_whole_number(self):
         doc = self.example()
         doc["dashboards"][0]["position"] = "first"
@@ -498,6 +511,29 @@ class PmsV2PackTests(TestCase):
                     self.assertTrue(drill.get("field"), f"{board.name} / {w.title}: drill.field")
         if self.pack_path == FMMS_PACK:
             self.assertGreaterEqual(n, 25)
+
+    def test_the_project_view_waits_for_a_project_and_every_figure_takes_it(self):
+        """One project at a time: a required picker on a pack dataset, and every dataset
+        on the board that filters by :project declares it (else the bind fails)."""
+        if self.pack_path != FMMS_PACK:
+            return
+        board = next(b for b in self.pack.dashboards if b.key == "project_view")
+        picker = board.filters[0]
+        self.assertEqual((picker["type"], picker["required"], picker["param"]),
+                         ("picker", True, "project"))
+        keys = {d.key: d for d in self.pack.datasets}
+        self.assertIn(picker["dataset"], keys)
+        for w in board.widgets:
+            if not w.dataset_key:
+                continue
+            ds = keys[w.dataset_key]
+            if ":project" in ds.sql:
+                self.assertIn("project", [p.get("name") for p in ds.parameters],
+                              f"{ds.key} uses :project without declaring it")
+            drill = w.config.get("drill")
+            if drill:
+                self.assertEqual(drill.get("param_filters"), {"project_number": "project"},
+                                 f"{w.title}: its list must open for the chosen project")
 
     def test_executive_board_comes_first(self):
         self.assertEqual(self.pack.dashboards[0].name, "Executive Overview")

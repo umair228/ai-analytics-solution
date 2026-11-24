@@ -104,6 +104,9 @@ def board_report_refusal(board, user) -> str:
     if board.visibility != Visibility.ORG:
         return ("Only a board shared with everyone in the organisation can be emailed; "
                 "this one is private, so it is shared by link only.")
+    if any(isinstance(f, dict) and f.get("required") for f in board.filters or []):
+        return ("This board shows one record at a time (e.g. one project), so it cannot "
+                "be emailed as a whole.")
     if user is not None and not board.accessible_by(user):
         return "You cannot open this board."
     return ""
