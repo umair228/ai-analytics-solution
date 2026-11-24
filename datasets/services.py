@@ -1,5 +1,7 @@
 """Dataset refresh and alert evaluation."""
 import logging
+import time
+from dataclasses import dataclass
 
 import pandas as pd
 import requests
@@ -76,6 +78,70 @@ def refresh_dataset(dataset, params: dict | None = None):
     return result
 
 
+@dataclass
+class RefreshOutcome:
+    """The result of refreshing one dataset (see :func:`refresh_many`)."""
+
+    dataset: object
+    ok: bool
+    seconds: float
+    rows: int | None = None          # cached preview rows
+    total_rows: int | None = None    # true COUNT(*) of the full result
+    error: str = ""
+
+    def line(self) -> str:
+        took = f"{self.seconds * 1000:.0f} ms"
+        if not self.ok:
+            return f"ERROR {self.dataset.name}: {self.error} ({took})"
+        total = self.total_rows if self.total_rows is not None else self.rows
+        return f"OK    {self.dataset.name}: {total} rows ({took})"
+
+
+def refresh_many(datasets) -> list:
+    """Refresh datasets one by one, synchronously; a failure is recorded on the
+    dataset (``last_error``) and in its outcome, and the batch carries on."""
+    outcomes = []
+    for dataset in datasets:
+        t0 = time.monotonic()
+        try:
+            result = refresh_dataset(dataset)
+        except Exception as exc:  # noqa: BLE001 — one bad dataset must not stop the batch
+            try:
+                dataset.last_error = str(exc)
+                dataset.save(update_fields=["last_error"])
+            except Exception:  # noqa: BLE001
+                logger.warning("Could not record the refresh error on dataset %s",
+                               dataset.pk)
+            first_line = (str(exc).splitlines() or [repr(exc)])[0]
+            outcomes.append(RefreshOutcome(dataset, False, time.monotonic() - t0,
+                                           error=first_line[:500]))
+            continue
+        outcomes.append(RefreshOutcome(dataset, True, time.monotonic() - t0,
+                                       rows=result.get("row_count"),
+                                       total_rows=dataset.total_row_count))
+    return outcomes
+
+
+def datasources_by_name(names):
+    """Resolve DataSource names exactly; raise ValueError naming every unknown
+    or ambiguous one (names are not unique in the model)."""
+    from connections.models import DataSource
+
+    found, problems = [], []
+    for name in dict.fromkeys(names):  # de-duplicate, keep order
+        matches = list(DataSource.objects.filter(name=name).order_by("id"))
+        if not matches:
+            problems.append(f"Unknown data source {name!r}.")
+        elif len(matches) > 1:
+            ids = ", ".join(str(m.id) for m in matches)
+            problems.append(f"Data source name {name!r} is ambiguous (ids {ids}).")
+        else:
+            found.append(matches[0])
+    if problems:
+        raise ValueError(" ".join(problems))
+    return found
+
+
 def evaluate_alerts(dataset):
     """Check all active alerts for the dataset and fire AlertEvent records."""
     from .models import AlertEvent, DatasetAlert
@@ -141,7 +207,7 @@ def _notify(alert, message: str) -> None:
     if alert.notify_email:
         try:
             send_mail(
-                subject=f"[DSE Alert] {alert.name}",
+                subject=f"{settings.DIS_ALERT_SUBJECT_PREFIX} {alert.name}".strip(),
                 message=message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[alert.notify_email],
