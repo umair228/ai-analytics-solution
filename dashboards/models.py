@@ -66,6 +66,9 @@ class Widget(TimeStampedModel):
         BAR_LIST = "bar_list", "Ranked bar list (top N)"
         FUNNEL = "funnel", "Funnel (pipeline stages)"
         PROGRESS = "progress", "Progress vs target"
+        # One record's facts as label / value rows (a project's number, client, status,
+        # dates): the header of a one-object board such as the Project View.
+        DETAILS = "details", "Details (one record's facts)"
 
     dashboard = models.ForeignKey(
         Dashboard, on_delete=models.CASCADE, related_name="widgets"

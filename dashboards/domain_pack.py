@@ -34,7 +34,7 @@ WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
 # config.drill: the list behind a figure. `dataset` is a pack dataset key (resolved to
 # `dataset_id` on install); `field` is the list's column matched to the clicked
 # category; `filters` narrow every opening ([{column, value}]); `columns` as on a table.
-DRILL_KEYS = ("dataset", "field", "filters", "columns", "title", "label")
+DRILL_KEYS = ("dataset", "field", "filters", "columns", "title", "label", "param_filters")
 REPORT_KEYS = ("key", "name", "dataset", "board", "schedule", "format")
 REPORT_FORMATS = ("xlsx", "pdf", "csv")  # what send_scheduled_reports renders for a dataset
 # Recipients are personal data and change without a release, so a pack never carries them:
@@ -267,6 +267,11 @@ def validate_pack(doc, source="<pack>") -> Pack:
             err(where, "filters: must be a list (Dashboard.filters JSON).")
             filters = []
         filters = _jsonable(filters, f"{where}.filters", err)
+        for k, flt in enumerate(filters):
+            if isinstance(flt, dict) and isinstance(flt.get("dataset"), str) \
+                    and flt["dataset"] not in dataset_keys:
+                err(where, f"filters[{k}].dataset: {flt['dataset']!r} is not a dataset key "
+                           "of this pack.")
         widgets = []
         raw_widgets = item.get("widgets") or []
         if not isinstance(raw_widgets, list):
@@ -521,6 +526,13 @@ def _drill_ok(drill, where, dataset_keys, err) -> bool:
             for f in filters):
         err(where, "filters: must be a list of {column, value} (value text or a number).")
         ok = False
+    # param_filters: {list column: board parameter}, e.g. {project_number: project} on a
+    # board whose figures are for one chosen project: the list opens for that project.
+    pf = drill.get("param_filters", {})
+    if not isinstance(pf, dict) or not all(isinstance(k, str) and isinstance(v, str)
+                                           for k, v in pf.items()):
+        err(where, "param_filters: must map list columns to board parameter names.")
+        ok = False
     columns = drill.get("columns", [])
     if not isinstance(columns, list) or not all(
             isinstance(c, str) or (isinstance(c, dict) and isinstance(c.get("field"), str))
@@ -528,6 +540,17 @@ def _drill_ok(drill, where, dataset_keys, err) -> bool:
         err(where, "columns: must be a list of field names or {field, label, format}.")
         ok = False
     return ok
+
+
+def _resolved_filters(filters, datasets) -> list:
+    """Board filters as stored: a filter naming a pack dataset (by key) gets its id."""
+    out = []
+    for flt in filters or []:
+        if isinstance(flt, dict) and isinstance(flt.get("dataset"), str) \
+                and flt["dataset"] in datasets:
+            flt = {**flt, "dataset_key": flt["dataset"], "dataset": datasets[flt["dataset"]].id}
+        out.append(flt)
+    return out
 
 
 def _resolved_config(config: dict, datasets) -> dict:
@@ -672,7 +695,8 @@ def _upsert_dataset(spec: PackDataset, query, pack: Pack, owner, *, query_change
 
 def _upsert_dashboard(spec: PackDashboard, pack: Pack, owner, datasets):
     fields = {"description": spec.description, "owner_id": owner.id,
-              "visibility": pack.visibility, "filters": spec.filters,
+              "visibility": pack.visibility,
+              "filters": _resolved_filters(spec.filters, datasets),
               "position": spec.position}
     dashboard = Dashboard.objects.filter(name=spec.name).first()
     created = dashboard is None

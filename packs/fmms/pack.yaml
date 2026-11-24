@@ -754,7 +754,7 @@ datasets:
     refresh: daily
     sql: |
       SELECT s.module_label AS module, s.module_code,
-             COALESCE(s.rfq_number, p.project_number, '—') AS reference,
+             COALESCE(s.rfq_number, p.project_number, '—') AS reference, p.project_number,
              p.project_name, s.step_name AS step,
              CASE
                WHEN s.approver_role IS NULL THEN 'Not assigned'
@@ -796,6 +796,219 @@ datasets:
       FROM rpt.dim_project
       WHERE is_excluded = 0
       ORDER BY project_number
+
+  # ---- Project View: one project at a time (parameter :project = its number) -------
+  # The same definitions as the certified metrics (ENG-01, ENG-07, ENG-13, ENG-12,
+  # ENG-06, PLN-12, PRO-11), filtered to one project before anything is counted.
+  - key: prj_picker
+    name: "PRJ · Project chooser"
+    description: "Every reported project with its documents, overdue documents and progress: the list the Project View starts from."
+    datasource: default
+    refresh: daily
+    sql: |
+      SELECT p.project_number, CONCAT(p.project_number, N' · ', p.project_name) AS project_label,
+             p.project_name, p.status_label AS status,
+             COALESCE(d.documents, 0) AS documents, COALESCE(d.overdue, 0) AS overdue_documents,
+             d.progress_pct
+      FROM rpt.dim_project p
+      LEFT JOIN (SELECT project_key, COUNT(*) AS documents, SUM(CAST(is_overdue AS int)) AS overdue,
+                        CAST(100.0 * SUM(credit) / NULLIF(COUNT(*), 0) AS decimal(5,1)) AS progress_pct
+                 FROM rpt.eng_document_register WHERE is_excluded = 0
+                 GROUP BY project_key) d ON d.project_key = p.project_key
+      WHERE p.is_excluded = 0
+      ORDER BY project_number
+
+  - key: prj_view_summary
+    name: "PRJ · Project View summary"
+    description: "One row for the chosen project: its facts and headline figures."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT p.project_number, p.project_name, p.client_name, p.status_label AS status,
+             CASE p.origin WHEN 'converted_from_rfq' THEN 'Won through the bid process'
+                           WHEN 'direct_or_migrated' THEN 'Created directly or migrated'
+                           ELSE REPLACE(p.origin, '_', ' ') END AS origin,
+             p.source_rfq_number, p.opco, p.start_date, p.planned_end_date,
+             CASE WHEN p.has_project_manager = 1 THEN 'Assigned' ELSE 'Not assigned' END AS project_manager,
+             CASE WHEN p.has_p6_schedule = 1 THEN 'Linked' ELSE 'Not linked' END AS p6_schedule,
+             e.documents, e.documents_done, e.progress_pct, e.overdue, e.with_client, e.afc_pct,
+             t.turnaround_days, h.hours_spent_pct, h.productivity, g.gates_passed_pct,
+             a.approvals_waiting
+      FROM rpt.dim_project p
+      OUTER APPLY (SELECT COUNT(*) AS documents, SUM(CAST(is_done AS int)) AS documents_done,
+                          CAST(100.0 * SUM(credit) / NULLIF(COUNT(*), 0) AS decimal(5,1)) AS progress_pct,
+                          SUM(CAST(is_overdue AS int)) AS overdue,
+                          SUM(CASE WHEN pipeline_state = 'with_client' THEN 1 ELSE 0 END) AS with_client,
+                          CAST(100.0 * SUM(CAST(is_afc AS int)) / NULLIF(SUM(CAST(is_drawing AS int)), 0) AS decimal(5,1)) AS afc_pct
+                   FROM rpt.eng_document_register
+                   WHERE is_excluded = 0 AND project_key = p.project_key) e
+      OUTER APPLY (SELECT TOP 1 CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY turnaround_days) OVER () AS decimal(6,1)) AS turnaround_days
+                   FROM rpt.eng_transmittal_response
+                   WHERE is_excluded = 0 AND transmittal_type = 'external' AND issued_date IS NOT NULL
+                     AND is_responded = 1 AND return_date IS NOT NULL AND project_key = p.project_key) t
+      OUTER APPLY (SELECT CAST(100.0 * SUM(actual_hours) / NULLIF(SUM(budget_hours), 0) AS decimal(6,1)) AS hours_spent_pct,
+                          CAST(SUM(CASE WHEN has_resource = 1 AND is_dummy_resource = 0 THEN earned_hours END)
+                               / NULLIF(SUM(CASE WHEN has_resource = 1 AND is_dummy_resource = 0 THEN COALESCE(actual_hours, 0) END), 0)
+                               AS decimal(6,2)) AS productivity
+                   FROM rpt.p6_resource_hours
+                   WHERE is_excluded = 0 AND is_p6_duplicate = 0 AND resource_type = 'labor'
+                     AND project_key = p.project_key) h
+      OUTER APPLY (SELECT CAST(100.0 * SUM(CAST(is_passed AS int)) / NULLIF(COUNT(*), 0) AS decimal(5,1)) AS gates_passed_pct
+                   FROM rpt.prj_gate_status WHERE is_excluded = 0 AND project_key = p.project_key) g
+      OUTER APPLY (SELECT COUNT(*) AS approvals_waiting FROM rpt.gov_approval_step
+                   WHERE is_pending = 1 AND is_excluded = 0 AND object_project_key = p.project_key) a
+      WHERE p.project_number = :project
+
+  - key: prj_view_pipeline
+    name: "PRJ · Project View: documents by stage"
+    description: "The chosen project's documents by the step they are waiting in, in workflow order."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT pipeline_state_label AS pipeline_state,
+             MIN(CASE pipeline_state WHEN 'not_started' THEN 1 WHEN 'with_engineering' THEN 2
+                   WHEN 'internal_review' THEN 3 WHEN 'pm_approval' THEN 4
+                   WHEN 'additional_approval' THEN 5 WHEN 'gm_approval' THEN 6
+                   WHEN 'with_client' THEN 7 WHEN 'done' THEN 9 ELSE 8 END) AS step,
+             COUNT(*) AS documents
+      FROM rpt.eng_document_register
+      WHERE is_excluded = 0 AND project_number = :project
+      GROUP BY pipeline_state_label
+      ORDER BY step
+
+  - key: prj_view_overdue_aging
+    name: "PRJ · Project View: overdue documents by age"
+    description: "How late the chosen project's overdue documents are."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT overdue_bin_label AS overdue_age, MIN(bin_order) AS bin_order, SUM(documents) AS documents
+      FROM rpt.eng_overdue_aging
+      WHERE is_excluded = 0 AND overdue_bin <> 'not_overdue' AND project_number = :project
+      GROUP BY overdue_bin_label
+      ORDER BY bin_order
+
+  - key: prj_view_doc_types
+    name: "PRJ · Project View: documents done by type"
+    description: "The chosen project's documents done against all its documents, per type."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT doc_type_label AS document_type, SUM(CAST(is_done AS int)) AS done, COUNT(*) AS documents
+      FROM rpt.eng_document_register
+      WHERE is_excluded = 0 AND project_number = :project
+      GROUP BY doc_type_label
+      ORDER BY documents DESC
+
+  - key: prj_view_transmittals
+    name: "PRJ · Project View: transmittals per month"
+    description: "The chosen project's transmittals issued per month, by who they went to."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT issued_month,
+             SUM(CASE WHEN transmittal_type = 'external' THEN 1 ELSE 0 END) AS [External (client)],
+             SUM(CASE WHEN transmittal_type = 'internal' THEN 1 ELSE 0 END) AS [Internal],
+             SUM(CASE WHEN transmittal_type = 'vendor'   THEN 1 ELSE 0 END) AS [Vendor],
+             SUM(CASE WHEN transmittal_type NOT IN ('external', 'internal', 'vendor') THEN 1 ELSE 0 END) AS [Other]
+      FROM rpt.eng_transmittal_register
+      WHERE is_draft = 0 AND is_excluded = 0 AND project_number = :project
+      GROUP BY issued_month
+      ORDER BY issued_month
+
+  - key: prj_view_turnaround
+    name: "PRJ · Project View: client turnaround by month"
+    description: "Median days for the client to return the chosen project's documents, by return month."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT DISTINCT return_month,
+             CAST(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY turnaround_days)
+                  OVER (PARTITION BY return_month) AS decimal(6,1)) AS median_days,
+             COUNT(*) OVER (PARTITION BY return_month) AS responses
+      FROM rpt.eng_transmittal_response
+      WHERE is_responded = 1 AND turnaround_days IS NOT NULL AND is_excluded = 0
+        AND project_number = :project
+      ORDER BY return_month
+
+  - key: prj_view_scurve
+    name: "PRJ · Project View: labour hours S-curve"
+    description: "The chosen project's cumulative planned against earned labour hours per week (P6)."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT w.week_start,
+             CAST(w.planned_cum AS decimal(12,0)) AS [Planned cumulative],
+             CASE WHEN w.week_start <= MAX(CASE WHEN w.earned > 0 THEN w.week_start END) OVER ()
+                  THEN CAST(SUM(w.earned) OVER (ORDER BY w.week_start ROWS UNBOUNDED PRECEDING) AS decimal(12,0))
+             END AS [Earned cumulative]
+      FROM (SELECT week_start, SUM(planned_hours_cum) AS planned_cum, SUM(earned_hours) AS earned
+            FROM rpt.p6_hours_weekly
+            WHERE resource_type = 'labor' AND is_p6_duplicate = 0 AND is_excluded = 0
+              AND project_number = :project
+            GROUP BY week_start) w
+      ORDER BY week_start
+
+  - key: prj_view_activities
+    name: "PRJ · Project View: activities by status"
+    description: "The chosen project's P6 activities by status."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT status_label AS activity_status, COUNT(*) AS activities
+      FROM rpt.p6_activity_progress
+      WHERE is_p6_duplicate = 0 AND is_excluded = 0 AND project_number = :project
+      GROUP BY status_label
+
+  - key: prj_view_approvals
+    name: "PRJ · Project View: approvals waiting by step"
+    description: "The chosen project's approval steps waiting for a decision, by step, with the oldest wait."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT s.step_name AS step, COUNT(*) AS waiting, MAX(s.age_days) AS oldest_days
+      FROM rpt.gov_approval_step s
+      JOIN rpt.dim_project p ON p.project_key = s.object_project_key
+      WHERE s.is_pending = 1 AND s.is_excluded = 0 AND p.project_number = :project
+      GROUP BY s.step_name
+      ORDER BY waiting DESC
+
+  - key: prj_view_gates
+    name: "PRJ · Project View: stage gates"
+    description: "The chosen project's stage gates in order, with their status and dates."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT gate_sequence, CONCAT(gate_sequence, '. ', gate_name) AS gate, status_label AS status,
+             CASE WHEN is_mandatory = 1 THEN 'Yes' ELSE 'No' END AS mandatory,
+             opened_on, closed_on
+      FROM rpt.prj_gate_status
+      WHERE is_excluded = 0 AND project_number = :project
+      ORDER BY gate_sequence
+
+  - key: prj_view_overdue_register
+    name: "PRJ · Project View: overdue documents"
+    description: "The chosen project's overdue documents, most overdue first."
+    datasource: default
+    refresh: daily
+    parameters: [{name: project, type: text, default: "", required: false}]
+    sql: |
+      SELECT r.document_number, r.doc_type_label AS document_type,
+             r.pipeline_state_label AS pipeline_state, r.active_revision_label AS revision,
+             r.target_date, r.days_overdue
+      FROM rpt.eng_document_register r
+      WHERE r.is_overdue = 1 AND r.is_excluded = 0 AND r.project_number = :project
+      ORDER BY days_overdue DESC, document_number
 
 dashboards:
   # ======================================================================== EXECUTIVE
@@ -843,6 +1056,46 @@ dashboards:
       - {title: "Gates passed", type: kpi, dataset: kpi_prj05, config: {value_field: value, rollup: sum, unit: "%", direction: higher_better, label: "Project gates passed", caption: "Share of gates on active projects that are signed off."}, layout: {x: 3, y: 54, w: 3, h: 4}}
       - {title: "People using the system", type: kpi, dataset: adp_active_users_monthly, config: {value_field: active_users, trend_field: active_users, value_from: last, rollup: max, direction: higher_better, delta_label: "vs previous month", label: "Active users, latest month"}, layout: {x: 6, y: 54, w: 3, h: 4}}
       - {title: "Modules in use", type: kpi, dataset: kpi_dqlive, config: {value_field: value, rollup: sum, direction: higher_better, label: "PMSv2 modules holding data", caption: "Production, quality and dispatch figures appear once those modules are used."}, layout: {x: 9, y: 54, w: 3, h: 4}}
+
+  # ======================================================================== PROJECT VIEW
+  - key: project_view
+    name: "Project View"
+    # Right after the Executive Overview: the board a project manager opens.
+    position: 15
+    description: "One project at a time: where its documents are, what is late, its hours and its approvals."
+    filters:
+      - {id: project, label: Project, type: picker, apply: param, param: project, required: true,
+         dataset: prj_picker, column: project_number, label_column: project_label,
+         detail_columns: [status, documents, overdue_documents, progress_pct],
+         prompt: "Choose a project to see its documents, hours, approvals and gates."}
+    widgets:
+      - {title: "Project", type: details, dataset: prj_view_summary, config: {title_field: project_name, subtitle_field: project_number, badge_field: status, fields: [{field: client_name, label: Client}, {field: origin, label: Origin}, {field: source_rfq_number, label: "From RFQ"}, {field: opco, label: "Operating company"}, {field: start_date, label: Start}, {field: planned_end_date, label: "Planned end"}, {field: project_manager, label: "Project manager"}, {field: p6_schedule, label: "P6 schedule"}, {field: documents, label: Documents}]}, layout: {x: 0, y: 0, w: 4, h: 8}}
+      - {title: "Engineering progress", type: kpi, dataset: prj_view_summary, config: {value_field: progress_pct, rollup: sum, unit: "%", direction: higher_better, label: "Engineering progress", caption: "Document work done, weighted by progress credit."}, layout: {x: 4, y: 0, w: 2, h: 4}}
+      - {title: "Overdue documents", type: kpi, dataset: prj_view_summary, config: {value_field: overdue, rollup: sum, direction: lower_better, label: "Overdue documents", drill: {dataset: eng_overdue_register, param_filters: {project_number: project}, title: "Overdue documents", label: "See them", columns: *overdue_cols}}, layout: {x: 6, y: 0, w: 2, h: 4}}
+      - {title: "Waiting for the client", type: kpi, dataset: prj_view_summary, config: {value_field: with_client, rollup: sum, direction: lower_better, label: "Waiting for the client", drill: {dataset: eng_with_client_register, param_filters: {project_number: project}, title: "Documents waiting for the client", label: "See them", columns: *client_cols}}, layout: {x: 8, y: 0, w: 2, h: 4}}
+      - {title: "Client turnaround", type: kpi, dataset: prj_view_summary, config: {value_field: turnaround_days, rollup: sum, unit: d, direction: lower_better, label: "Client turnaround", caption: "Median days for the client to return our documents."}, layout: {x: 10, y: 0, w: 2, h: 4}}
+      - {title: "Drawings approved for construction", type: kpi, dataset: prj_view_summary, config: {value_field: afc_pct, rollup: sum, unit: "%", direction: higher_better, label: "Drawings approved for construction"}, layout: {x: 4, y: 4, w: 2, h: 4}}
+      - {title: "Hours spent against budget", type: kpi, dataset: prj_view_summary, config: {value_field: hours_spent_pct, rollup: sum, unit: "%", label: "Labour hours spent against budget", caption: "Latest draft P6 schedule."}, layout: {x: 6, y: 4, w: 2, h: 4}}
+      - {title: "Earned hours per hour spent", type: kpi, dataset: prj_view_summary, config: {value_field: productivity, rollup: sum, unit: ratio, direction: higher_better, label: "Earned hours per hour spent", caption: "1.0 is on plan.", thresholds: [{op: lt, value: 0.9, color: red, label: "Behind plan"}, {op: gte, value: 1, color: green, label: "On plan"}]}, layout: {x: 8, y: 4, w: 2, h: 4}}
+      - {title: "Approvals waiting", type: kpi, dataset: prj_view_summary, config: {value_field: approvals_waiting, rollup: sum, direction: lower_better, label: "Approvals waiting", drill: {dataset: prc_pending_list, param_filters: {project_number: project}, title: "Approvals waiting", label: "See them", columns: *approvals_cols}}, layout: {x: 10, y: 4, w: 2, h: 4}}
+
+      - {title: "Engineering documents", type: text, config: {content: "Where are this project's documents, and what is late?"}, layout: {x: 0, y: 8, w: 12, h: 2}}
+      - {title: "Where the documents are now", type: bar_list, dataset: prj_view_pipeline, config: {empty: "No documents are registered for this project.", category_field: pipeline_state, value_field: documents, sort: false, limit: 9, caption: "In workflow order.", drill: {dataset: eng_document_list, field: pipeline_state, param_filters: {project_number: project}, title: "Documents", columns: *docs_cols}}, layout: {x: 0, y: 10, w: 4, h: 8}}
+      - {title: "How late the overdue documents are", type: bar_list, dataset: prj_view_overdue_aging, config: {empty: "Nothing on this project is overdue.", category_field: overdue_age, value_field: documents, sort: false, tones: {"8-14 days": watch, "15-30 days": serious, "More than 30 days": act}, drill: {dataset: eng_overdue_register, field: overdue_age, param_filters: {project_number: project}, title: "Overdue documents", columns: *overdue_cols}}, layout: {x: 4, y: 10, w: 4, h: 8}}
+      - {title: "Done by document type", type: progress, dataset: prj_view_doc_types, config: {empty: "No documents are registered for this project.", category_field: document_type, value_field: done, target_field: documents, direction: higher_better, limit: 8, caption: "Documents done against all documents of the type."}, layout: {x: 8, y: 10, w: 4, h: 8}}
+      - {title: "Transmittals issued per month", type: bar, dataset: prj_view_transmittals, config: {empty: "No transmittals issued for this project yet.", category_field: issued_month, category_format: month, value_fields: ["External (client)", "Internal", "Vendor", "Other"], stacked: true, rollup: none, caption: "Every transmittal of this project, by who it went to."}, layout: {x: 0, y: 18, w: 7, h: 8}}
+      - {title: "Client turnaround by month", type: line, dataset: prj_view_turnaround, config: {empty: "No documents returned by the client yet.", category_field: return_month, category_format: month, value_field: median_days, unit: d, rollup: none, caption: "Median days from our issue to the client's return. Lower is better."}, layout: {x: 7, y: 18, w: 5, h: 8}}
+
+      - {title: "Schedule and hours", type: text, config: {content: "Are we earning the hours we spend? From the project's latest draft P6 schedule; empty when no schedule is linked."}, layout: {x: 0, y: 26, w: 12, h: 2}}
+      - {title: "Planned against earned hours", type: line, dataset: prj_view_scurve, config: {empty: "No P6 schedule is linked to this project.", category_field: week_start, value_fields: ["Planned cumulative", "Earned cumulative"], unit: h, rollup: none, tones: {"Planned cumulative": neutral}, caption: "When earned falls below planned, the work is behind schedule."}, layout: {x: 0, y: 28, w: 8, h: 9}}
+      - {title: "Activities by status", type: bar_list, dataset: prj_view_activities, config: {empty: "No P6 schedule is linked to this project.", category_field: activity_status, value_field: activities, sort: false, tones: {"Completed": good, "In Progress": info, "Not Started": neutral}}, layout: {x: 8, y: 28, w: 4, h: 9}}
+
+      - {title: "Approvals and gates", type: text, config: {content: "Which decisions is this project waiting for, and how far through its gates is it?"}, layout: {x: 0, y: 37, w: 12, h: 2}}
+      - {title: "Approvals waiting, by step", type: bar_list, dataset: prj_view_approvals, config: {empty: "Nothing on this project is waiting for a decision.", category_field: step, value_field: waiting, detail_field: oldest_days, detail_format: "oldest waiting {value} days", limit: 8}, layout: {x: 0, y: 39, w: 6, h: 7}}
+      - {title: "Stage gates", type: table, dataset: prj_view_gates, config: {empty: "No stage gates are recorded for this project.", page_size: 8, columns: [{field: gate, label: Gate}, {field: status, label: Status}, {field: mandatory, label: Mandatory}, {field: opened_on, label: Opened}, {field: closed_on, label: Closed}]}, layout: {x: 6, y: 39, w: 6, h: 7}}
+
+      - {title: "Overdue documents", type: text, config: {content: "Every overdue document of this project, most overdue first."}, layout: {x: 0, y: 46, w: 12, h: 2}}
+      - {title: "Overdue document register", type: table, dataset: prj_view_overdue_register, config: {empty: "Nothing on this project is overdue.", page_size: 12, columns: [{field: document_number, label: Document}, {field: document_type, label: Type}, {field: pipeline_state, label: "Where it is"}, {field: revision, label: Revision}, {field: target_date, label: "Target date"}, {field: days_overdue, label: "Days overdue"}]}, layout: {x: 0, y: 48, w: 12, h: 10}}
 
   # ======================================================================== ENGINEERING
   - key: engineering
