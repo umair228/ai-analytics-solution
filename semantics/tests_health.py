@@ -301,6 +301,44 @@ class LabHealthApiTests(TestCase):
         tiles = {t["key"]: t for t in lab_health(self.user)["tiles"]}
         self.assertEqual(tiles["off_spec_rate_30d"]["grade"], "good")   # 50% <= 80%
 
+    def test_a_tile_carries_its_nightly_trend_and_the_value_a_week_ago(self):
+        """'+12 since 18 Nov': the newest recorded value at least a week older than the
+        data on screen; failed recordings are skipped, never read as zero."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from semantics.health import lab_health
+        from semantics.models import KpiObservation
+
+        now = timezone.now()
+        for n, (days, value, ok) in enumerate([(9, 4.0, True), (8, None, False), (2, 2.0, True)]):
+            KpiObservation.objects.create(
+                datasource=self.ds, kind=KpiObservation.Kind.TILE, key="backlog",
+                restore_id=f"night-{n}", value=value,
+                data_as_of=(now - timedelta(days=days)).isoformat(),
+                status=KpiObservation.Status.OK if ok else KpiObservation.Status.ERROR)
+        tiles = {t["key"]: t for t in lab_health(self.user)["tiles"]}
+        backlog = tiles["backlog"]
+        self.assertEqual(backlog["previous"]["value"], 4.0)
+        self.assertEqual(backlog["previous"]["days"], 9)
+        self.assertEqual([p["value"] for p in backlog["trend"]], [4.0, 2.0])
+        # Nothing recorded a week back: no comparison is invented.
+        self.assertIsNone(tiles["samples_30d"]["previous"])
+        self.assertEqual(tiles["samples_30d"]["trend"], [])
+
+    def test_history_is_withheld_where_the_value_is(self):
+        from semantics.health import attach_history
+        from semantics.models import KpiObservation
+
+        KpiObservation.objects.create(
+            datasource=self.ds, kind=KpiObservation.Kind.TILE, key="cost", restore_id="n1",
+            value=99.0, data_as_of="2026-01-01T00:00:00+00:00")
+        tiles = [{"key": "cost", "restricted": True, "value": None, "error": ""},
+                 {"key": "broken", "restricted": False, "value": None, "error": "boom"}]
+        attach_history(self.ds, tiles, None)
+        self.assertEqual([(t["trend"], t["previous"]) for t in tiles], [([], None), ([], None)])
+
     def test_a_broken_tile_reads_as_broken_not_as_zero(self):
         """A lab manager seeing '0 off-spec' because the query failed is worse off
         than one seeing no number at all."""

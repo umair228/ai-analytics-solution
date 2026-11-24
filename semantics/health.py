@@ -15,9 +15,11 @@ trade for numbers that move on a replication cadence measured in hours.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from querybuilder.executor import QueryError, assert_read_only
 from texttosql.execution import execute_with_deadline
@@ -28,6 +30,10 @@ from .layer import get_semantic_layer, layer_version, render_for
 logger = logging.getLogger(__name__)
 
 CACHE_TTL = 60  # seconds
+# "Since last week": the newest recorded value at least this much older than the data
+# on screen (a week less half a day, so a nightly copy taken a little earlier counts).
+COMPARE_AFTER = timedelta(days=7) - timedelta(hours=12)
+TREND_POINTS = 30           # nightly values kept for the small trend line
 # A restored snapshot changes only when it is promoted, and the promotion changes its
 # restore_id — which is part of the cache key — so its tiles can be kept far longer.
 SNAPSHOT_CACHE_TTL = 6 * 3600
@@ -115,6 +121,51 @@ def _run_tile(datasource, tile, layer=None, cleared=frozenset()) -> dict:
     return out
 
 
+def _as_dt(text):
+    try:
+        dt = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt if dt.tzinfo else timezone.make_aware(dt)
+
+
+def attach_history(datasource, tiles, current_as_of) -> None:
+    """Give each tile its recorded nightly values (``trend``) and the value from about a
+    week before the data on screen (``previous``), from KpiObservation (P5).
+
+    Only tiles shown with a value get history: a restricted tile the viewer is not
+    cleared for stays blank (the recorder stores every value; reading back goes through
+    the same clearance as the live tile), and a broken tile has nothing to compare.
+    Failed recordings are skipped, never read as zero.
+    """
+    from .models import KpiObservation
+
+    shown = {t["key"]: t for t in tiles
+             if not t.get("restricted") and not t.get("error") and t.get("value") is not None}
+    for t in tiles:
+        t["trend"], t["previous"] = [], None
+    if not shown:
+        return
+    now = _as_dt(current_as_of) or timezone.now()
+    rows = (KpiObservation.objects
+            .filter(datasource=datasource, kind=KpiObservation.Kind.TILE,
+                    key__in=list(shown), status=KpiObservation.Status.OK,
+                    value__isnull=False)
+            .order_by("observed_at")
+            .values_list("key", "value", "data_as_of", "observed_at"))
+    by_key = {}
+    for key, value, as_of, observed in rows:
+        by_key.setdefault(key, []).append((_as_dt(as_of) or observed, value, as_of))
+    for key, points in by_key.items():
+        tile = shown[key]
+        tile["trend"] = [{"value": v, "data_as_of": a} for _, v, a in points[-TREND_POINTS:]]
+        older = [p for p in points if p[0] <= now - COMPARE_AFTER]
+        if older:
+            when, value, as_of = older[-1]
+            tile["previous"] = {"value": value, "data_as_of": as_of,
+                                "days": max(1, round((now - when).total_seconds() / 86400))}
+
+
 def resolve_datasource(user, datasource_id=None):
     """The datasource the home page reports on.
 
@@ -175,5 +226,6 @@ def lab_health(user, datasource_id=None) -> dict:
         "tiles": [_run_tile(datasource, t, layer, cleared) for t in tiles],
         **fresh.as_provenance(),
     }
+    attach_history(datasource, result["tiles"], fresh.data_as_of)
     cache.set(key, result, SNAPSHOT_CACHE_TTL if restore_id else CACHE_TTL)
     return result
