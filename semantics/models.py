@@ -18,6 +18,10 @@ class SemanticLayer(TimeStampedModel):
     datasource = models.OneToOneField(
         "connections.DataSource", on_delete=models.CASCADE, related_name="semantic_layer")
     notes = models.TextField(blank=True)
+    # IANA zone the business reads dates in (``timezone:`` in the spec); renders
+    # {{local:…}}. ``timezone_mssql`` is the Windows name MSSQL needs for a DST zone.
+    timezone = models.CharField(max_length=64, blank=True)
+    timezone_mssql = models.CharField(max_length=64, blank=True)
 
     def __str__(self):
         return f"semantic layer for {self.datasource_id}"
@@ -76,6 +80,22 @@ class CertifiedJoin(TimeStampedModel):
         return f"{self.left_table}⋈{self.right_table}"
 
 
+class Unit(models.TextChoices):
+    """What a number counts. Formatting follows it; nothing else should guess."""
+    COUNT = "count", "Count"
+    PERCENT = "percent", "Percent"
+    HOURS = "hours", "Hours"
+    DAYS = "days", "Days"
+    CURRENCY = "currency", "Currency"
+    RATIO = "ratio", "Ratio"
+
+
+class Direction(models.TextChoices):
+    LOWER_BETTER = "lower_better", "Lower is better"
+    HIGHER_BETTER = "higher_better", "Higher is better"
+    NEUTRAL = "neutral", "Neutral"
+
+
 class HealthTile(TimeStampedModel):
     """One number on the Lab Health home page — certified, not fabricated.
 
@@ -91,15 +111,8 @@ class HealthTile(TimeStampedModel):
     column — a tile is a scalar.
     """
 
-    class Unit(models.TextChoices):
-        COUNT = "count", "Count"
-        PERCENT = "percent", "Percent"
-        HOURS = "hours", "Hours"
-
-    class Direction(models.TextChoices):
-        LOWER_BETTER = "lower_better", "Lower is better"
-        HIGHER_BETTER = "higher_better", "Higher is better"
-        NEUTRAL = "neutral", "Neutral"
+    Unit = Unit
+    Direction = Direction
 
     datasource = models.ForeignKey(
         "connections.DataSource", on_delete=models.CASCADE, related_name="health_tiles")
@@ -113,9 +126,17 @@ class HealthTile(TimeStampedModel):
     # The SLA / control limit this number is judged against. A tile with no target
     # is reported, not graded — we do not invent a threshold nobody agreed to.
     target = models.FloatField(null=True, blank=True)
+    # Explicit RAG bands agreed by the owner (P5). Without them the tile grades
+    # against ``target`` with the default bands; with neither it is not graded.
+    warn = models.FloatField(null=True, blank=True)
+    critical = models.FloatField(null=True, blank=True)
     # Which lab roles see this tile. Empty = everyone.
     roles = models.JSONField(default=list, blank=True)
     position = models.PositiveIntegerField(default=0)
+    # Classification inherited from the views the SQL reads (scope loader):
+    # restricted classes ("cost", "bid_confidential") need clearance to be shown.
+    classes = models.JSONField(default=list, blank=True)
+    scoped = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["position", "key"]
@@ -145,9 +166,70 @@ class CertifiedMetric(TimeStampedModel):
     row_limit = models.PositiveIntegerField(null=True, blank=True)
     synonyms = models.JSONField(default=list, blank=True)
 
+    # ---- KPI metadata (P5) ----------------------------------------------------------
+    class Status(models.TextChoices):
+        """The KPI lifecycle: only certified and live metrics are offered as certified."""
+        DRAFT = "draft", "Draft (SQL validated on the copy)"
+        PARITY_CHECKED = "parity_checked", "Parity checked"
+        CERTIFIED = "certified", "Certified (owner sign-off recorded)"
+        LIVE = "live", "Live (on a board)"
+        DEPRECATED = "deprecated", "Deprecated (kept for history)"
+
+    kpi_id = models.CharField(max_length=32, blank=True)       # e.g. ENG-01
+    unit = models.CharField(max_length=10, choices=Unit.choices, blank=True)
+    direction = models.CharField(max_length=14, choices=Direction.choices,
+                                 default=Direction.NEUTRAL)
+    owner = models.CharField(max_length=120, blank=True)       # a role, never a person
+    brd_ref = models.CharField(max_length=200, blank=True)     # requirement it answers
+    # {target, warn, critical}: only what the owner agreed — never invented.
+    thresholds = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.LIVE)
+    # Observed nightly into KpiObservation (one number per restore).
+    observe = models.BooleanField(default=False)
+    classes = models.JSONField(default=list, blank=True)
+    scoped = models.BooleanField(default=False)
+
     class Meta:
         ordering = ["key"]
         unique_together = (("datasource", "key"),)
 
     def __str__(self):
         return self.key
+
+
+class KpiObservation(models.Model):
+    """One value of one certified number for one snapshot of the source (P5).
+
+    A nightly restored copy is identified by its ``restore_id``; recording is
+    idempotent per (source, kind, key, restore_id), so the trend is one point per
+    night however often the recorder runs. A live source records one point per day.
+    """
+
+    class Kind(models.TextChoices):
+        METRIC = "metric", "Certified metric"
+        TILE = "tile", "Health tile"
+
+    class Status(models.TextChoices):
+        OK = "ok", "OK"
+        ERROR = "error", "Error"
+
+    datasource = models.ForeignKey(
+        "connections.DataSource", on_delete=models.CASCADE, related_name="kpi_observations")
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    key = models.CharField(max_length=128)
+    restore_id = models.CharField(max_length=64)
+    data_as_of = models.CharField(max_length=40, blank=True)
+    value = models.FloatField(null=True, blank=True)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OK)
+    error = models.TextField(blank=True)
+    observed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["datasource", "kind", "key", "observed_at"]
+        constraints = [models.UniqueConstraint(
+            fields=["datasource", "kind", "key", "restore_id"],
+            name="kpi_observation_once_per_snapshot")]
+        indexes = [models.Index(fields=["datasource", "kind", "key", "-observed_at"])]
+
+    def __str__(self):
+        return f"{self.key}@{self.restore_id}={self.value}"

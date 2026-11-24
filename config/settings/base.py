@@ -609,3 +609,19 @@ DIS_ALERT_SUBJECT_PREFIX = config("DIS_ALERT_SUBJECT_PREFIX", default="[DIS Aler
 # reports): a larger result is refused with HTTP 413 rather than truncated.
 DIS_EXPORT_MAX_ROWS = config("DIS_EXPORT_MAX_ROWS", default=100000, cast=int)
 DIS_EXPORT_PDF_MAX_ROWS = config("DIS_EXPORT_PDF_MAX_ROWS", default=2000, cast=int)
+
+
+def _pairs(value) -> dict:
+    """"a=b;c=d" -> {"a": "b", "c": "d"}; blank -> {}."""
+    out = {}
+    for part in str(value or "").split(";"):
+        key, sep, val = part.partition("=")
+        if sep and key.strip() and val.strip():
+            out[key.strip()] = val.strip()
+    return out
+
+
+# Clearance for classified certified numbers (semantics.access): class -> the Django
+# group whose members may see it, e.g. "cost=Cost cleared;bid_confidential=Bid
+# confidential". A class with no group is visible to administrators only.
+DIS_CLASS_CLEARANCE = _pairs(config("DIS_CLASS_CLEARANCE", default=""))

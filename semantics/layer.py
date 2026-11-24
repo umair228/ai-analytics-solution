@@ -48,6 +48,21 @@ class LMetric:
     description: str = ""
     row_limit: int | None = None   # the metric's own semantic cap (the old TOP n)
     synonyms: list = field(default_factory=list)
+    kpi_id: str = ""
+    unit: str = ""
+    direction: str = "neutral"
+    owner: str = ""
+    brd_ref: str = ""
+    thresholds: dict = field(default_factory=dict)
+    status: str = "live"
+    observe: bool = False
+    classes: list = field(default_factory=list)   # restricted classes (need clearance)
+    scoped: bool = False                          # reads a project-scoped view
+
+    @property
+    def offered(self) -> bool:
+        """Only certified and live metrics answer as certified (the KPI lifecycle)."""
+        return self.status in ("certified", "live")
 
 
 @dataclass
@@ -61,6 +76,10 @@ class LHealthTile:
     target: float | None = None
     roles: list = field(default_factory=list)   # empty = every role
     position: int = 0
+    warn: float | None = None
+    critical: float | None = None
+    classes: list = field(default_factory=list)
+    scoped: bool = False
 
     def visible_to(self, role: str) -> bool:
         return not self.roles or (role or "") in self.roles
@@ -71,6 +90,8 @@ class Layer:
     datasource_id: int | None = None
     datasource_name: str = ""
     notes: str = ""
+    timezone: str = ""                               # IANA, renders {{local:…}}
+    timezone_mssql: str = ""
     tables: dict = field(default_factory=dict)       # {NAME: LTable}
     joins: list = field(default_factory=list)        # [LJoin]
     metrics: list = field(default_factory=list)      # [LMetric]
@@ -114,6 +135,14 @@ def _cache_key(datasource):
     return (datasource.id, stamp)
 
 
+def render_for(layer: "Layer", sql: str, datasource, *, scope=None) -> str:
+    """Render portable SQL with this layer's time zone (and the caller's scope)."""
+    from .metric_sql import render
+
+    return render(sql, datasource, timezone=layer.timezone or None,
+                  timezone_mssql=layer.timezone_mssql, scope=scope)
+
+
 def invalidate(datasource=None) -> None:
     """Drop the cached layer(s). Called by apply_spec; safe to call anywhere."""
     if datasource is None:
@@ -143,6 +172,8 @@ def _build_semantic_layer(datasource) -> Layer:
     sl = SemanticLayer.objects.filter(datasource=datasource).first()
     if sl:
         layer.notes = sl.notes
+        layer.timezone = sl.timezone
+        layer.timezone_mssql = sl.timezone_mssql
     tables = (SemanticTable.objects.filter(datasource=datasource)
               .prefetch_related("columns"))
     for t in tables:
@@ -163,10 +194,16 @@ def _build_semantic_layer(datasource) -> Layer:
         layer.metrics.append(LMetric(key=m.key, name=m.name, sql=m.sql,
                                      description=m.description,
                                      row_limit=m.row_limit,
-                                     synonyms=list(m.synonyms or [])))
+                                     synonyms=list(m.synonyms or []),
+                                     kpi_id=m.kpi_id, unit=m.unit, direction=m.direction,
+                                     owner=m.owner, brd_ref=m.brd_ref,
+                                     thresholds=dict(m.thresholds or {}), status=m.status,
+                                     observe=m.observe, classes=list(m.classes or []),
+                                     scoped=m.scoped))
     for h in HealthTile.objects.filter(datasource=datasource):
         layer.health.append(LHealthTile(
             key=h.key, label=h.label, sql=h.sql, description=h.description,
             unit=h.unit, direction=h.direction, target=h.target,
-            roles=list(h.roles or []), position=h.position))
+            roles=list(h.roles or []), position=h.position, warn=h.warn,
+            critical=h.critical, classes=list(h.classes or []), scoped=h.scoped))
     return layer

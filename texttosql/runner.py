@@ -65,8 +65,7 @@ def run_text_to_sql(datasource, question, *, database=None, max_rows=None,
     n = int(max_rows or getattr(settings, "DSE_QUERY_MAX_ROWS", 5000))
     max_attempts = int(max_attempts or getattr(settings, "DSE_TEXTTOSQL_MAX_ATTEMPTS", 3))
 
-    from semantics.layer import get_semantic_layer
-    from semantics.metric_sql import render as render_metric
+    from semantics.layer import get_semantic_layer, render_for
     from semantics.router import match_certified_metric
 
     freshness = describe_freshness(datasource)
@@ -80,7 +79,7 @@ def run_text_to_sql(datasource, question, *, database=None, max_rows=None,
         metric = match_certified_metric(layer, question)
         if metric:
             try:
-                sql = render_metric(metric.sql, datasource)
+                sql = render_for(layer, metric.sql, datasource)
                 assert_read_only(sql)
                 cap = min(metric.row_limit or n, n)
                 capped = inject_row_limit(sql, datasource.source_type, cap)
