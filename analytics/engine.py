@@ -126,6 +126,11 @@ def column_statistics(df):
         }
         if is_numeric:
             clean = numeric.dropna()
+            if pd.api.types.is_bool_dtype(clean):
+                # A flag (SQL Server bit) arrives as booleans; numpy cannot subtract
+                # booleans, so quantiles failed and the whole endpoint answered 500.
+                # As 0/1 the mean is the share that is true.
+                clean = clean.astype("float64")
             entry.update({
                 "type": "numeric",
                 "sum": _num(clean.sum()),
