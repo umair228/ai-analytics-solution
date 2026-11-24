@@ -19,6 +19,12 @@ psycopg2-binary>=2.9  # PostgreSQL
 numpy>=1.26,<2
 pandas>=2.2,<2.3
 openpyxl>=3.1
+# Branded PDF reports (core.report_render): dataset exports + scheduled reports.
+# Pure Python wheels, no system libraries (unlike WeasyPrint).
+reportlab>=4.2,<6
+# Domain packs (seed_domain_pack) and semantic-layer specs read YAML; it used to
+# arrive only transitively.
+PyYAML>=6.0
 
 # Natural-language semantic query engine ("Ask Data")
 # After install also run: python -m spacy download en_core_web_sm

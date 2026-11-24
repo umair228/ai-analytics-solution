@@ -99,9 +99,14 @@ def _result_payload(result, sql, max_rows):
     }
 
 
-def execute_spec(datasource, raw_spec, database=None, max_rows=None):
-    """Compile and execute a query spec. Returns a result payload."""
-    compiled = compile_spec(datasource, raw_spec, database)
+def execute_spec(datasource, raw_spec, database=None, max_rows=None, full=False):
+    """Compile and execute a query spec. Returns a result payload.
+
+    ``full=True`` (exports) compiles without the platform preview cap — the
+    spec's own LIMIT still applies — so ``max_rows`` is the only ceiling and
+    ``truncated`` tells the truth about the complete result."""
+    compiled = compile_spec(datasource, raw_spec, database,
+                            unlimited=full, keep_spec_limit=full)
     engine = get_engine(datasource, database)
     try:
         with engine.connect() as conn:
