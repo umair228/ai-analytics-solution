@@ -35,7 +35,7 @@ WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
 # `dataset_id` on install); `field` is the list's column matched to the clicked
 # category; `filters` narrow every opening ([{column, value}]); `columns` as on a table.
 DRILL_KEYS = ("dataset", "field", "filters", "columns", "title", "label")
-REPORT_KEYS = ("key", "name", "dataset", "schedule", "format")
+REPORT_KEYS = ("key", "name", "dataset", "board", "schedule", "format")
 REPORT_FORMATS = ("xlsx", "pdf", "csv")  # what send_scheduled_reports renders for a dataset
 # Recipients are personal data and change without a release, so a pack never carries them:
 # seed_domain_pack --recipients (or the Reports page) sets them.
@@ -90,9 +90,10 @@ class PackDashboard:
 class PackReport:
     key: str
     name: str
-    dataset_key: str
+    dataset_key: str | None
     schedule: str
     export_format: str
+    board_key: str | None = None    # a board report: the whole board as a PDF
 
 
 @dataclass
@@ -303,24 +304,43 @@ def validate_pack(doc, source="<pack>") -> Pack:
                       REPORT_KEYS, where, err)
         key = _key(item, where, report_keys, err)
         rname = _name(item, where, report_names, err)
-        ds_key = item.get("dataset")
-        if ds_key not in dataset_keys:
+        ds_key, board_key = item.get("dataset"), item.get("board")
+        target_ok = True
+        if board_key is not None:
+            # The whole board as a PDF: one of this pack's boards, and only from a pack
+            # whose boards everyone may open (a private board is shared by link only).
+            if ds_key is not None:
+                err(where, "name either a dataset or a board, not both.")
+                target_ok = False
+            elif board_key not in dashboard_keys:
+                err(where, f"board: {board_key!r} is not a dashboard key of this pack.")
+                target_ok = False
+            elif visibility != "org":
+                err(where, "board: a board report needs visibility: org; a private "
+                           "board is shared by link only.")
+                target_ok = False
+        elif ds_key not in dataset_keys:
             err(where, f"dataset: {ds_key!r} is not a dataset key of this pack.")
+            target_ok = False
         schedule = item.get("schedule")
         if schedule not in DatasetReport.Schedule.values:
             err(where, f"schedule: must be one of "
                        f"{', '.join(DatasetReport.Schedule.values)} (got {schedule!r}).")
-        fmt = item.get("format", "xlsx")
+        fmt = item.get("format", "pdf" if board_key is not None else "xlsx")
         if fmt not in REPORT_FORMATS:
             err(where, f"format: must be one of {', '.join(REPORT_FORMATS)} (got {fmt!r}).")
+        elif board_key is not None and fmt != "pdf":
+            err(where, f"format: a board report is a PDF (got {fmt!r}).")
         same_name = DatasetReport.objects.filter(name=rname).count() if rname else 0
         if same_name > 1:
             err(where, f"name: {same_name} existing reports are named {rname!r}; "
                        "rename or delete the duplicates.")
-        if key and rname and ds_key in dataset_keys and same_name <= 1 \
-                and schedule in DatasetReport.Schedule.values and fmt in REPORT_FORMATS:
+        if key and rname and target_ok and same_name <= 1 \
+                and schedule in DatasetReport.Schedule.values and fmt in REPORT_FORMATS \
+                and (board_key is None or fmt == "pdf"):
             reports.append(PackReport(key=key, name=rname, dataset_key=ds_key,
-                                      schedule=schedule, export_format=fmt))
+                                      schedule=schedule, export_format=fmt,
+                                      board_key=board_key))
 
     if errors:
         raise PackError(errors)
@@ -580,9 +600,14 @@ def apply_pack(pack: Pack, owner, recipients=None) -> ApplyResult:
     for spec in pack.dashboards:
         action, note = _upsert_dashboard(spec, pack, owner, result.datasets)
         result.actions.append(("dashboard", spec.name, action, note))
+    boards = {d.key: d.name for d in pack.dashboards}
     for spec in pack.reports:
-        action, note = _upsert_report(spec, owner, result.datasets[spec.dataset_key],
-                                      recipients)
+        if spec.board_key:
+            board = Dashboard.objects.get(name=boards[spec.board_key])
+            action, note = _upsert_report(spec, owner, None, recipients, board=board)
+        else:
+            action, note = _upsert_report(spec, owner, result.datasets[spec.dataset_key],
+                                          recipients)
         result.actions.append(("report", spec.name, action, note))
     return result
 
@@ -688,13 +713,19 @@ def _upsert_dashboard(spec: PackDashboard, pack: Pack, owner, datasets):
     return ("updated" if (changed or replaced or shared) else "unchanged"), note
 
 
-def _upsert_report(spec: PackReport, owner, dataset, recipients):
-    """A pack report is a scheduled, audited export of a pack dataset (one email and one
-    audit row per recipient). Without ``recipients`` a NEW report is created inactive, and an
-    existing one keeps the recipients and on/off state an administrator gave it."""
-    fields = {"dataset_id": dataset.id, "owner_id": owner.id, "schedule": spec.schedule,
-              "export_format": spec.export_format,
-              "kind": DatasetReport.Kind.DATASET_CSV}  # legacy name: export_format picks the file
+def _upsert_report(spec: PackReport, owner, dataset, recipients, *, board=None):
+    """A pack report is a scheduled, audited export of a pack dataset, or a pack board as
+    a PDF (one email and one audit row per recipient). Without ``recipients`` a NEW report
+    is created inactive, and an existing one keeps the recipients and on/off state an
+    administrator gave it."""
+    if board is not None:
+        fields = {"dashboard_id": board.id, "dataset_id": None, "owner_id": owner.id,
+                  "schedule": spec.schedule, "export_format": "pdf",
+                  "kind": DatasetReport.Kind.BOARD}
+    else:
+        fields = {"dataset_id": dataset.id, "dashboard_id": None, "owner_id": owner.id,
+                  "schedule": spec.schedule, "export_format": spec.export_format,
+                  "kind": DatasetReport.Kind.DATASET_CSV}  # legacy name: export_format picks the file
     if recipients is not None:
         fields.update(recipient_emails=", ".join(recipients), is_active=bool(recipients))
     report = DatasetReport.objects.filter(name=spec.name).first()

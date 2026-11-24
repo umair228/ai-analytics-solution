@@ -286,6 +286,32 @@ class DomainPackTests(TestCase):
         cfg["drill"] = "orders_by_region"
         self.assert_invalid(doc, "drill: must be a mapping")
 
+    def test_a_pack_board_can_be_reported_as_a_pdf(self):
+        from datasets.models import DatasetReport
+        doc = self.example()
+        doc["reports"] = [{"key": "weekly_board", "name": "Weekly overview (PDF)",
+                           "board": doc["dashboards"][0]["key"], "schedule": "weekly"}]
+        self.seed(pack=self.write_pack(doc))
+        report = DatasetReport.objects.get(name="Weekly overview (PDF)")
+        self.assertEqual((report.kind, report.export_format, report.dataset_id),
+                         (DatasetReport.Kind.BOARD, "pdf", None))
+        self.assertEqual(report.dashboard.name, doc["dashboards"][0]["name"])
+        self.assertFalse(report.is_active)            # recipients are never in a pack
+
+    def test_a_board_report_names_a_pack_board_in_an_org_pack(self):
+        doc = self.example()
+        doc["reports"] = [{"key": "r", "name": "R", "board": "nope", "schedule": "weekly"}]
+        self.assert_invalid(doc, "board: 'nope' is not a dashboard key of this pack")
+        doc["reports"] = [{"key": "r", "name": "R", "board": doc["dashboards"][0]["key"],
+                           "schedule": "weekly", "format": "xlsx"}]
+        self.assert_invalid(doc, "a board report is a PDF")
+        doc["reports"][0].pop("format")
+        doc["visibility"] = "private"
+        self.assert_invalid(doc, "a board report needs visibility: org")
+        doc["visibility"] = "org"
+        doc["reports"][0]["dataset"] = doc["datasets"][0]["key"]
+        self.assert_invalid(doc, "name either a dataset or a board, not both")
+
     def test_board_position_must_be_a_whole_number(self):
         doc = self.example()
         doc["dashboards"][0]["position"] = "first"

@@ -33,7 +33,7 @@ class DashboardViewSet(viewsets.ModelViewSet):
         return visible_to(qs, user)
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve", "layout"):
+        if self.action in ("list", "retrieve", "layout", "report_pdf"):
             return [IsAuthenticated()]
         return [perm() for perm in self.permission_classes]
 
@@ -58,6 +58,33 @@ class DashboardViewSet(viewsets.ModelViewSet):
         return Response(
             DashboardSerializer(fresh, context={"request": request}).data
         )
+
+    @action(detail=True, methods=["get"], url_path="report-pdf", url_name="report-pdf")
+    def report_pdf(self, request, pk=None):
+        """The board as the PDF its scheduled report emails, for whoever can open the
+        board. Fail-closed audit: the EXPORT row is committed before the file is sent."""
+        from django.http import HttpResponse
+
+        from core.audit import EXPORT, AuditWriteError, record_audit_strict
+        from datasets.exports import user_label
+
+        from .board_report import audit_detail, board_report_pdf
+
+        board = self.get_object()
+        out, filename = board_report_pdf(
+            board, user=request.user, generated_by=f"downloaded by {user_label(request.user)}")
+        try:
+            record_audit_strict(
+                EXPORT, request=request, target_type="Dashboard", target_id=board.id,
+                summary=f"Downloaded board '{board.name}' as PDF",
+                detail=audit_detail(out, filename))
+        except AuditWriteError:
+            return Response({"detail": "Export not audited; nothing was exported."},
+                            status=500)
+        response = HttpResponse(out.content, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(detail=True, methods=["post"], url_path="clone", url_name="clone")
     def clone(self, request, pk=None):

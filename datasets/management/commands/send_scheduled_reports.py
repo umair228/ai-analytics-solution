@@ -1,4 +1,4 @@
-"""Send scheduled email reports: dataset tables, saved analysis runs, charts.
+"""Send scheduled email reports: dataset tables, saved analysis runs, charts, boards.
 
 Run it from the scheduler loop or cron — it only sends what is due, e.g.:
 
@@ -16,6 +16,9 @@ Run it from the scheduler loop or cron — it only sends what is due, e.g.:
   or "failed".
 * The report owner must still be able to view the dataset (same rule as the
   API); otherwise the report is not sent.
+* A board report attaches the whole board as a PDF (core.board_render), only while
+  the board is shared with everyone in the organisation and its owner can open it;
+  DIS_APP_URL, when set, puts the board's address in the email.
 * Timing (unset = the original behaviour):
     DIS_REPORT_SEND_HOUR        local hour (DIS_REPORT_TZ) from which reports go
                                 out; daily/weekly then count calendar days
@@ -93,7 +96,7 @@ class Command(BaseCommand):
         sent = 0
         reports = DatasetReport.objects.filter(is_active=True).select_related(
             "dataset", "dataset__query", "dataset__query__datasource",
-            "analysis_run", "owner")
+            "analysis_run", "owner", "dashboard")
         for report in reports:
             if not is_due(report, now):
                 continue
@@ -125,6 +128,8 @@ class Command(BaseCommand):
             attachment = self._run_attachment(report, now)
         elif report.kind == DatasetReport.Kind.CHART:
             attachment = self._chart_attachment(report, now)
+        elif report.kind == DatasetReport.Kind.BOARD:
+            attachment = self._board_attachment(report, now)
         else:
             attachment = self._dataset_attachment(report, now)
         return self._deliver(report, recipients, attachment)
@@ -198,6 +203,37 @@ class Command(BaseCommand):
                   **out.audit_detail(dataset)}
         return Attachment(out.filename, out.content, out.content_type.split(";")[0],
                           body, detail)
+
+    def _board_attachment(self, report, now) -> Attachment:
+        from dashboards.board_report import audit_detail, board_report_pdf
+        from datasets.exports import user_label
+        from datasets.serializers import board_report_refusal
+
+        board = report.dashboard
+        if board is None:
+            raise ValueError("board report has no board")
+        owner = report.owner
+        if owner is not None and not owner.is_active:
+            raise PermissionError(f"owner '{owner.username}' is no longer active")
+        problem = board_report_refusal(board, owner)
+        if problem:
+            raise PermissionError(problem)
+        by = f"scheduled report '{report.name}'"
+        if owner is not None:
+            by += f" for {user_label(owner)}"
+        out, filename = board_report_pdf(board, user=owner, generated_by=by, now=now)
+        lines = [f"Scheduled {report.schedule} report: {board.name}."]
+        if out.data_as_of:
+            late = " The daily update is overdue." if out.stale else ""
+            lines.append(f"Data as of {out.data_as_of}.{late}")
+        if out.unavailable:
+            lines.append(f"{out.unavailable} figure(s) could not be shown; the PDF says which.")
+        if settings.DIS_APP_URL:
+            lines.append(f"Open the board: {settings.DIS_APP_URL}/dashboards/{board.id}")
+        body = "\n".join(lines) + _signature()
+        detail = {"kind": report.kind, "report": report.name, "dashboard_id": board.id,
+                  **audit_detail(out, filename)}
+        return Attachment(filename, out.content, "application/pdf", body, detail)
 
     def _run_attachment(self, report, now) -> Attachment:
         from analytics.reporting import run_to_envelope

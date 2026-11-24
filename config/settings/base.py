@@ -622,6 +622,10 @@ DIS_REPORT_CALENDAR_MONTHS = config("DIS_REPORT_CALENDAR_MONTHS", default=False,
 # Email subject prefixes (scheduled reports / threshold alerts).
 DIS_EMAIL_SUBJECT_PREFIX = config("DIS_EMAIL_SUBJECT_PREFIX", default="[DIS Report]")
 DIS_ALERT_SUBJECT_PREFIX = config("DIS_ALERT_SUBJECT_PREFIX", default="[DIS Alert]")
+# The address people open the app at (e.g. https://reporting.example.com), without a
+# trailing slash. Set, a board report's email says where to open the board; blank, it
+# does not (an email must never carry a link that resolves to the wrong host).
+DIS_APP_URL = config("DIS_APP_URL", default="").rstrip("/")
 # Server-side export ceilings (GET /api/datasets/<id>/export/ and scheduled
 # reports): a larger result is refused with HTTP 413 rather than truncated.
 DIS_EXPORT_MAX_ROWS = config("DIS_EXPORT_MAX_ROWS", default=100000, cast=int)
