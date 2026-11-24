@@ -258,6 +258,34 @@ class DomainPackTests(TestCase):
         self.assertEqual([d["name"] for d in rows], ["Example · Slotted", first["name"], "Example · Second",
                                   "Someone's own board"])
 
+    def test_a_figure_names_the_list_behind_it(self):
+        """config.drill names a pack dataset by key; installed, it carries that dataset's
+        id (what the board opens), and a second install changes nothing."""
+        doc = self.example()
+        doc["dashboards"][0]["widgets"][0]["config"]["drill"] = {
+            "dataset": "orders_by_region", "title": "Orders", "label": "See the orders",
+            "filters": [{"column": "region", "value": "North"}]}
+        doc["dashboards"][0]["widgets"][2]["config"]["drill"] = {
+            "dataset": "orders_by_region", "field": "status", "columns": ["region", {"field": "orders"}]}
+        path = self.write_pack(doc)
+        self.seed(pack=path)
+        region = Dataset.objects.get(name=doc["datasets"][1]["name"])
+        widgets = {w.title: w.config for w in Widget.objects.all()}
+        self.assertEqual(widgets["Orders"]["drill"]["dataset_id"], region.id)
+        self.assertEqual(widgets["Orders"]["drill"]["dataset"], "orders_by_region")
+        self.assertEqual(widgets["Orders by status"]["drill"]["field"], "status")
+        self.assertIn("unchanged", self.seed(pack=path).splitlines()[-1].split("Dashboards:")[1])
+
+    def test_a_drill_must_name_a_pack_dataset_and_plain_filters(self):
+        doc = self.example()
+        cfg = doc["dashboards"][0]["widgets"][0]["config"]
+        cfg["drill"] = {"dataset": "nope", "filters": [{"column": "x"}], "colour": "red"}
+        self.assert_invalid(doc, "drill: dataset: 'nope' is not a dataset key of this pack",
+                            "filters: must be a list of {column, value}",
+                            "unknown key 'colour'")
+        cfg["drill"] = "orders_by_region"
+        self.assert_invalid(doc, "drill: must be a mapping")
+
     def test_board_position_must_be_a_whole_number(self):
         doc = self.example()
         doc["dashboards"][0]["position"] = "first"
@@ -426,6 +454,24 @@ class PmsV2PackTests(TestCase):
                 self.assertTrue(tile.get("kpi_id"), f"{tile['key']}: needs its KPI code")
                 self.assertNotIn(tile["kpi_id"], tile.get("description", ""),
                                  f"{tile['key']}: the code goes in kpi_id, not the words")
+
+    def test_every_list_behind_a_figure_is_a_dataset_of_the_pack(self):
+        """Validated by load_pack; here: the lists say what they are and every clicked
+        bar has a field to narrow by (a KPI opens its whole list)."""
+        n = 0
+        for board in self.pack.dashboards:
+            for w in board.widgets:
+                drill = w.config.get("drill")
+                if not drill:
+                    continue
+                n += 1
+                self.assertTrue(drill.get("title"), f"{board.name} / {w.title}: drill needs a title")
+                if w.type == "kpi":
+                    self.assertTrue(drill.get("label"), f"{board.name} / {w.title}: link text")
+                else:
+                    self.assertTrue(drill.get("field"), f"{board.name} / {w.title}: drill.field")
+        if self.pack_path == FMMS_PACK:
+            self.assertGreaterEqual(n, 25)
 
     def test_executive_board_comes_first(self):
         self.assertEqual(self.pack.dashboards[0].name, "Executive Overview")

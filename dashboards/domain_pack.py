@@ -31,6 +31,10 @@ DATASET_KEYS = ("key", "name", "description", "datasource", "sql", "parameters",
 DASHBOARD_KEYS = ("key", "name", "description", "filters", "widgets", "share_with_group",
                   "position")
 WIDGET_KEYS = ("title", "type", "dataset", "config", "layout")
+# config.drill: the list behind a figure. `dataset` is a pack dataset key (resolved to
+# `dataset_id` on install); `field` is the list's column matched to the clicked
+# category; `filters` narrow every opening ([{column, value}]); `columns` as on a table.
+DRILL_KEYS = ("dataset", "field", "filters", "columns", "title", "label")
 REPORT_KEYS = ("key", "name", "dataset", "schedule", "format")
 REPORT_FORMATS = ("xlsx", "pdf", "csv")  # what send_scheduled_reports renders for a dataset
 # Recipients are personal data and change without a release, so a pack never carries them:
@@ -447,6 +451,9 @@ def _widget(w, where, dataset_keys, err):
         err(where, "config: must be a mapping.")
         ok, config = False, {}
     config = _jsonable(config, f"{where}.config", err)
+    if "drill" in config and not _drill_ok(config["drill"], f"{where}.config.drill",
+                                           dataset_keys, err):
+        ok = False
     layout = dict(LAYOUT_DEFAULTS)
     raw_layout = w.get("layout") or {}
     if not isinstance(raw_layout, dict):
@@ -467,6 +474,48 @@ def _widget(w, where, dataset_keys, err):
         return None
     return PackWidget(title=title, type=wtype, dataset_key=ds_key, config=config,
                       layout=layout)
+
+
+def _drill_ok(drill, where, dataset_keys, err) -> bool:
+    """A widget's list-behind-the-figure must name a dataset of this pack."""
+    if not isinstance(drill, dict):
+        err(where, "must be a mapping of " + ", ".join(DRILL_KEYS) + ".")
+        return False
+    ok = True
+    for k in drill:
+        if k not in DRILL_KEYS:
+            err(where, f"unknown key {k!r} (allowed: {', '.join(DRILL_KEYS)}).")
+            ok = False
+    if drill.get("dataset") not in dataset_keys:
+        err(where, f"dataset: {drill.get('dataset')!r} is not a dataset key of this pack.")
+        ok = False
+    for k in ("field", "title", "label"):
+        if k in drill and not (isinstance(drill[k], str) and drill[k].strip()):
+            err(where, f"{k}: must be text.")
+            ok = False
+    filters = drill.get("filters", [])
+    if not isinstance(filters, list) or not all(
+            isinstance(f, dict) and set(f) == {"column", "value"}
+            and isinstance(f["column"], str) and isinstance(f["value"], (str, int, float))
+            and not isinstance(f["value"], bool)
+            for f in filters):
+        err(where, "filters: must be a list of {column, value} (value text or a number).")
+        ok = False
+    columns = drill.get("columns", [])
+    if not isinstance(columns, list) or not all(
+            isinstance(c, str) or (isinstance(c, dict) and isinstance(c.get("field"), str))
+            for c in columns):
+        err(where, "columns: must be a list of field names or {field, label, format}.")
+        ok = False
+    return ok
+
+
+def _resolved_config(config: dict, datasets) -> dict:
+    """The widget config as stored: a drill's dataset key also carries the dataset id."""
+    drill = config.get("drill")
+    if not isinstance(drill, dict) or drill.get("dataset") not in datasets:
+        return config
+    return {**config, "drill": {**drill, "dataset_id": datasets[drill["dataset"]].id}}
 
 
 def _jsonable(value, where, err):
@@ -612,7 +661,8 @@ def _upsert_dashboard(spec: PackDashboard, pack: Pack, owner, datasets):
 
     desired = [
         (w.title, w.type, datasets[w.dataset_key].id if w.dataset_key else None,
-         w.config, w.layout["x"], w.layout["y"], w.layout["w"], w.layout["h"], order)
+         _resolved_config(w.config, datasets),
+         w.layout["x"], w.layout["y"], w.layout["w"], w.layout["h"], order)
         for order, w in enumerate(spec.widgets)
     ]
     existing = [

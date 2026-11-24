@@ -118,6 +118,32 @@ class FilterSelfHealTests(TestCase):
         self.assertEqual(out["total_row_count"], 2)
         self.assertEqual(out.get("skipped_filters"), ["lab_id"])
 
+    def test_explore_heals_a_changed_query_without_any_filter(self):
+        """A pack upgrade adds an output column: the next board load must show it, not
+        wait for the nightly refresh because no filter happened to name it."""
+        from datetime import timedelta
+        from django.utils import timezone
+        Dataset.objects.filter(pk=self.dataset.pk).update(
+            last_refreshed_at=timezone.now() - timedelta(hours=1))
+        QueryDefinition.objects.filter(pk=self.query.pk).update(updated_at=timezone.now())
+        resp, out = self._explore({"mode": "rows", "limit": 10})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(out["columns"], ["received_month", "total_samples"])
+        self.dataset.refresh_from_db()
+        self.assertEqual(self.dataset.cached_columns, ["received_month", "total_samples"])
+
+    def test_data_serves_a_changed_query_fresh(self):
+        """The cached rows (what board lists read) follow a changed query at once."""
+        from datetime import timedelta
+        from django.utils import timezone
+        Dataset.objects.filter(pk=self.dataset.pk).update(
+            last_refreshed_at=timezone.now() - timedelta(hours=1))
+        QueryDefinition.objects.filter(pk=self.query.pk).update(updated_at=timezone.now())
+        self.dataset.refresh_from_db()
+        resp, out = self._data([])
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(out["columns"], ["received_month", "total_samples"])
+
     def test_spec_mode_reports_all_filters_skipped(self):
         # Builder-spec datasets can't take output filters — they must be
         # reported as skipped, not silently ignored while looking applied.
