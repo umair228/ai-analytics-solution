@@ -14,6 +14,7 @@ class DataSourceSerializer(serializers.ModelSerializer):
     )
     has_password = serializers.SerializerMethodField()
     owner_username = serializers.CharField(source="owner.username", read_only=True)
+    lab_name = serializers.CharField(source="lab.name", read_only=True, default=None)
     source_type_label = serializers.CharField(
         source="get_source_type_display", read_only=True
     )
@@ -25,7 +26,7 @@ class DataSourceSerializer(serializers.ModelSerializer):
             "id", "name", "description", "source_type", "source_type_label",
             "host", "port", "database_name", "schema_name", "username",
             "password", "has_password", "options",
-            "owner", "owner_username", "site", "visibility", "shared_with",
+            "owner", "owner_username", "site", "lab", "lab_name", "visibility", "shared_with",
             "test_status", "last_tested_at", "last_test_error",
             "is_file_source", "created_at", "updated_at",
         ]

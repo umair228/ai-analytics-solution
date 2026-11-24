@@ -30,6 +30,31 @@ def _parse_extra_params(raw: str) -> dict:
     return out
 
 
+def _snowflake_path(database, schema) -> str:
+    """Snowflake carries database/schema in the URL PATH, not as query params."""
+    if database and schema:
+        return f"{database}/{schema}"
+    return database or ""
+
+
+# The lakehouse dialects are optional extras: heavy dependencies that most
+# deployments (an on-prem LabWare LIMS) will never install. SQLAlchemy's own
+# "Can't load plugin" error is unhelpful, so translate it into the one sentence
+# that actually fixes the problem.
+_OPTIONAL_DRIVERS = {
+    SourceType.DATABRICKS: (
+        "databricks-sqlalchemy",
+        "Databricks support is an optional extra. Install it on the server: "
+        "pip install 'databricks-sqlalchemy'",
+    ),
+    SourceType.SNOWFLAKE: (
+        "snowflake-sqlalchemy",
+        "Snowflake support is an optional extra. Install it on the server: "
+        "pip install 'snowflake-sqlalchemy'",
+    ),
+}
+
+
 def build_url(datasource, database: str | None = None):
     """Build a SQLAlchemy URL (or sqlite URL string) for the data source."""
     st = datasource.source_type
@@ -93,6 +118,51 @@ def build_url(datasource, database: str | None = None):
             )
         return f"sqlite:///{path}"
 
+    if st == SourceType.DATABRICKS:
+        # databricks://token:<PAT>@<host>?http_path=...&catalog=...&schema=...
+        # The username is the literal string "token" — that is the connector's
+        # convention, not a placeholder we forgot to fill in.
+        http_path = opts.get("http_path")
+        if not http_path:
+            raise ConnectionConfigError(
+                "Databricks requires the SQL warehouse HTTP path "
+                "(e.g. /sql/1.0/warehouses/abc123). Find it under "
+                "SQL Warehouses → your warehouse → Connection details."
+            )
+        if not datasource.password:
+            raise ConnectionConfigError(
+                "Databricks requires a personal access token (or service-principal "
+                "token). DIS only ever reads — scope it to SELECT."
+            )
+        query = {"http_path": http_path}
+        if db:
+            query["catalog"] = db
+        if datasource.schema_name:
+            query["schema"] = datasource.schema_name
+        return URL.create(
+            "databricks", username="token", password=datasource.password,
+            host=datasource.host, port=port or 443, query=query,
+        )
+
+    if st == SourceType.SNOWFLAKE:
+        # snowflake://<user>:<pw>@<account>/<database>/<schema>?warehouse=..&role=..
+        # NB `host` here is the ACCOUNT IDENTIFIER (orgname-account), not a hostname.
+        if not datasource.host:
+            raise ConnectionConfigError(
+                "Snowflake requires the account identifier (e.g. myorg-prod1), "
+                "not a hostname."
+            )
+        query = {}
+        if opts.get("warehouse"):
+            query["warehouse"] = opts["warehouse"]
+        if opts.get("role"):
+            query["role"] = opts["role"]
+        return URL.create(
+            "snowflake", username=datasource.username, password=datasource.password,
+            host=datasource.host, database=_snowflake_path(db, datasource.schema_name),
+            query=query,
+        )
+
     if st == SourceType.ODBC:
         dsn = opts.get("dsn") or datasource.database_name
         if not dsn:
@@ -131,6 +201,8 @@ def _connect_args(datasource) -> dict:
         return {"connect_timeout": settings.DSE_CONNECTION_TEST_TIMEOUT}
     if st in (SourceType.MSSQL, SourceType.ODBC):
         return {"timeout": settings.DSE_QUERY_TIMEOUT_SECONDS}
+    # The lakehouse connectors speak HTTPS and manage their own timeouts; passing a
+    # DBAPI `timeout` kwarg to them is a TypeError, not a setting.
     return {}
 
 
@@ -149,12 +221,18 @@ def get_engine(datasource, database: str | None = None) -> Engine:
         except Exception:  # noqa: BLE001
             pass
 
-    engine = create_engine(
-        build_url(datasource, database),
-        pool_pre_ping=True,
-        pool_recycle=1800,
-        connect_args=_connect_args(datasource),
-        future=True,
-    )
+    try:
+        engine = create_engine(
+            build_url(datasource, database),
+            pool_pre_ping=True,
+            pool_recycle=1800,
+            connect_args=_connect_args(datasource),
+            future=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        hint = _OPTIONAL_DRIVERS.get(datasource.source_type)
+        if hint and ("plugin" in str(exc).lower() or "module" in str(exc).lower()):
+            raise ConnectionConfigError(f"{hint[1]}\n\n(underlying error: {exc})") from exc
+        raise
     _engine_cache[key] = engine
     return engine

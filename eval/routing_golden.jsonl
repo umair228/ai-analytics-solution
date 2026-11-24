@@ -1,0 +1,64 @@
+{"id": "route-001", "question": "On which product is the out-of-specification rate highest across EGPC?", "expect": "oos_rate_by_product", "why": "canonical phrasing"}
+{"id": "route-002", "question": "Which product has the worst out of specification rate?", "expect": "oos_rate_by_product", "why": "canonical phrasing"}
+{"id": "route-003", "question": "Show me the off spec rate by product", "expect": "oos_rate_by_product", "why": "canonical phrasing"}
+{"id": "route-004", "question": "product out of specification rate", "expect": "oos_rate_by_product", "why": "bare synonym"}
+{"id": "route-005", "question": "Which operator has the most off spec?", "expect": "oos_by_operator", "why": "canonical phrasing"}
+{"id": "route-006", "question": "Show off spec by technician", "expect": "oos_by_operator", "why": "synonym: technician"}
+{"id": "route-007", "question": "out of spec by analyst", "expect": "oos_by_operator", "why": "synonym: analyst"}
+{"id": "route-008", "question": "What is the average sulphur by product?", "expect": "sulphur_by_product", "why": "canonical phrasing"}
+{"id": "route-009", "question": "average sulfur by product", "expect": "sulphur_by_product", "why": "US spelling — the analyte is spelled SULFUR in the data"}
+{"id": "route-010", "question": "sulphur content by product", "expect": "sulphur_by_product", "why": "synonym: sulphur content"}
+{"id": "route-011", "question": "How many results are out of specification?", "expect": "oos_total", "why": "canonical phrasing"}
+{"id": "route-012", "question": "total off spec results", "expect": "oos_total", "why": "bare synonym"}
+{"id": "route-013", "question": "count of off spec results", "expect": "oos_total", "why": "synonym: 'count of'"}
+{"id": "route-014", "question": "On which test have the greatest number of samples gone out of specification?", "expect": "oos_by_test_count", "why": "canonical phrasing"}
+{"id": "route-015", "question": "Which test has the most out of spec?", "expect": "oos_by_test_count", "why": "canonical phrasing"}
+{"id": "route-016", "question": "out of specification by test", "expect": "oos_by_test_count", "why": "bare synonym"}
+{"id": "route-017", "question": "Which product has the most out of spec results?", "expect": "oos_by_product_count", "why": "COUNT by product, not RATE by product — the distinction matters"}
+{"id": "route-018", "question": "most off spec results by product", "expect": "oos_by_product_count", "why": "synonym phrasing that names the product dimension"}
+{"id": "route-019", "question": "What are the top 5 tests most used?", "expect": "top5_tests", "why": "canonical phrasing"}
+{"id": "route-020", "question": "most common tests", "expect": "top5_tests", "why": "synonym: most common"}
+{"id": "route-021", "question": "top tests by volume", "expect": "top5_tests", "why": "synonym: by volume"}
+{"id": "route-022", "question": "Which product is tested most?", "expect": "most_used_product", "why": "canonical phrasing"}
+{"id": "route-023", "question": "most tested product", "expect": "most_used_product", "why": "bare synonym"}
+{"id": "route-024", "question": "How many unscheduled samples are there?", "expect": "unscheduled_count", "why": "canonical phrasing"}
+{"id": "route-025", "question": "count of unscheduled samples", "expect": "unscheduled_count", "why": "synonym: 'count of'"}
+{"id": "route-026", "question": "How many samples were cancelled?", "expect": "cancelled_count", "why": "canonical phrasing"}
+{"id": "route-027", "question": "number of cancelled samples", "expect": "cancelled_count", "why": "synonym: 'number of'"}
+{"id": "route-028", "question": "What is the range of cetane index?", "expect": "cetane_range", "why": "canonical phrasing"}
+{"id": "route-029", "question": "min and max cetane", "expect": "cetane_range", "why": "synonym: min and max"}
+{"id": "route-030", "question": "What is the octane number range?", "expect": "octane_range", "why": "canonical phrasing"}
+{"id": "route-031", "question": "ron range", "expect": "octane_range", "why": "synonym — RON is the industry abbreviation"}
+{"id": "route-050", "question": "How many results are out of specification last month?", "expect": null, "why": "ADVERSARIAL. A time window the fixed metric SQL cannot honour. Firing oos_total here would silently answer for ALL TIME while the user asked about last month — a confidently wrong number, bypassing both the LLM and the validator."}
+{"id": "route-051", "question": "off spec rate by product trend", "expect": null, "why": "ADVERSARIAL. 'trend' asks for a time series; the metric returns a single ranking."}
+{"id": "route-052", "question": "Compare off spec by operator between 2025 and 2026", "expect": null, "why": "ADVERSARIAL. A comparison across periods the metric cannot express."}
+{"id": "route-053", "question": "How many off spec results this year?", "expect": null, "why": "ADVERSARIAL. 'year' is a time constraint."}
+{"id": "route-054", "question": "most used tests in the last quarter", "expect": null, "why": "ADVERSARIAL. Time-boxed; top5_tests is all-time."}
+{"id": "route-055", "question": "average sulphur by product above 10 ppm", "expect": null, "why": "ADVERSARIAL. A value filter the fixed SQL ignores."}
+{"id": "route-056", "question": "monthly out of specification rate by product", "expect": null, "why": "ADVERSARIAL. 'monthly' changes the shape of the answer."}
+{"id": "route-057", "question": "forecast the off spec rate by product", "expect": null, "why": "ADVERSARIAL. A forecast is not a query."}
+{"id": "route-058", "question": "How many samples were cancelled since January?", "expect": null, "why": "ADVERSARIAL. 'since' is a time constraint."}
+{"id": "route-059", "question": "which product is tested most recently", "expect": null, "why": "ADVERSARIAL. 'recent' changes the meaning entirely — most-tested vs most-recently-tested."}
+{"id": "route-060", "question": "off spec rate by product versus by test", "expect": null, "why": "ADVERSARIAL. A comparison across two groupings."}
+{"id": "route-061", "question": "cetane index range over time", "expect": null, "why": "ADVERSARIAL. 'over time' asks for a series."}
+{"id": "route-062", "question": "count of off spec results greater than 100", "expect": null, "why": "ADVERSARIAL. A threshold filter."}
+{"id": "route-070", "question": "Which instrument has the most off spec results?", "expect": null, "why": "ADVERSARIAL. There is no instrument metric, and TEST.INSTRUMENT is essentially empty in EGPC (do_not_group). Must defer to the validated long-tail, which will refuse rather than group on a near-empty column."}
+{"id": "route-071", "question": "off spec rate by customer", "expect": null, "why": "ADVERSARIAL. SAMPLE.CUSTOMER is ~93% empty. No certified metric; must defer."}
+{"id": "route-072", "question": "off spec rate by lab section", "expect": null, "why": "ADVERSARIAL. No certified metric for section — must not be answered by the product metric."}
+{"id": "route-073", "question": "Which shift has the most off spec results?", "expect": null, "why": "ADVERSARIAL. No shift dimension exists."}
+{"id": "route-074", "question": "average benzene by product", "expect": null, "why": "ADVERSARIAL. Only sulphur is certified; benzene must go to the long-tail, not silently return sulphur."}
+{"id": "route-075", "question": "range of flash point", "expect": null, "why": "ADVERSARIAL. Only cetane and octane have certified ranges."}
+{"id": "route-076", "question": "What is the average turnaround time?", "expect": null, "why": "No certified metric for TAT — defer."}
+{"id": "route-077", "question": "How many samples were logged today?", "expect": null, "why": "Time-constrained and no certified metric."}
+{"id": "route-078", "question": "Who is the best analyst?", "expect": null, "why": "Ill-defined; must not be answered by the off-spec-by-operator metric, which ranks by FAILURES."}
+{"id": "route-079", "question": "hello", "expect": null, "why": "Smalltalk — must not fire any metric."}
+{"id": "route-080", "question": "What can you do?", "expect": null, "why": "Capability question — must not fire any metric."}
+{"id": "route-081", "question": "Show me everything about diesel", "expect": null, "why": "Unscoped; no synonym match."}
+{"id": "route-090", "question": "out of spec by test", "expect": "oos_by_test_count", "why": "CROSS-FIRE GUARD. Must not route to oos_by_operator or oos_by_product_count."}
+{"id": "route-091", "question": "off spec by operator", "expect": "oos_by_operator", "why": "CROSS-FIRE GUARD. Must not route to oos_by_test_count."}
+{"id": "route-092", "question": "most out of spec results by product", "expect": "oos_by_product_count", "why": "CROSS-FIRE GUARD. COUNT by product — must not route to oos_rate_by_product (a RATE), which would answer a different question."}
+{"id": "route-093", "question": "off spec rate by product", "expect": "oos_rate_by_product", "why": "CROSS-FIRE GUARD. RATE by product — must not route to oos_by_product_count (a COUNT)."}
+{"id": "route-094", "question": "how many off spec results", "expect": "oos_total", "why": "CROSS-FIRE GUARD. A grand total — must not route to any by-dimension metric."}
+{"id": "route-095", "question": "What is the cetane index in gasoline?", "expect": null, "why": "ADVERSARIAL. 'cetane index in diesel' is a certified synonym because cetane is only measured on diesel. GASOLINE is a real product filter the metric cannot honour — it must defer rather than hand back diesel numbers."}
+{"id": "route-096", "question": "How many unscheduled samples were registered across EGPC?", "expect": "unscheduled_count", "why": "'registered' is a LIMS lifecycle verb, not a constraint — it must not block the metric."}
+{"id": "route-097", "question": "What is the range of Octane Number (RON) across EGPC?", "expect": "octane_range", "why": "RON is a pure alias for Research Octane Number — an abbreviation must not block its own metric."}

@@ -9,7 +9,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from connections.models import DataSource
-from core.audit import record_audit
+from core.access import visible_to
+from core.audit import record_audit, record_change, require_reason, snapshot
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
@@ -52,10 +53,8 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        qs = QueryDefinition.objects.select_related("datasource", "owner")
-        if user.is_admin:
-            return qs
-        return qs.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+        qs = QueryDefinition.objects.select_related("datasource", "owner", "lab")
+        return visible_to(qs, user)
 
     def get_permissions(self):
         # viewing or running a saved query is allowed for viewers too;
@@ -83,9 +82,21 @@ class QueryDefinitionViewSet(viewsets.ModelViewSet):
                      target_id=query.id, summary=f"Saved query '{query.name}'")
 
     def perform_update(self, serializer):
+        require_reason(self.request, "QueryDefinition")
+        # Editing a saved query changes what every result downstream of it *means*. The
+        # trail used to say only that it had been updated.
+        before = snapshot(serializer.instance)
         query = serializer.save()
-        record_audit(self.request, AuditLog.Action.UPDATE, target_type="QueryDefinition",
-                     target_id=query.id, summary=f"Updated query '{query.name}'")
+        record_change(self.request, AuditLog.Action.UPDATE, query, before=before,
+                      target_type="QueryDefinition",
+                      summary=f"Updated query '{query.name}'")
+
+    def perform_destroy(self, instance):
+        require_reason(self.request, "QueryDefinition")
+        record_change(self.request, AuditLog.Action.DELETE, instance,
+                      target_type="QueryDefinition",
+                      summary=f"Deleted query '{instance.name}'")
+        instance.delete()
 
     # ---- ad-hoc: compile a spec to SQL (no save, no execution) -------------
     @action(detail=False, methods=["post"])

@@ -62,6 +62,17 @@ def _extract_metrics(workflow, result):
                 if s in scores[sel]:
                     out[s] = scores[sel][s]
         return out
+    if workflow == AnalysisRun.Workflow.RISK:
+        # `usable` leads: in a list of saved runs, a model that does not work must be
+        # distinguishable from one that does WITHOUT opening it.
+        out = {k: result[k] for k in ("usable", "target", "positive_value",
+                                      "base_rate", "n_in_flight") if k in result}
+        m = result.get("metrics") or {}
+        out.update({k: m[k] for k in ("roc_auc", "pr_auc", "precision", "recall")
+                    if k in m})
+        leak = result.get("leakage") or {}
+        out["leakage_suspected"] = bool(leak.get("suspicious"))
+        return out
     keys = ("test", "p_value", "statistic", "significant", "is_normal",
             "r_squared", "cramers_v", "eta_squared", "cohens_d", "coefficient",
             "f_statistic", "chi2_statistic", "cpk", "capable")
@@ -228,6 +239,45 @@ def root_cause(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def risk(request):
+    """Which in-flight sample is about to fail — trained on the ones that already did.
+
+    Trains on the rows that have an outcome and scores the rows that don't, so a LIMS
+    dataset of completed + in-flight samples needs no model-serving infrastructure.
+    Persisted as an AnalysisRun: "on this date we scored these samples, with this
+    model, at this accuracy" is the record an auditor asks for when a flagged sample
+    was released anyway.
+    """
+    from . import risk as risk_engine
+
+    d = request.data
+    config = {
+        "target_column": d.get("target_column"),
+        "positive_value": d.get("positive_value"),
+        "feature_columns": d.get("feature_columns"),
+        "time_column": d.get("time_column"),
+        "threshold": d.get("threshold"),
+    }
+    return _run_and_save(
+        request, workflow=AnalysisRun.Workflow.RISK,
+        method=d.get("target_column") or "risk",
+        fn=lambda df: risk_engine.predict_risk(
+            df, d.get("target_column"),
+            positive_value=d.get("positive_value") or None,
+            feature_columns=d.get("feature_columns") or None,
+            time_column=d.get("time_column") or None,
+            test_fraction=d.get("test_fraction", 0.25),
+            threshold=d.get("threshold"),
+        ),
+        config=config,
+        summary="Risk prediction",
+        save=bool(d.get("save", True)),
+        explain=bool(d.get("explain", False)),
+    )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def cluster(request):
     """KMeans / DBSCAN clustering with per-cluster profiles."""
     d = request.data
@@ -361,9 +411,9 @@ def dataset_links(request):
     """Suggest join keys shared across the user's accessible datasets."""
     from datasets.models import Dataset
 
-    user = request.user
-    qs = (Dataset.objects.all() if getattr(user, "is_admin", False)
-          else Dataset.objects.filter(Q(owner=user) | Q(shared_with=user)).distinct())
+    from core.access import visible_to
+
+    qs = visible_to(Dataset.objects.all(), request.user)
     meta = [{"id": d.id, "name": d.name,
              "columns": [str(c) for c in (d.cached_columns or [])]}
             for d in qs[:100]]
@@ -415,9 +465,13 @@ class AnalysisRunViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = AnalysisRun.objects.select_related("dataset", "owner")
-        if getattr(user, "is_admin", False):
-            pass
-        else:
+        # Deliberately NOT core.access.visible_to, and this is not an oversight.
+        #
+        # An AnalysisRun is somebody's working-out — the parameters they tried, the runs
+        # they abandoned. A run against a LAB-visible dataset does not thereby become the
+        # laboratory's to read. So a run stays with its owner and whoever they hand it to,
+        # and AnalysisRun carries no `visibility`/`lab` field to tempt anyone otherwise.
+        if not getattr(user, "is_admin", False):
             qs = qs.filter(Q(owner=user) | Q(shared_with=user)).distinct()
         params = self.request.query_params
         if params.get("workflow"):

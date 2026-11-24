@@ -346,7 +346,7 @@ def main():
             password_encrypted=encrypt(config("DB_PASSWORD", default="")),
             options={"driver": config("DB_DRIVER", default="ODBC Driver 18 for SQL Server"),
                      "extra_params": "TrustServerCertificate=yes;Encrypt=no"},
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
             test_status="ok", last_tested_at=timezone.now(), last_test_error="",
         ),
     )
@@ -364,11 +364,11 @@ def main():
         query = QueryDefinition.objects.create(
             name=name, description=desc, datasource=ds,
             mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
         )
         dataset = Dataset.objects.create(
             name=name, description=desc, query=query, owner=admin,
-            visibility="shared", refresh_interval=Dataset.RefreshInterval.DAILY,
+            visibility="org", refresh_interval=Dataset.RefreshInterval.DAILY,
         )
         try:
             result = refresh_dataset(dataset)
@@ -383,7 +383,7 @@ def main():
     print("\n=== Dashboards ===")
     for name, desc, widgets in DASHBOARDS:
         dash = Dashboard.objects.create(name=name, description=desc, owner=admin,
-                                        visibility="shared")
+                                        visibility="org")
         for order, w in enumerate(widgets):
             Widget.objects.create(
                 dashboard=dash, title=w["title"], widget_type=w["kind"],

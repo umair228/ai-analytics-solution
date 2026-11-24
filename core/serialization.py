@@ -52,4 +52,15 @@ def json_safe(obj):
     # non-finite floats.
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else None
+    # Other numpy scalars — numpy.float32/float16, numpy.int*, numpy.bool_ — are
+    # NOT python float/int subclasses, so they slip past the check above. DRF's
+    # JSONRenderer (allow_nan=False) then 500s on them *at render time*, outside
+    # the view's try/except. The bge embedder emits float32 similarity scores, so
+    # this is a live path. Coerce every numpy scalar to a python primitive.
+    if hasattr(obj, "item") and hasattr(obj, "dtype"):
+        try:
+            v = obj.item()
+        except Exception:  # noqa: BLE001
+            return str(obj)
+        return (v if math.isfinite(v) else None) if isinstance(v, float) else v
     return obj

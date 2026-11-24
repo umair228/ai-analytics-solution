@@ -8,6 +8,7 @@ the statistical dashboard form is fully data-driven.
 from __future__ import annotations
 
 from .engine import AnalyticsError
+from . import spc as SPC
 from . import stats_tests as S
 
 
@@ -20,7 +21,7 @@ def _p(name, kind, required=False, default=None, help="", options=None):
     return p
 
 
-# kind ∈ numeric_column | category_column | column | columns | number | enum | bool
+# kind ∈ numeric_column | category_column | column | columns | number | enum | bool | text
 TESTS = {
     "descriptive": {
         "fn": S.descriptive_stats, "label": "Descriptive Statistics",
@@ -134,12 +135,92 @@ TESTS = {
         "description": "Box-plot five-number summary, IQR fences and flagged outliers.",
         "params": [_p("column", "numeric_column", True)],
     },
-    "control_chart": {
-        "fn": S.control_chart, "label": "Control Chart (I-MR)",
+    # ── Quality / SPC ──────────────────────────────────────────────────────
+    # `rules` is the lever that matters: a chart is only as good as the rules run
+    # against it. Westgard is the clinical/lab QC standard; Nelson is the general
+    # SPC set. See analytics.spc.
+    "levey_jennings": {
+        "fn": SPC.levey_jennings, "label": "Levey-Jennings (QC) + Westgard",
         "category": "Quality",
-        "description": "Individuals control chart with 3σ limits and out-of-control rules.",
+        "description": ("QC control chart for a control material with Westgard multirules "
+                        "(1₂ₛ, 1₃ₛ, 2₂ₛ, R₄ₛ, 4₁ₛ, 10ₓ). Supply the material's assigned "
+                        "mean/SD — limits fitted to the data cannot detect a shift the "
+                        "data already contains."),
+        "params": [_p("value_column", "numeric_column", True, help="The QC result."),
+                   _p("mean", "number", help="Assigned mean of the control material."),
+                   _p("sd", "number", help="Assigned SD of the control material."),
+                   _p("index_column", "column", help="Run / date label."),
+                   _p("material", "text", help="Control material or lot name."),
+                   _p("rules", "enum", default="westgard",
+                      options=["westgard", "westgard_extended", "nelson",
+                               "western_electric", "basic"])],
+    },
+    "control_chart": {
+        "fn": SPC.i_mr_chart, "label": "Control Chart (I-MR)",
+        "category": "Quality",
+        "description": "Individuals + moving-range chart with 3σ limits and the full rule set.",
         "params": [_p("value_column", "numeric_column", True),
-                   _p("index_column", "column", help="Optional ordering/label column.")],
+                   _p("index_column", "column", help="Optional ordering/label column."),
+                   _p("rules", "enum", default="nelson",
+                      options=["nelson", "western_electric", "westgard", "basic"])],
+    },
+    "control_chart_xbar_r": {
+        "fn": SPC.xbar_r_chart, "label": "Control Chart (X̄-R)",
+        "category": "Quality",
+        "description": "Subgroup means with sigma from the average range (subgroups of 2–10).",
+        "params": [_p("value_column", "numeric_column", True),
+                   _p("subgroup_column", "column", help="Group by this column (e.g. batch)."),
+                   _p("subgroup_size", "number", default=5,
+                      help="Used when no subgroup column is given."),
+                   _p("rules", "enum", default="nelson",
+                      options=["nelson", "western_electric", "basic"])],
+    },
+    "control_chart_xbar_s": {
+        "fn": SPC.xbar_s_chart, "label": "Control Chart (X̄-S)",
+        "category": "Quality",
+        "description": "Subgroup means with sigma from the average subgroup SD (larger subgroups).",
+        "params": [_p("value_column", "numeric_column", True),
+                   _p("subgroup_column", "column", help="Group by this column."),
+                   _p("subgroup_size", "number", default=10),
+                   _p("rules", "enum", default="nelson",
+                      options=["nelson", "western_electric", "basic"])],
+    },
+    "control_chart_ewma": {
+        "fn": SPC.ewma_chart, "label": "EWMA Chart (drift)",
+        "category": "Quality",
+        "description": ("Exponentially-weighted moving average — catches the small sustained "
+                        "shift (~1σ) a Shewhart chart is nearly blind to, which is how a "
+                        "drifting instrument or a degrading reagent lot presents."),
+        "params": [_p("value_column", "numeric_column", True),
+                   _p("lam", "number", default=0.1, help="Smoothing (0–1); smaller = longer memory."),
+                   _p("L", "number", default=2.7, help="Limit width in sigma."),
+                   _p("mean", "number",
+                      help="IN-CONTROL target mean. Leave blank and it is estimated from "
+                           "these points — which already contain the shift, so the chart "
+                           "under-reports it."),
+                   _p("sd", "number", help="Process SD (default: estimated from MR̄)."),
+                   _p("index_column", "column")],
+    },
+    "control_chart_cusum": {
+        "fn": SPC.cusum_chart, "label": "CUSUM Chart (drift)",
+        "category": "Quality",
+        "description": "Cumulative sum of deviation from target — fastest detector of a sustained shift.",
+        "params": [_p("value_column", "numeric_column", True),
+                   _p("target", "number", help="Target value (default: mean)."),
+                   _p("k", "number", default=0.5, help="Slack, in sigma."),
+                   _p("h", "number", default=4.0, help="Decision interval, in sigma."),
+                   _p("sd", "number", help="Process SD (default: estimated from MR̄)."),
+                   _p("index_column", "column")],
+    },
+    "control_chart_attribute": {
+        "fn": SPC.attribute_chart, "label": "Attribute Chart (p / np / c / u)",
+        "category": "Quality",
+        "description": ("Charts for counted data. A p-chart of 'proportion of results "
+                        "off-spec per day' needs no data the LIMS doesn't already have."),
+        "params": [_p("chart", "enum", default="p", options=["p", "np", "c", "u"]),
+                   _p("count_column", "numeric_column", True, help="Nonconforming / defect count."),
+                   _p("size_column", "numeric_column", help="Subgroup size (p, np, u)."),
+                   _p("index_column", "column")],
     },
     "process_capability": {
         "fn": S.process_capability, "label": "Process Capability",

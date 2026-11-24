@@ -16,7 +16,8 @@ from analytics.engine import (
 from analytics.predict import auto_summary, detect_anomalies, forecast as run_forecast
 from analytics.profiling import profile_dataset
 from analytics.semantic import SemanticError, answer_question, suggest_questions
-from core.audit import record_audit
+from core.access import visibility_q, visible_to
+from core.audit import record_audit, record_change, require_reason, snapshot
 from core.models import AuditLog
 from core.permissions import IsAnalystOrAbove, IsOwnerOrSharedReadOnly
 
@@ -72,11 +73,9 @@ class DatasetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = Dataset.objects.select_related(
-            "query", "query__datasource", "owner"
+            "query", "query__datasource", "owner", "lab"
         ).prefetch_related("shared_with")
-        if user.is_admin:
-            return qs
-        return qs.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+        return visible_to(qs, user)
 
     def get_permissions(self):
         if self.action in (
@@ -93,6 +92,24 @@ class DatasetViewSet(viewsets.ModelViewSet):
         dataset = serializer.save()
         record_audit(self.request, AuditLog.Action.CREATE, target_type="Dataset",
                      target_id=dataset.id, summary=f"Created dataset '{dataset.name}'")
+
+    # Neither of these existed. Editing a dataset — repointing it at a different query,
+    # changing its calculated fields, widening its visibility — left no trace at all, and
+    # deleting one left nothing behind to say it had ever been there.
+    def perform_update(self, serializer):
+        require_reason(self.request, "Dataset")
+        before = snapshot(serializer.instance)
+        dataset = serializer.save()
+        record_change(self.request, AuditLog.Action.UPDATE, dataset, before=before,
+                      target_type="Dataset",
+                      summary=f"Updated dataset '{dataset.name}'")
+
+    def perform_destroy(self, instance):
+        require_reason(self.request, "Dataset")
+        record_change(self.request, AuditLog.Action.DELETE, instance,
+                      target_type="Dataset",
+                      summary=f"Deleted dataset '{instance.name}'")
+        instance.delete()
 
     @action(detail=True, methods=["post"])
     def refresh(self, request, pk=None):
@@ -709,9 +726,9 @@ class AlertViewSet(viewsets.ModelViewSet):
         qs = DatasetAlert.objects.select_related("dataset", "owner").prefetch_related("events")
         if user.is_admin:
             return qs
-        return qs.filter(
-            Q(owner=user) | Q(dataset__owner=user) | Q(dataset__shared_with=user)
-        ).distinct()
+        # My own alerts, plus alerts on any dataset I can see — the same rule, reached
+        # through the relation, so it cannot drift from the dataset list.
+        return qs.filter(Q(owner=user) | visibility_q(user, "dataset")).distinct()
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -736,8 +753,7 @@ class AlertEventViewSet(viewsets.ReadOnlyModelViewSet):
         if user.is_admin:
             return qs
         return qs.filter(
-            Q(alert__owner=user) | Q(alert__dataset__owner=user) |
-            Q(alert__dataset__shared_with=user)
+            Q(alert__owner=user) | visibility_q(user, "alert__dataset")
         ).distinct()
 
     @action(detail=True, methods=["post"])

@@ -19,6 +19,9 @@ _DB_LIST_SQL = {
         "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname"
     ),
     SourceType.MYSQL: "SHOW DATABASES",
+    # A Databricks "database" is a Unity Catalog catalog; Snowflake's is a database.
+    SourceType.DATABRICKS: "SHOW CATALOGS",
+    SourceType.SNOWFLAKE: "SHOW DATABASES",
 }
 
 

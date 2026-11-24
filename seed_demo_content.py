@@ -34,7 +34,7 @@ def make_query(admin, ds, name, sql, description=""):
         name=name,
         defaults=dict(
             owner=admin, datasource=ds, mode="raw",
-            raw_sql=sql, description=description, visibility="shared",
+            raw_sql=sql, description=description, visibility="org",
         ),
     )
     return q
@@ -44,7 +44,7 @@ def make_dataset(admin, query, name, description=""):
         name=name,
         defaults=dict(
             owner=admin, query=query, description=description,
-            visibility="shared", refresh_interval="daily",
+            visibility="org", refresh_interval="daily",
         ),
     )
     print(f"  Refreshing dataset: {name} …", end=" ", flush=True)
@@ -308,7 +308,7 @@ Dashboard.objects.filter(name__in=[
 d1 = Dashboard.objects.create(
     name="Water Quality Operations",
     description="Live overview of potability, sample volumes and quality trends.",
-    owner=admin, visibility="shared",
+    owner=admin, visibility="org",
 )
 
 widgets_d1 = [
@@ -372,7 +372,7 @@ print(f"  Dashboard '{d1.name}': {len(widgets_d1)} widgets")
 d2 = Dashboard.objects.create(
     name="Lab Performance",
     description="Per-lab scorecards, rankings and parameter comparisons.",
-    owner=admin, visibility="shared",
+    owner=admin, visibility="org",
 )
 
 widgets_d2 = [

@@ -22,6 +22,10 @@ class AnalysisRun(TimeStampedModel):
         ANOMALY = "anomaly", "Anomaly detection"
         STATISTICS = "statistics", "Statistical test"
         FORECAST = "forecast", "Forecast"
+        # A risk model belongs in the run history for the same reason a QC chart does:
+        # "on this date we scored these samples, with this model, at this accuracy" is
+        # the record an auditor asks for when a flagged sample was released anyway.
+        RISK = "risk", "Risk prediction"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"   # reserved for future async execution
@@ -64,7 +68,13 @@ class AnalysisRun(TimeStampedModel):
         return f"{self.workflow}:{self.method} #{self.pk}"
 
     def accessible_by(self, user) -> bool:
-        """Mirror ``Dataset.accessible_by`` — admin, owner, or explicitly shared."""
+        """Admin, owner, or explicitly shared — and NARROWER than ``Dataset``.
+
+        A dataset can be visible to a whole laboratory; a *run* on it is not. This is
+        somebody's working-out, and it stays with them unless they hand it over. Do not
+        "fix" this into :func:`core.access.can_view` — that would publish every analyst's
+        abandoned attempts to their entire laboratory.
+        """
         if getattr(user, "is_admin", False) or self.owner_id == user.id:
             return True
         return self.shared_with.filter(pk=user.pk).exists()

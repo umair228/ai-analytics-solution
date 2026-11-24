@@ -145,10 +145,41 @@ def _lines_statistics(result: dict) -> list[str]:
     return out
 
 
+def _lines_risk(result: dict) -> list[str]:
+    m = result.get("metrics") or {}
+    out = [
+        f"Predicting: {result.get('target')} = '{result.get('positive_value')}'",
+        f"Trained on {result.get('n_labelled')} completed samples "
+        f"(base rate {_fmt(result.get('base_rate'))}); "
+        f"{result.get('n_in_flight')} in-flight samples scored.",
+        f"Validation: {(result.get('split') or {}).get('kind')} split.",
+        f"ROC-AUC={_fmt(m.get('roc_auc'))}, PR-AUC={_fmt(m.get('pr_auc'))}, "
+        f"Brier={_fmt(m.get('brier'))}, precision={_fmt(m.get('precision'))}, "
+        f"recall={_fmt(m.get('recall'))} at threshold {_fmt(result.get('threshold'))}.",
+    ]
+    # The model's own verdict on itself leads, because a ranked list from a useless
+    # model looks exactly like one from a good model.
+    if result.get("usable") is False:
+        out.append("MODEL IS NOT USABLE — the features do not predict the outcome. "
+                   "Do not present the risk scores as actionable.")
+    for f in (result.get("feature_importance") or [])[:6]:
+        out.append(f"  driver: {f['feature']} (permutation importance {_fmt(f['importance'])})")
+    for row in (result.get("lift") or [])[:2]:
+        out.append(f"  re-checking the top {row['top_k']} catches {row['caught']} of "
+                   f"{row['of_total_positives']} failures ({_fmt(row['lift'])}× random)")
+    leak = result.get("leakage") or {}
+    for s in (leak.get("suspicious") or [])[:3]:
+        out.append(f"  LEAKAGE SUSPECTED: {s['column']} — {s['reason']}")
+    for d in (leak.get("dropped") or [])[:5]:
+        out.append(f"  excluded: {d['column']} — {d['reason']}")
+    return out
+
+
 _BUILDERS = {
     "anomaly": _lines_anomaly,
     "forecast": _lines_forecast,
     "statistics": _lines_statistics,
+    "risk": _lines_risk,
 }
 
 

@@ -19,6 +19,8 @@ return a JSON-serialisable dict (see :func:`ai.agent` for serialisation).
 """
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -26,7 +28,10 @@ from django.conf import settings
 from django.db.models import Q
 
 from analytics import engine, predict, semantic
+from core.access import visible_to
 from datasets.models import Dataset
+
+logger = logging.getLogger(__name__)
 
 # Result-size caps — keep tool output small so it fits the model context cheaply.
 MAX_ROWS = 50
@@ -59,9 +64,10 @@ class Tool:
 # Shared helpers
 # --------------------------------------------------------------------------
 def _accessible_datasets(user):
-    if getattr(user, "is_admin", False):
-        return Dataset.objects.all()
-    return Dataset.objects.filter(Q(owner=user) | Q(shared_with=user)).distinct()
+    # The agent sees exactly what the user sees — same rule as the REST list, from the
+    # same function. An agent that could reach further than its user would be a way to
+    # ask the model for data the API refuses to hand over.
+    return visible_to(Dataset.objects.all(), user)
 
 
 def _get_dataset(user, dataset_id):
@@ -82,16 +88,10 @@ def _get_df(user, dataset_id):
 
 
 def _accessible_datasources(user):
-    """Live (database) DataSources the user may query — mirrors
-    :func:`_accessible_datasets` but for connections, and only DB types."""
-    from connections.constants import SourceType
-    from connections.models import DataSource
+    """Live (database) DataSources the user may query."""
+    from connections.access import visible_datasources
 
-    if getattr(user, "is_admin", False):
-        qs = DataSource.objects.all()
-    else:
-        qs = DataSource.objects.filter(Q(owner=user) | Q(shared_with=user)).distinct()
-    return qs.filter(source_type__in=list(SourceType.DATABASE_TYPES)).order_by("name")
+    return visible_datasources(user)
 
 
 def _resolve_datasource(user, datasource_id):
@@ -389,6 +389,61 @@ def _query_dataset(user, dataset_id=None, question=None, **_):
     return result
 
 
+def _record_ai_sql(user, datasource, question, result, duration_ms):
+    """Log an LLM-composed query into the same evidence trail as a human one.
+
+    An LLM writing SQL against the LIMS is the highest-risk action in the product
+    and used to be the least logged: it produced no QueryRun and no AuditLog, so
+    the only record was a JSON blob on a chat message that cascaded away with the
+    user. The QueryRun makes it show up in query history beside hand-written SQL;
+    the AuditLog entry carries the question *and* the generated SQL, so an auditor
+    reading the trail learns what was asked, not merely that something was.
+
+    The audit write fails closed (``core.audit``): no evidence, no answer. The
+    QueryRun is history rather than evidence, so a failure there is logged and
+    swallowed.
+    """
+    from core.audit import log_audit
+    from core.models import AuditLog
+    from querybuilder.models import QueryRun
+
+    sql = result.get("sql") or ""
+    row_count = result.get("row_count")
+    error = "" if result.get("understood") else (result.get("error") or "")
+
+    try:
+        QueryRun.objects.create(
+            user=user if getattr(user, "is_authenticated", False) else None,
+            datasource=datasource,
+            sql=sql,
+            row_count=row_count if isinstance(row_count, int) else None,
+            duration_ms=duration_ms,
+            error=error[:2000],
+        )
+    except Exception:  # noqa: BLE001 - history is best-effort; the audit below is not
+        logger.exception("QueryRun write failed for AI-generated SQL")
+
+    log_audit(
+        user=user,
+        action=AuditLog.Action.QUERY,
+        target_type="ai.ask_database",
+        target_id=datasource.id,
+        summary=f"AI text-to-SQL: {question}",
+        detail={
+            "question": question,
+            "sql": sql,
+            "path": result.get("path"),
+            "understood": bool(result.get("understood")),
+            "row_count": row_count,
+            "attempts": result.get("attempts"),
+            "warnings": result.get("warnings") or [],
+            "error": error,
+            "duration_ms": duration_ms,
+            "datasource": {"id": datasource.id, "name": datasource.name},
+        },
+    )
+
+
 def _ask_database(user, question=None, datasource_id=None, database=None, **_):
     """Live text-to-SQL: write & run ONE safe read-only query against a connected
     database and return the rows + the exact SQL. For the long tail of questions
@@ -398,12 +453,48 @@ def _ask_database(user, question=None, datasource_id=None, database=None, **_):
     from texttosql.runner import run_text_to_sql
 
     datasource = _resolve_datasource(user, datasource_id)
-    result = run_text_to_sql(datasource, question, database=database)
+    started = time.perf_counter()
+    try:
+        result = run_text_to_sql(datasource, question, database=database)
+    except Exception as exc:
+        # A crash still ran (or tried to run) SQL against the LIMS — log it.
+        _record_ai_sql(
+            user, datasource, question,
+            {"understood": False, "error": str(exc)},
+            int((time.perf_counter() - started) * 1000),
+        )
+        raise
+
+    duration_ms = int((time.perf_counter() - started) * 1000)
     rows = result.get("rows")
     if isinstance(rows, list) and len(rows) > MAX_ROWS:
         result["rows"] = rows[:MAX_ROWS]
         result["truncated"] = True
+
+    _record_ai_sql(user, datasource, question, result, duration_ms)
     return result
+
+
+def _predict_risk(user, dataset_id=None, target_column=None, positive_value=None,
+                  feature_columns=None, time_column=None, threshold=None, **_):
+    """Which in-flight sample is likely to fail — trained on the ones that already did."""
+    from analytics import risk
+    from analytics.engine import AnalyticsError
+
+    if not target_column:
+        raise ToolError("A 'target_column' is required (e.g. IN_SPEC, ON_TIME).")
+    _, df = _get_df(user, dataset_id)
+    try:
+        out = risk.predict_risk(
+            df, target_column, positive_value=positive_value,
+            feature_columns=feature_columns, time_column=time_column,
+            threshold=threshold)
+    except AnalyticsError as exc:
+        raise ToolError(str(exc))
+    # Keep the payload small: the model card and the top of the ranked list are what
+    # the model needs to narrate; the full at-risk table belongs in the UI.
+    out["at_risk"] = (out.get("at_risk") or [])[:MAX_ROWS]
+    return out
 
 
 def _search_documents(user, query=None, top_k=MAX_DOC_HITS, **_):
@@ -572,11 +663,20 @@ TOOLS: dict[str, Tool] = {
                 "plain-English interpretation. Available tests: descriptive, normality, "
                 "trend, t_test_one_sample, t_test_two_sample, anova_oneway, "
                 "f_test_variances, chi_square, correlation, regression, outliers, "
-                "control_chart, process_capability. Put test-specific args in 'params' "
-                "— e.g. anova_oneway:{value_column, group_column}; correlation:{column1, "
-                "column2, method}; regression:{y_column, x_column|x_columns, kind}; "
-                "process_capability:{column, lsl, usl}; t_test_one_sample:{column, "
-                "popmean}. Call describe_dataset first to get exact column names."
+                "process_capability, and the SPC family: levey_jennings (QC chart with "
+                "Westgard multirules — the right tool for 'is this QC run acceptable / "
+                "is the method in control'), control_chart (I-MR), control_chart_xbar_r, "
+                "control_chart_xbar_s, control_chart_ewma and control_chart_cusum (both "
+                "catch a small sustained DRIFT that an I-MR chart misses — reach for "
+                "them when asked about instrument drift or a degrading reagent), and "
+                "control_chart_attribute (p/np/c/u — e.g. proportion off-spec per day). "
+                "Put test-specific args in 'params' — e.g. anova_oneway:{value_column, "
+                "group_column}; correlation:{column1, column2, method}; regression:"
+                "{y_column, x_column|x_columns, kind}; process_capability:{column, lsl, "
+                "usl}; levey_jennings:{value_column, mean, sd, rules} — ALWAYS pass the "
+                "control material's assigned mean/sd if the user knows them, because "
+                "limits fitted to the data cannot detect a shift the data contains. "
+                "Call describe_dataset first to get exact column names."
             ),
             input_schema={
                 "type": "object",
@@ -588,8 +688,11 @@ TOOLS: dict[str, Tool] = {
                             "descriptive", "normality", "trend",
                             "t_test_one_sample", "t_test_two_sample", "anova_oneway",
                             "f_test_variances", "chi_square", "correlation",
-                            "regression", "outliers", "control_chart",
-                            "process_capability",
+                            "regression", "outliers", "process_capability",
+                            "levey_jennings", "control_chart",
+                            "control_chart_xbar_r", "control_chart_xbar_s",
+                            "control_chart_ewma", "control_chart_cusum",
+                            "control_chart_attribute",
                         ],
                         "description": "Which statistical test to run.",
                     },
@@ -721,6 +824,41 @@ TOOLS: dict[str, Tool] = {
                 "required": ["dataset_id", "target_column"],
             },
             fn=_root_cause,
+        ),
+        Tool(
+            name="predict_risk",
+            description=(
+                "PREDICT which in-flight sample will fail — the forward-looking twin of "
+                "root_cause. Trains on the rows that already have an outcome and scores "
+                "the rows that don't, so it answers 'which of the samples currently in "
+                "the lab are likely to go off-spec / breach TAT?' rather than 'what went "
+                "wrong last month'. target_column is the outcome (e.g. IN_SPEC, ON_TIME); "
+                "positive_value is the BAD outcome (e.g. 'F'); omit it and the rarer class "
+                "is used. Pass time_column (e.g. LOGIN_DATE) so the model is validated on "
+                "the future rather than a random split. Returns a model card (ROC-AUC, "
+                "PR-AUC, calibration, lift), a leakage report, feature importances, and "
+                "the ranked at-risk samples. ALWAYS check `usable` and the leakage report "
+                "before quoting a risk score: if usable is false, or a column is flagged "
+                "as suspicious, say so instead of reading out the numbers."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "dataset_id": _ds_id_prop(),
+                    "target_column": {"type": "string",
+                                      "description": "Outcome column, e.g. IN_SPEC."},
+                    "positive_value": {"type": "string",
+                                       "description": "The BAD outcome, e.g. 'F' (omit = rarer class)."},
+                    "feature_columns": {"type": "array", "items": {"type": "string"},
+                                        "description": "Candidate predictors (omit = auto)."},
+                    "time_column": {"type": "string",
+                                    "description": "Date column for an honest time-ordered split."},
+                    "threshold": {"type": "number",
+                                  "description": "Risk cut-off (omit = best F1)."},
+                },
+                "required": ["dataset_id", "target_column"],
+            },
+            fn=_predict_risk,
         ),
         Tool(
             name="cluster_data",

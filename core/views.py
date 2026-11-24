@@ -15,7 +15,11 @@ class AuditLogSerializer(serializers.ModelSerializer):
         model = AuditLog
         fields = [
             "id", "user", "username", "action", "target_type",
-            "target_id", "summary", "detail", "ip_address", "created_at",
+            # `detail` carries {"changes": {field: {"from": …, "to": …}}} for an UPDATE —
+            # what the record used to say (Part 11 §11.10(e)). Secrets are already reduced
+            # to opaque markers by core.audit before they are stored, which matters
+            # precisely because this endpoint serves whatever is in there.
+            "target_id", "summary", "detail", "reason", "ip_address", "created_at",
         ]
 
 
@@ -49,8 +53,8 @@ def health(request):
     return Response(
         {
             "status": "ok",
-            "service": "dse-api",
-            "name": "Interactive Reporting & AI Analytics Solution",
+            "service": "dis-api",
+            "name": "DIS — Decision Intelligence Suite",
             "time": timezone.now().isoformat(),
         }
     )

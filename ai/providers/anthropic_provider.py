@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
+from . import egress
 from .base import BaseProvider
 
 
@@ -15,13 +16,22 @@ class AnthropicProvider(BaseProvider):
 
     @property
     def configured(self) -> bool:
-        return bool(getattr(settings, "CLAUDE_API_KEY", ""))
+        # Reporting "not configured" (rather than raising) keeps /api/ai/status/
+        # answering with a clear reason instead of a 500.
+        return bool(getattr(settings, "CLAUDE_API_KEY", "")) and egress.external_llm_allowed()
 
     @property
     def model_name(self) -> str:
         return getattr(settings, "CLAUDE_MODEL", "")
 
     def not_configured_message(self) -> str:
+        if not egress.external_llm_allowed():
+            return (
+                "Refusing to use the Claude cloud API: DSE_ALLOW_EXTERNAL_LLM is not "
+                "enabled, and this build keeps lab data on-premise. Set "
+                "LLM_PROVIDER=local and point LLM_BASE_URL at your on-prem model "
+                "server, or set DSE_ALLOW_EXTERNAL_LLM=True to permit outbound calls."
+            )
         return (
             "The Claude API key is not configured. Set CLAUDE_API_KEY in the "
             "backend .env, or switch to a local model with LLM_PROVIDER=local."
@@ -29,9 +39,17 @@ class AnthropicProvider(BaseProvider):
 
     def _client_(self):
         if self._client is None:
+            egress.assert_external_allowed("the Claude API (api.anthropic.com)")
             import anthropic
             self._client = anthropic.Anthropic(api_key=settings.CLAUDE_API_KEY)
         return self._client
+
+    @staticmethod
+    def _sampling_kwargs():
+        """Anthropic has no seed parameter; temperature=0 is as close as it gets.
+        Passing nothing (the old behaviour) meant the API default of 1.0 — maximum
+        non-determinism on the one path a regulated customer would audit."""
+        return {"temperature": float(getattr(settings, "LLM_TEMPERATURE", 0.0))}
 
     def chat(self, *, system_blocks, messages, max_tokens, response_format=None) -> str:
         # Claude reliably follows a "return JSON" instruction, so response_format
@@ -41,6 +59,7 @@ class AnthropicProvider(BaseProvider):
             max_tokens=max_tokens,
             system=system_blocks,
             messages=messages,
+            **self._sampling_kwargs(),
         )
         return "\n".join(
             block.text for block in response.content if block.type == "text"
@@ -95,6 +114,7 @@ class AnthropicProvider(BaseProvider):
             "max_tokens": max_tokens,
             "system": system_blocks,
             "messages": self._to_anthropic_messages(messages),
+            **self._sampling_kwargs(),
         }
         if tools:
             kwargs["tools"] = [

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 
+from core.access import Visibility, can_view
 from core.models import TimeStampedModel
 
 
@@ -11,9 +12,7 @@ class QueryDefinition(TimeStampedModel):
         BUILDER = "builder", "Visual Builder"
         RAW = "raw", "Raw SQL"
 
-    class Visibility(models.TextChoices):
-        PRIVATE = "private", "Private"
-        SHARED = "shared", "Shared"
+    Visibility = Visibility          # core.access — one rule, not four copies of it
 
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True)
@@ -34,6 +33,10 @@ class QueryDefinition(TimeStampedModel):
     )
     site = models.ForeignKey(
         "accounts.Site", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="queries",
+    )
+    lab = models.ForeignKey(
+        "accounts.Lab", null=True, blank=True,
         on_delete=models.SET_NULL, related_name="queries",
     )
     visibility = models.CharField(

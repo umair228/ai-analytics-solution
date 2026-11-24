@@ -591,7 +591,7 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
             source_type="sqlite",
             options={"path": str(WAREHOUSE)},
             owner=admin,
-            visibility="shared",
+            visibility="org",
             test_status="ok",
             last_tested_at=now,
             last_test_error="",
@@ -621,11 +621,11 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
         query = QueryDefinition.objects.create(
             name=name, description=desc, datasource=ds,
             mode=QueryDefinition.Mode.RAW, raw_sql=sql, generated_sql=sql,
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
         )
         dataset = Dataset.objects.create(
             name=name, description=desc, query=query,
-            owner=admin, visibility="shared",
+            owner=admin, visibility="org",
             refresh_interval=Dataset.RefreshInterval.DAILY,
         )
         try:
@@ -646,7 +646,7 @@ def seed_platform(admin=None, *, log=None, rich_events=True, n_events=24,
     if with_dashboards and seed_keys is None:
         for name, desc, widgets in DASHBOARDS:
             dash = Dashboard.objects.create(
-                name=name, description=desc, owner=admin, visibility="shared",
+                name=name, description=desc, owner=admin, visibility="org",
             )
             for order, w in enumerate(widgets):
                 Widget.objects.create(

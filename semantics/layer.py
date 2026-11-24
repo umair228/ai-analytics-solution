@@ -44,9 +44,26 @@ class LJoin:
 class LMetric:
     key: str
     name: str
-    sql: str
+    sql: str                       # portable — render with semantics.metric_sql
     description: str = ""
+    row_limit: int | None = None   # the metric's own semantic cap (the old TOP n)
     synonyms: list = field(default_factory=list)
+
+
+@dataclass
+class LHealthTile:
+    key: str
+    label: str
+    sql: str                       # portable — render with semantics.metric_sql
+    description: str = ""
+    unit: str = "count"
+    direction: str = "neutral"
+    target: float | None = None
+    roles: list = field(default_factory=list)   # empty = every role
+    position: int = 0
+
+    def visible_to(self, role: str) -> bool:
+        return not self.roles or (role or "") in self.roles
 
 
 @dataclass
@@ -57,6 +74,7 @@ class Layer:
     tables: dict = field(default_factory=dict)       # {NAME: LTable}
     joins: list = field(default_factory=list)        # [LJoin]
     metrics: list = field(default_factory=list)      # [LMetric]
+    health: list = field(default_factory=list)       # [LHealthTile]
 
     def is_present(self) -> bool:
         return bool(self.tables)
@@ -80,9 +98,46 @@ class Layer:
         return [j for j in self.joins if u in (j.left.upper(), j.right.upper())]
 
 
+# The layer is read on EVERY question (texttosql.runner) and is pure, curated data
+# that only changes when `load_semantic_layer` runs. Rebuilding it from the database
+# per question cost several ORM round-trips on the hot path for no benefit.
+# Keyed by (datasource_id, updated_at) so a reload is picked up without a restart:
+# apply_spec bumps SemanticLayer.updated_at, which changes the key.
+_CACHE: dict[tuple, Layer] = {}
+
+
+def _cache_key(datasource):
+    from .models import SemanticLayer
+
+    stamp = (SemanticLayer.objects.filter(datasource=datasource)
+             .values_list("updated_at", flat=True).first())
+    return (datasource.id, stamp)
+
+
+def invalidate(datasource=None) -> None:
+    """Drop the cached layer(s). Called by apply_spec; safe to call anywhere."""
+    if datasource is None:
+        _CACHE.clear()
+        return
+    for key in [k for k in _CACHE if k[0] == datasource.id]:
+        _CACHE.pop(key, None)
+
+
 def get_semantic_layer(datasource) -> Layer:
-    """Build the runtime Layer for ``datasource`` from the curated models."""
-    from .models import CertifiedJoin, CertifiedMetric, SemanticLayer, SemanticTable
+    """Build the runtime Layer for ``datasource`` from the curated models (cached)."""
+    key = _cache_key(datasource)
+    hit = _CACHE.get(key)
+    if hit is not None:
+        return hit
+    layer = _build_semantic_layer(datasource)
+    invalidate(datasource)          # evict the stale-stamp entry for this datasource
+    _CACHE[key] = layer
+    return layer
+
+
+def _build_semantic_layer(datasource) -> Layer:
+    from .models import (CertifiedJoin, CertifiedMetric, HealthTile, SemanticLayer,
+                         SemanticTable)
 
     layer = Layer(datasource_id=datasource.id, datasource_name=datasource.name)
     sl = SemanticLayer.objects.filter(datasource=datasource).first()
@@ -107,5 +162,11 @@ def get_semantic_layer(datasource) -> Layer:
     for m in CertifiedMetric.objects.filter(datasource=datasource):
         layer.metrics.append(LMetric(key=m.key, name=m.name, sql=m.sql,
                                      description=m.description,
+                                     row_limit=m.row_limit,
                                      synonyms=list(m.synonyms or [])))
+    for h in HealthTile.objects.filter(datasource=datasource):
+        layer.health.append(LHealthTile(
+            key=h.key, label=h.label, sql=h.sql, description=h.description,
+            unit=h.unit, direction=h.direction, target=h.target,
+            roles=list(h.roles or []), position=h.position))
     return layer

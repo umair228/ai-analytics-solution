@@ -15,13 +15,13 @@ DSE processes laboratory/QC data on‑premise. The security posture for R0 centr
 |---|---|
 | **Authentication** | JWT (DRF SimpleJWT); all analytics/runs/explain/report endpoints require an authenticated user. |
 | **Authorization** | `AnalysisRun.accessible_by` and report querysets are owner/shared‑scoped, mirroring `Dataset` ACLs; admins see all. Anomaly/stat/forecast runs only on datasets the caller can access. |
-| **Audit** | Every run and deletion writes an immutable `AuditLog` entry (user, action, target, summary, IP); explanation/export/email actions audited. |
-| **Local‑only inference** | `LLM_PROVIDER=local`; AI‑explain degrades gracefully (no error, no data retained externally) if the endpoint is down. |
+| **Audit** | Every run and deletion writes an **append‑only** `AuditLog` entry (user, action, target, summary, IP); explanation/export/email actions audited, as is LLM‑generated SQL. Writes **fail closed**. Append‑only is enforced at the application layer (read‑only API + admin denies add/change/delete) — **not** at the database layer; see `SECURITY.md §7`. |
+| **Local‑only inference** | `LLM_PROVIDER=local` **by default**, and egress is refused unless `DSE_ALLOW_EXTERNAL_LLM=True` — enforced in `ai/providers/egress.py`, not by convention. AI‑explain degrades gracefully (no error, no data retained externally) if the endpoint is down. |
 | **Input safety** | Engines validate columns/params and raise typed `AnalyticsError`; numeric coercion is defensive; bounded model grids/epochs cap resource use. Calculated‑field expressions use a safe AST evaluator (no `eval`). |
 | **Email/distribution** | Recipients are explicit; one‑off `email-now` and scheduled reports send only the chosen artifact; SMTP creds via env, not code. |
 | **Secrets** | `DJANGO_SECRET_KEY`, DB creds, SMTP, LLM endpoint via `.env.prod` / environment — never committed. |
 | **Dependencies / supply chain** | Pinned stack (`numpy<2`, `pandas 2.2`, pinned `torch`) via `.docsearch-constraints.txt`; new dep `xgboost` is lazy‑imported and constraint‑pinned; images built from versioned base; CI runs on each push. |
-| **Determinism** | Fixed seeds → reproducible results support QC audit and tamper‑evidence. |
+| **Determinism** | Fixed seeds in the analytics engines, plus `temperature=0` + `LLM_SEED` on every LLM provider → a re‑run reproduces the answer, which is what a QC audit asks for. NB this is **reproducibility, not tamper‑evidence**: no record hashing, chaining or signing exists (`SECURITY.md §7`). |
 
 ## 4. Network
 - Backend behind nginx; only `/api` exposed to the SPA.
