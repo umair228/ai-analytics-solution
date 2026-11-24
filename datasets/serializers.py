@@ -93,13 +93,31 @@ class AlertEventSerializer(serializers.ModelSerializer):
         ]
 
 
+def board_report_refusal(board, user) -> str:
+    """Why ``board`` may not be emailed by ``user`` (empty = it may).
+
+    An email leaves the application for good, so only a board that everyone in the
+    organisation may already open can be sent; a private or restricted board (bid
+    values, costs) stays link-only. The sender must be able to open it too."""
+    from core.access import Visibility
+
+    if board.visibility != Visibility.ORG:
+        return ("Only a board shared with everyone in the organisation can be emailed; "
+                "this one is private, so it is shared by link only.")
+    if user is not None and not board.accessible_by(user):
+        return "You cannot open this board."
+    return ""
+
+
 class DatasetReportSerializer(serializers.ModelSerializer):
     dataset_name = serializers.CharField(source="dataset.name", read_only=True)
     run_name = serializers.CharField(source="analysis_run.name", read_only=True)
+    dashboard_name = serializers.CharField(source="dashboard.name", read_only=True)
 
     class Meta:
         model = DatasetReport
         fields = ["id", "kind", "dataset", "dataset_name", "analysis_run", "run_name",
+                  "dashboard", "dashboard_name",
                   "chart_config", "export_format", "name", "recipient_emails",
                   "schedule", "is_active", "last_sent_at", "created_at"]
         read_only_fields = ["id", "last_sent_at", "created_at"]
@@ -110,6 +128,14 @@ class DatasetReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A dataset is required for a dataset CSV report.")
         if kind == DatasetReport.Kind.ANALYSIS_RUN and not (attrs.get("analysis_run") or getattr(self.instance, "analysis_run", None)):
             raise serializers.ValidationError("An analysis_run is required for an analysis-run report.")
+        if kind == DatasetReport.Kind.BOARD:
+            board = attrs.get("dashboard") or getattr(self.instance, "dashboard", None)
+            if board is None:
+                raise serializers.ValidationError("Choose the board to send.")
+            problem = board_report_refusal(board, self.context["request"].user)
+            if problem:
+                raise serializers.ValidationError(problem)
+            attrs["export_format"] = "pdf"
         return attrs
 
     def create(self, validated_data):

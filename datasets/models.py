@@ -196,7 +196,8 @@ class AlertEvent(TimeStampedModel):
 
 
 class DatasetReport(TimeStampedModel):
-    """A scheduled email report — a dataset CSV, a saved analysis run, or a chart."""
+    """A scheduled email report — a dataset CSV, a saved analysis run, a chart, or a
+    whole board as a PDF."""
 
     class Schedule(models.TextChoices):
         DAILY   = "daily",   "Daily"
@@ -207,6 +208,7 @@ class DatasetReport(TimeStampedModel):
         DATASET_CSV  = "dataset_csv",  "Dataset CSV"
         ANALYSIS_RUN = "analysis_run", "Saved analysis run"
         CHART        = "chart",        "Chart"
+        BOARD        = "board",        "Board (PDF)"
 
     dataset          = models.ForeignKey(Dataset, null=True, blank=True,
                                          on_delete=models.CASCADE, related_name="reports")
@@ -226,6 +228,10 @@ class DatasetReport(TimeStampedModel):
                                          on_delete=models.SET_NULL, related_name="reports")
     chart_config     = models.JSONField(default=dict, blank=True)
     export_format    = models.CharField(max_length=8, default="csv")
+    # A board report: the whole board as a PDF (core.board_render). Only a board that
+    # everyone in the organisation may open can be emailed (DatasetReportSerializer).
+    dashboard        = models.ForeignKey("dashboards.Dashboard", null=True, blank=True,
+                                         on_delete=models.CASCADE, related_name="reports")
 
     class Meta:
         ordering = ["name"]

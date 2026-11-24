@@ -1002,6 +1002,9 @@ dashboards:
 # set them on the Reports page. Classified content (rpt_fin, pack-restricted.yaml) is never
 # attached to an email: it is link-only (DEC-07), so that pack schedules no reports.
 reports:
+  # The Executive Overview itself, as a PDF, every week (created off: an administrator
+  # adds the recipients on the Reports page or with seed_domain_pack --recipients).
+  - {key: weekly_executive_board, name: "PMSv2 weekly · Executive Overview (PDF)", board: executive, schedule: weekly}
   - {key: weekly_kpi_summary,     name: "PMSv2 weekly · KPI summary",               dataset: mgt_kpi_summary,       schedule: weekly,  format: pdf}
   - {key: weekly_overdue_docs,    name: "PMSv2 weekly · Overdue document register", dataset: eng_overdue_register,  schedule: weekly,  format: xlsx}
   - {key: weekly_rfq_register,    name: "PMSv2 weekly · RFQ summary register",      dataset: com_rfq_register,      schedule: weekly,  format: xlsx}
