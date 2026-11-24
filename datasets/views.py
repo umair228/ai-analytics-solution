@@ -27,7 +27,7 @@ from django.utils import timezone
 
 from .models import AlertEvent, Dataset, DatasetAlert, DatasetReport
 from .serializers import AlertEventSerializer, DatasetAlertSerializer, DatasetReportSerializer, DatasetSerializer
-from .services import refresh_dataset
+from .services import query_changed_since_refresh, refresh_dataset
 
 
 logger = logging.getLogger(__name__)
@@ -382,11 +382,14 @@ class DatasetViewSet(viewsets.ModelViewSet):
                 )
             return Response(payload)
 
-        if request.query_params.get("refresh") == "1":
+        asked = request.query_params.get("refresh") == "1"
+        if asked or query_changed_since_refresh(dataset):
             try:
                 refresh_dataset(dataset)
             except Exception as exc:  # noqa: BLE001
-                return _error(exc)
+                if asked:
+                    return _error(exc)
+                # Proactive only: when the source is unreachable, serve the cache.
         try:
             df = build_dataframe(dataset)
         except Exception as exc:  # noqa: BLE001

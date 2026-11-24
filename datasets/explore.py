@@ -46,7 +46,7 @@ def run_explore(dataset, body: dict, *, use_cache: bool = True) -> dict:
     from querybuilder.executor import QueryError, execute_dataset_query, is_unknown_column_error
     from querybuilder.models import QueryDefinition
 
-    from .services import refresh_dataset
+    from .services import query_changed_since_refresh, refresh_dataset
 
     q = dataset.query
     if q is None or q.mode != QueryDefinition.Mode.RAW:
@@ -84,11 +84,12 @@ def run_explore(dataset, body: dict, *, use_cache: bool = True) -> dict:
     columns = dataset.cached_columns or []
     kept, skipped = split(filters, columns)
 
-    # Filters were dropped but the query changed since the last refresh — the cache
-    # may simply be stale: heal proactively and re-split (covers a NEW output column
-    # the stale cache didn't know about).
-    if skipped and dataset.last_refreshed_at and q.updated_at \
-            and q.updated_at > dataset.last_refreshed_at:
+    # The query changed since the last refresh (a pack upgrade, an edit): the cached
+    # column list is the output allow-list, so a NEW column (a project name beside its
+    # number) would be silently left out, and a filter on it skipped, until the next
+    # scheduled refresh. Heal once, before answering; the refresh moves
+    # last_refreshed_at past the change, so this runs once per change.
+    if query_changed_since_refresh(dataset):
         try:
             refresh_dataset(dataset)
             columns = dataset.cached_columns or []

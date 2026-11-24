@@ -24,6 +24,15 @@ _COND_OPS = {
 _COND_LABELS = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "eq": "="}
 
 
+def query_changed_since_refresh(dataset) -> bool:
+    """The dataset's query was saved after its last refresh (a pack upgrade, an edit):
+    its cached rows and column list describe the old query. Readers refresh first,
+    so a new column shows on the next board load, not after the nightly refresh."""
+    q = getattr(dataset, "query", None)
+    return bool(q is not None and dataset.last_refreshed_at and q.updated_at
+                and q.updated_at > dataset.last_refreshed_at)
+
+
 def refresh_dataset(dataset, params: dict | None = None):
     """Re-run the dataset's query, cache the result, then evaluate alerts."""
     query = dataset.query
