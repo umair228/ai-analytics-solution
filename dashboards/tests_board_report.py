@@ -77,6 +77,15 @@ class BoardReportTests(TestCase):
             CREATE TABLE hours (project_number TEXT, spent REAL, budget REAL);
             INSERT INTO hours VALUES ('2429-2', 60888, 134058);
             CREATE TABLE register (doc TEXT, days INTEGER);
+            CREATE TABLE causes (cause TEXT, ncrs INTEGER);
+            INSERT INTO causes VALUES ('Workmanship', 70), ('Procedure', 15), ('Material', 5),
+                                      ('Drawing', 5), ('Equipment', 5);
+            CREATE TABLE scorecard (measure TEXT, value REAL, previous REAL, target REAL,
+                                    floor REAL, unit TEXT, direction TEXT);
+            INSERT INTO scorecard VALUES
+              ('Shipments on time', 72, 73.9, 90, 80, '%', 'higher_better'),
+              ('Injury rate', 2.42, 2.57, 2.0, 3.0, 'ratio', 'lower_better'),
+              ('Weld repair rate', 2.16, 2.19, 2.5, NULL, '%', 'lower_better');
             CREATE TABLE monthly_mix (month TEXT, "External" INTEGER, "Internal" INTEGER);
             INSERT INTO monthly_mix VALUES ('2026-09-01', 40, 20), ('2026-10-01', 35, 30);
         """)
@@ -130,6 +139,13 @@ class BoardReportTests(TestCase):
                ds("hours", "SELECT project_number, spent, budget FROM hours"),
                {"category_field": "project_number", "value_field": "spent",
                 "target_field": "budget", "unit": "h", "direction": "lower_better"})
+        widget("pareto", "What the NCRs are about", ds("causes", "SELECT cause, ncrs FROM causes"),
+               {"category_field": "cause", "value_field": "ncrs", "items": "root causes",
+                "what": "the NCRs"}, h=8)
+        widget("bullet", "Plant scorecard", ds("scorecard", "SELECT * FROM scorecard"),
+               {"category_field": "measure", "value_field": "value", "target_field": "target",
+                "floor_field": "floor", "unit_field": "unit", "direction_field": "direction",
+                "previous_field": "previous"}, w=12, h=6)
         widget("table", "Register", ds("register", "SELECT doc, days FROM register ORDER BY days DESC"),
                {"page_size": 5, "columns": [{"field": "doc", "label": "Document"},
                                             {"field": "days", "label": "Days"}]}, w=12, h=8)
@@ -158,7 +174,12 @@ class BoardReportTests(TestCase):
                          "Enquiries, last full month", "+2 (+29%)",       # 9 vs 7, not 2
                          "2419 · Pressure vessel package", "and 1 more",
                          "60,888 h of 134,058 h (45%)", "Showing 5 of 15",
-                         "Transmittals", "Page 1 of"):
+                         "Transmittals", "Page 1 of",
+                         # Pareto: the finding in words, the names and counts under the bars
+                         "2 of 5 root causes make up 85% of the NCRs.", "Workmanship", "Running total",
+                         # Bullet: value against target, the verdict, the change in words (no arrows)
+                         "72% · target 90%", "18 pts below target", "down 1.9 pts",
+                         "0.42 over target", "Within target", "down 0.03 pts"):
             self.assertIn(expected, text)
         # A figure that cannot be shown says so; it never reads as zero.
         self.assertIn("Not available to this report's owner.", text)

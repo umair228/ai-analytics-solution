@@ -75,6 +75,11 @@ class Widget(TimeStampedModel):
         # A register page: filter charts above a server-side list (search, sort, page,
         # columns, export) over a dataset of any size.
         REGISTER = "register", "Register (filterable list)"
+        # The few categories that make most of a total (biggest first, the running share,
+        # the "vital few" reaching 80%), and measures against their targets (bar, target
+        # tick, grey zones short of it, the verdict in words).
+        PARETO = "pareto", "Pareto (the few that make most)"
+        BULLET = "bullet", "Bullet (actual against target)"
 
     dashboard = models.ForeignKey(
         Dashboard, on_delete=models.CASCADE, related_name="widgets"
