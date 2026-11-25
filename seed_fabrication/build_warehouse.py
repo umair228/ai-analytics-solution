@@ -8,8 +8,15 @@ but behave like a real shop, so the boards show real-looking problems:
   late operations and late shipments are visibly higher;
 * the welding bay is the bottleneck (loaded over 100 % in peak weeks);
 * the weld repair rate improves after a quality push in April 2026;
-* two suppliers are chronically late; plates and forgings run late most often;
-* recordable injuries fall over the period while man-hours rise.
+* two suppliers are chronically late (about 4 lines in 5); plates and forgings run late most often;
+* recordable injuries fall over the period while man-hours rise;
+* problems concentrate as they do in a real shop (Pareto): welding and dimensional
+  NCRs, and workmanship and procedure causes, are most of them; material defects cost
+  the most per NCR; hand and eye injuries are most incidents; each material's first two
+  (strategic) suppliers take the large orders, the rest are spot buys.
+
+Weights and multipliers only reshape what each draw picks: every value still takes one
+random draw, so the other stories (and every count) stay as they were.
 
 People appear as codes only (welder W-012, PM-03); clients are "Client A".."H".
 
@@ -53,19 +60,25 @@ CAPACITY = {  # weekly hours available per work centre (welding is the constrain
 PROCESSES = [("SMAW", 0.30), ("GTAW", 0.25), ("SAW", 0.25), ("FCAW", 0.20)]
 PROCESS_RISK = {"SMAW": 1.15, "GTAW": 0.8, "SAW": 0.75, "FCAW": 1.3}
 NDT = [("RT", 0.45), ("UT", 0.30), ("MT", 0.15), ("PT", 0.10)]
-NCR_CATEGORY = [("Welding", 0.32), ("Dimensional", 0.22), ("Material", 0.14), ("Coating", 0.12),
-                ("Documentation", 0.10), ("Supplier", 0.10)]
-ROOT_CAUSE = [("Workmanship", 0.34), ("Procedure not followed", 0.20), ("Material defect", 0.14),
-              ("Drawing / design", 0.12), ("Inadequate supervision", 0.10), ("Equipment", 0.10)]
+NCR_CATEGORY = [("Welding", 0.48), ("Dimensional", 0.25), ("Material", 0.11), ("Coating", 0.07),
+                ("Supplier", 0.05), ("Documentation", 0.04)]
+ROOT_CAUSE = [("Workmanship", 0.50), ("Procedure not followed", 0.22), ("Material defect", 0.13),
+              ("Drawing / design", 0.06), ("Equipment", 0.05), ("Inadequate supervision", 0.04)]
+# A material defect means scrap and re-ordering; a drawing error, rework of several items.
+CAUSE_COST = {"Material defect": 2.4, "Drawing / design": 1.6, "Equipment": 0.8,
+              "Inadequate supervision": 0.7}
+# Order value by supplier rank within its material: strategic suppliers get the packages.
+SUPPLIER_VALUE = {"01": 2.0, "02": 1.25}
+TAIL_SUPPLIER_VALUE = 0.25
 PO_CATEGORY = {  # category: (lead days, value range SAR, lines per project range)
     "Plates": (42, (40_000, 650_000), (6, 18)), "Pipes & fittings": (35, (8_000, 180_000), (10, 40)),
     "Forgings & flanges": (56, (12_000, 260_000), (6, 20)), "Valves": (63, (10_000, 340_000), (4, 16)),
     "Bought-out equipment": (84, (60_000, 1_400_000), (1, 6)), "Consumables": (10, (2_000, 40_000), (8, 24)),
     "Paint & coating": (14, (5_000, 90_000), (2, 8)),
 }
-INCIDENT_TYPES = [("Hand injury", 0.26), ("Slip / trip", 0.18), ("Dropped object", 0.15),
-                  ("Eye injury", 0.12), ("Burn / arc flash", 0.12), ("Lifting / rigging", 0.10),
-                  ("Strain", 0.07)]
+INCIDENT_TYPES = [("Hand injury", 0.42), ("Eye injury", 0.22), ("Slip / trip", 0.17),
+                  ("Dropped object", 0.08), ("Burn / arc flash", 0.05), ("Lifting / rigging", 0.03),
+                  ("Strain", 0.03)]
 
 
 def weighted(rng, pairs):
@@ -269,13 +282,14 @@ def build(path: Path, verbose: bool = True) -> dict:
             days_to_close = int(rng.lognormvariate(2.6 if severity == "Minor" else 3.1, 0.6))
             closed = raised + timedelta(days=days_to_close)
             is_open = closed > DATA_DATE
-            cost = round(rng.lognormvariate(8.6, 0.9) * {"Minor": 1, "Major": 3.2, "Critical": 9}[severity], -1)
+            base_cost = rng.lognormvariate(8.6, 0.9) * {"Minor": 1, "Major": 3.2, "Critical": 9}[severity]
+            detected_at = weighted(rng, [("In-process inspection", 0.55), ("Final inspection", 0.2),
+                                         ("Client inspection", 0.12), ("Receiving inspection", 0.13)])
+            cause = weighted(rng, ROOT_CAUSE)
+            cost = round(base_cost * CAUSE_COST.get(cause, 1.0), -1)
             rows["ncrs"].append((f"NCR-{project_no[2:]}-{k:03d}", project_no, iso(raised),
                                  None if is_open else iso(closed), "Open" if is_open else "Closed",
-                                 category, severity,
-                                 weighted(rng, [("In-process inspection", 0.55), ("Final inspection", 0.2),
-                                                ("Client inspection", 0.12), ("Receiving inspection", 0.13)]),
-                                 weighted(rng, ROOT_CAUSE), cost,
+                                 category, severity, detected_at, cause, cost,
                                  ((DATA_DATE if is_open else closed) - raised).days))
         # ---- purchase orders ------------------------------------------------------------
         line = 0
@@ -287,7 +301,7 @@ def build(path: Path, verbose: bool = True) -> dict:
                     continue
                 supplier = rng.choice(suppliers[cat])
                 promised = ordered + timedelta(days=int(lead * rng.uniform(0.8, 1.2)))
-                slip = rng.lognormvariate(2.4, 0.7) if supplier in late_suppliers else (
+                slip = rng.lognormvariate(2.4, 0.7) - 6 if supplier in late_suppliers else (
                     rng.lognormvariate(1.6, 0.9) if rng.random() < 0.28 else -rng.randint(0, 6))
                 received = promised + timedelta(days=int(slip))
                 if received > DATA_DATE:
@@ -296,8 +310,9 @@ def build(path: Path, verbose: bool = True) -> dict:
                     received = None
                 else:
                     status, days_late = "Received", max(0, (received - promised).days)
+                value = rng.uniform(*val) * SUPPLIER_VALUE.get(supplier[-2:], TAIL_SUPPLIER_VALUE)
                 rows["pos"].append((f"PO-{project_no[2:]}-{line:03d}", project_no, supplier, cat, iso(ordered),
-                                    iso(promised), iso(received), round(rng.uniform(*val), -2), status, days_late))
+                                    iso(promised), iso(received), round(value, -2), status, days_late))
         # ---- shipments ---------------------------------------------------------------------
         n_ship = rng.randint(2, 9) if code != "PS" else rng.randint(6, 14)
         for k in range(1, n_ship + 1):

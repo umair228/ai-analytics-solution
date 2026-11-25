@@ -4,8 +4,9 @@ The browser's "Export PDF" photographs the board; a scheduled email has no brows
 and the reporting deployment has no internet to fetch one. So the server draws the
 board itself with ReportLab, from the same rows the board shows: section headings, KPI
 cards (value, change against the previous period, caption), ranked lists with their
-bars, progress against a target, the first rows of each table, and bar and line
-charts. Numbers read as on the board (formatValue in ManagementWidgets.jsx: separators,
+bars, progress against a target, Pareto charts (core/management_figures.py: the same
+"3 of 9 make up 78%" as the board), bullet rows (measure, target tick, grey zones, the
+verdict in words), the first rows of each table, and bar and line charts. Numbers read as on the board (formatValue in ManagementWidgets.jsx: separators,
 one decimal, "SAR 1.2M", "12.5 d"); colours are the board's colour-blind-safe palette.
 
 A widget whose dataset the report's owner can no longer see, or whose query fails,
@@ -27,6 +28,12 @@ PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6
 TONES = {"good": "#0ca30c", "watch": "#fab219", "serious": "#ec835a", "act": "#d03b3b",
          "info": "#2a78d6", "neutral": "#b4bac4"}
 INK, MUTED, FAINT, RULE, TRACK = "#0b1220", "#5b6472", "#8a93a3", "#d9dde3", "#eef0f3"
+# Bullet zones short of the target (management.css .mg-bullet-band--fair / --poor) and
+# the verdict chips' words and soft backgrounds (tokens.css --mg-*-text / --mg-*-soft).
+BAND_FAIR, BAND_POOR = "#e0e4ea", "#c9ced7"
+TONE_TEXT = {"good": "#006300", "watch": "#7a5200", "act": "#a12a2a"}
+TONE_SOFT = {"good": "#e7f6e7", "watch": "#fff5dc", "act": "#fdecec"}
+LINE_INK = "#52514e"   # chartTheme ink2: the Pareto's running-total line
 STALE = "#a12a2a"
 UNIT_SUFFIX = {"%": "%", "percent": "%", "h": " h", "hours": " h", "d": " d", "days": " d"}
 MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -298,6 +305,11 @@ def render_board_pdf(dashboard, *, owner=None, product="", footer_text="",
                                textColor=c(MUTED)),
         "warn": ParagraphStyle("w", fontName="Helvetica-Bold", fontSize=8.5, leading=11,
                                textColor=c(STALE)),
+        "row_b": ParagraphStyle("rb", fontName="Helvetica-Bold", fontSize=8, leading=10,
+                                textColor=c(INK)),
+        **{f"verdict_{tone}": ParagraphStyle(f"vd{tone}", fontName="Helvetica-Bold", fontSize=6.5,
+                                             leading=8, textColor=c(colour), leftIndent=4)
+           for tone, colour in TONE_TEXT.items()},
     }
 
     def P(text, style, limit=None):
@@ -597,6 +609,202 @@ def render_board_pdf(dashboard, *, owner=None, product="", footer_text="",
         inner.append(d)
         return card(inner, width)
 
+    def pareto(w, data, width):
+        from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, String
+
+        from core import management_figures as mf
+
+        cfg = w.config or {}
+        ci = _col(data, cfg.get("category_field")) if cfg.get("category_field") else 0
+        vi = _col(data, cfg.get("value_field")) if cfg.get("value_field") else len(data.columns) - 1
+        if ci < 0 or vi < 0:
+            return unavailable(w, "This view's fields are not in its data.", width)
+        ni = _col(data, cfg.get("name_field")) if cfg.get("name_field") else -1
+        threshold = mf.num(cfg.get("threshold")) or 80
+        what = cfg.get("what") or "the total"
+        p = mf.pareto_bars(
+            [{"name": category_label(r[ci], cfg.get("category_format")), "value": r[vi],
+              "sub": r[ni] if ni >= 0 else None} for r in data.rows],
+            limit=cfg.get("limit") or 10, threshold=threshold)
+        inner = [P(w.title, "card_title")]
+        if cfg.get("caption"):
+            inner.append(P(cfg["caption"], "small", limit=200))
+        summary = mf.pareto_summary(p, items=cfg.get("items") or "categories", what=what,
+                                    threshold=threshold)
+        if not summary:
+            inner.append(P(cfg.get("empty") or "Nothing recorded for this selection.", "small"))
+            return card(inner, width)
+        inner.append(P(summary, "row_b"))
+        inner_w = width - 14
+        height = max(120.0, min(210.0, (w.h or 8) * 15.0))
+        legend_h, label_h, left = 12, 26, 24
+        d = Drawing(inner_w, height + legend_h)
+        plot_w, plot_h, y0 = inner_w - left - 4, height - label_h - 6, label_h
+        n = len(p["bars"])
+        slot = plot_w / max(1, n)
+        bar_w = min(30.0, slot * 0.62)
+        chars = max(6, min(26, int(slot / 3.1)))     # 5.5 pt Helvetica: ~3 pt a character
+
+        def y(pct):
+            return y0 + plot_h * pct / 100
+
+        for g in (0, 25, 50, 75, 100):
+            d.add(Line(left, y(g), left + plot_w, y(g), strokeColor=c(TRACK), strokeWidth=0.5))
+            d.add(String(left - 3, y(g) - 2, f"{g}%", fontName="Helvetica", fontSize=5.5,
+                         fillColor=c(FAINT), textAnchor="end"))
+        pts = []
+        for i, b in enumerate(p["bars"]):
+            cx = left + slot * (i + 0.5)
+            d.add(Rect(cx - bar_w / 2, y0, bar_w, max(0.6, plot_h * b["share"] / 100),
+                       fillColor=c(PALETTE[0] if b["vital"] else TONES["neutral"]), strokeColor=None))
+            names = mf.wrap_name(b["name"], chars)
+            for k, part in enumerate(names):
+                d.add(String(cx, y0 - 8 - 6.5 * k, part, fontName="Helvetica", fontSize=5.5,
+                             fillColor=c(MUTED), textAnchor="middle"))
+            d.add(String(cx, y0 - 8 - 6.5 * len(names) - 1, format_value(b["value"], cfg.get("unit")),
+                         fontName="Helvetica-Bold", fontSize=5.5, fillColor=c(INK), textAnchor="middle"))
+            pts.append((cx, y(b["cumulative"])))
+        d.add(Line(left, y(threshold), left + plot_w, y(threshold), strokeColor=c(FAINT),
+                   strokeWidth=0.6, strokeDashArray=[2, 2]))
+        d.add(String(left + plot_w, y(threshold) + 2, f"{mf.js_round(threshold)}%",
+                     fontName="Helvetica", fontSize=5.5, fillColor=c(FAINT), textAnchor="end"))
+        if len(pts) > 1:
+            d.add(PolyLine([v for pt in pts for v in pt], strokeColor=c(LINE_INK), strokeWidth=1.2))
+        for i, (px, py) in enumerate(pts):
+            d.add(Circle(px, py, 1.7, fillColor=c(LINE_INK), strokeColor=c("#ffffff"), strokeWidth=0.6))
+            if i == p["vital"] - 1:
+                # Up and to the left of the point: the running line rises from the left
+                # and leaves to the right, so that corner is free.
+                d.add(String(px - 3, py + 3, f"{mf.js_round(p['bars'][i]['cumulative'])}%",
+                             fontName="Helvetica-Bold", fontSize=6.5, fillColor=c(INK), textAnchor="end"))
+        # Legend on top: the bars' colour, the line.
+        ly = height + legend_h - 8
+        share_name = "Share of " + (what[4:] if what.startswith("the ") else what)
+        d.add(Rect(left, ly, 6, 6, fillColor=c(PALETTE[0]), strokeColor=None))
+        d.add(String(left + 9, ly + 1, share_name, fontName="Helvetica", fontSize=6, fillColor=c(MUTED)))
+        lx = left + 9 + len(share_name) * 3.1 + 12
+        d.add(Line(lx, ly + 3, lx + 10, ly + 3, strokeColor=c(LINE_INK), strokeWidth=1.2))
+        d.add(String(lx + 13, ly + 1, "Running total", fontName="Helvetica", fontSize=6, fillColor=c(MUTED)))
+        inner.append(d)
+        return card(inner, width)
+
+    def bullet(w, data, width):
+        from reportlab.graphics.shapes import Drawing, Line, Rect
+
+        from core import management_figures as mf
+
+        cfg = w.config or {}
+        vi = _col(data, cfg.get("value_field")) if cfg.get("value_field") else (
+            1 if len(data.columns) > 1 else 0)
+        if vi < 0:
+            return unavailable(w, "This view's fields are not in its data.", width)
+        ci = _col(data, cfg.get("category_field")) if cfg.get("category_field") else -1
+
+        def at(r, key, fallback=None):
+            i = _col(data, cfg.get(key)) if cfg.get(key) else -1
+            return r[i] if i >= 0 else fallback
+
+        per_row = bool(cfg.get("unit_field") or cfg.get("direction_field"))
+        shared = (cfg.get("scale") or ("row" if per_row else "shared")) != "row"
+        rows = []
+        for r in (data.rows if ci >= 0 else data.rows[:1]):
+            name = category_label(r[ci], cfg.get("category_format")) if ci >= 0 else (
+                cfg.get("label") or w.title)
+            sub = at(r, "name_field") if ci >= 0 else None
+            rows.append({
+                "name": name, "sub": sub if sub not in (None, "") and str(sub) != name else None,
+                "value": mf.num(r[vi]), "target": mf.num(at(r, "target_field", cfg.get("target"))),
+                "floor": mf.num(at(r, "floor_field", cfg.get("floor"))),
+                "max": mf.num(at(r, "max_field")), "unit": at(r, "unit_field", cfg.get("unit")) or "",
+                "direction": at(r, "direction_field", cfg.get("direction")) or "higher_better",
+                "previous": mf.num(at(r, "previous_field")),
+                "reference": mf.num(at(r, "reference_field")),
+            })
+        unit0 = rows[0]["unit"] if rows else ""
+        ref_value = mf.num((cfg.get("reference") or {}).get("value"))
+        shared_max = None
+        if shared:
+            shared_max = mf.num(cfg.get("max")) or mf.scale_max(
+                [x for r in rows for x in (r["value"], r["target"], r["floor"], r["reference"])] + [ref_value],
+                unit0)
+        limit = int(cfg.get("limit") or 12)
+        inner_w = width - 14
+        verdict_w = min(118.0, inner_w * 0.34)
+        track_w = inner_w - verdict_w - 6
+        inner = [P(w.title, "card_title")]
+        if cfg.get("caption"):
+            inner.append(P(cfg["caption"], "small", limit=200))
+        value_label, target_label = cfg.get("value_label"), cfg.get("target_label") or "target"
+        for r in rows[:limit]:
+            mx = shared_max or r["max"] or mf.scale_max([r["value"], r["target"], r["floor"], r["reference"]],
+                                                         r["unit"])
+            verdict = mf.bullet_verdict(value=r["value"], target=r["target"], floor=r["floor"],
+                                        direction=r["direction"], unit=r["unit"], gap=cfg.get("gap") or "difference",
+                                        words=cfg.get("words") or {}, fmt=format_value)
+            delta = mf.bullet_delta(r["value"], r["previous"], direction=r["direction"], unit=r["unit"],
+                                    fmt=format_value)
+            right = (f"{value_label} " if value_label else "") + format_value(r["value"], r["unit"])
+            if r["target"] is not None:
+                right += f" · {target_label} {format_value(r['target'], r['unit'])}"
+            markup = escape(right)
+            if delta:
+                # Helvetica has no arrows: "up 1.9 pts" / "down 1.9 pts", coloured by sense.
+                words_ = delta["text"].replace("▲ ", "up ").replace("▼ ", "down ")
+                colour = {"good": TONE_TEXT["good"], "bad": TONE_TEXT["act"]}.get(delta["sense"], MUTED)
+                markup += f'&nbsp;&nbsp;<font color="{colour}">{escape(words_)}</font>'
+            label = r["name"] + (f" · {r['sub']}" if r["sub"] else "")
+            head = Table([[P(label, "row", limit=80), Paragraph(markup, styles["row_r"])]],
+                         colWidths=[inner_w * 0.5, inner_w * 0.5])
+            head.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                      ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 2),
+                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 1)]))
+            inner.append(head)
+            d = Drawing(track_w, 9)
+            d.add(Rect(0, 1, track_w, 7, fillColor=c(TRACK), strokeColor=None))
+            for b in mf.bullet_bands(target=r["target"], floor=r["floor"], direction=r["direction"],
+                                     maximum=mx):
+                d.add(Rect(track_w * b["from"] / 100, 1, track_w * (b["to"] - b["from"]) / 100, 7,
+                           fillColor=c(BAND_POOR if b["level"] == "poor" else BAND_FAIR), strokeColor=None))
+            vp = mf.position(r["value"], mx)
+            if vp is not None:
+                d.add(Rect(0, 3, max(0.8, track_w * vp / 100), 3, fillColor=c(PALETTE[0]), strokeColor=None))
+            # The row's own reference (its budget), else the board's (Budget 100%).
+            rp = (mf.position(r["reference"], mx) if r["reference"] is not None
+                  else mf.position(ref_value, mx) if shared else None)
+            if rp is not None:
+                x = track_w * rp / 100
+                d.add(Line(x, 0, x, 9, strokeColor=c(MUTED), strokeWidth=0.5, strokeDashArray=[1.2, 1.2]))
+            tp = mf.position(r["target"], mx)
+            if tp is not None:
+                x = min(track_w - 0.6, max(0.6, track_w * tp / 100))
+                d.add(Line(x, 0, x, 9, strokeColor=c(INK), strokeWidth=1.2))
+            cell = P(verdict["text"], "verdict_" + verdict["tone"], limit=60) if verdict else P(
+                "No figure yet" if r["value"] is None else "", "small")
+            line = Table([[d, "", cell]], colWidths=[track_w, 6, verdict_w])
+            line.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                      ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                                      ("TOPPADDING", (0, 0), (-1, -1), 0),
+                                      ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                                      ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]
+                                     + ([("BACKGROUND", (2, 0), (2, 0), c(TONE_SOFT[verdict["tone"]]))]
+                                        if verdict else [])))
+            inner.append(line)
+        if len(rows) > limit:
+            inner.append(P(f"and {len(rows) - limit} more", "small"))
+        if cfg.get("reference_field") and rows:
+            inner.append(P(f"Dashed line: the {cfg.get('reference_label') or 'reference'}. "
+                           f"Tick: {target_label}.", "small"))
+        elif shared and rows:
+            ref_label = (cfg.get("reference") or {}).get("label")
+            scale = f"Scale 0 to {format_value(shared_max, unit0)}"
+            if ref_value is not None:
+                scale += f". Dashed line: {ref_label + ' ' if ref_label else ''}{format_value(ref_value, unit0)}"
+            inner.append(P(scale + ". Tick: " + target_label + ".", "small"))
+        if not rows:
+            inner.append(P(cfg.get("empty") or "Nothing recorded for this selection.", "small"))
+        return card(inner, width)
+
     def text_card(w, width):
         cfg = w.config or {}
         return card([P(w.title, "card_title"), P(cfg.get("content") or "", "label", limit=1200)],
@@ -618,6 +826,10 @@ def render_board_pdf(dashboard, *, owner=None, product="", footer_text="",
             return ranked(w, data, width, keep_order=True)
         if kind == "progress":
             return progress(w, data, width)
+        if kind == "pareto":
+            return pareto(w, data, width)
+        if kind == "bullet":
+            return bullet(w, data, width)
         if kind == "table":
             return table(w, data, width)
         if kind in ("bar", "line", "area"):

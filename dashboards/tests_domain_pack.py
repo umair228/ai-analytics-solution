@@ -590,6 +590,7 @@ class FabricationDemoPackTests(PmsV2PackTests):
 
     def test_executive_board_comes_first(self):
         self.assertEqual(self.pack.dashboards[0].name, "Plant Overview")
+        self.assertEqual(self.pack.dashboards[1].name, "Plant Scorecard")
         positions = [b.position for b in self.pack.dashboards]
         self.assertEqual(positions, sorted(positions))
 
@@ -620,4 +621,77 @@ class FabricationDemoPackTests(PmsV2PackTests):
             # the welding bay is the constraint
             self.assertEqual(one("SELECT work_center FROM wc_weekly GROUP BY work_center "
                                  "ORDER BY MAX(1.0 * load_hours / capacity_hours) DESC LIMIT 1"), "Welding bay")
+            con.close()
+
+    def test_figures_lists_and_scorecard_agree_on_the_generated_data(self):
+        """Run the pack's own SQL on a freshly generated company: each scorecard row is the
+        latest point of the series its board shows; each list behind a figure counts what
+        the figure counts; the problems concentrate as they do in a real shop."""
+        import sqlite3
+        import tempfile
+
+        import yaml
+
+        from core import management_figures as mf
+        from seed_fabrication.build_warehouse import build
+
+        sql = {d["key"]: d["sql"] for d in yaml.safe_load(Path(self.pack_path).read_text())["datasets"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fab.sqlite3"
+            build(path, verbose=False)
+            con = sqlite3.connect(path)
+
+            def rows(key):
+                cur = con.execute(sql[key])
+                cols = [c[0] for c in cur.description]
+                return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+            def listed(reg, where, params=(), agg="COUNT(*)"):
+                return con.execute(f"SELECT {agg} FROM ({sql[reg]}) WHERE {where}", params).fetchone()[0] or 0
+
+            # -- the scorecard repeats each board's latest figure, and the one before it
+            card = {r["sort_order"]: r for r in rows("fd_scorecard")}
+            for order, key, field in ((1, "fd_delivery_monthly", "on_time_pct"),
+                                      (2, "fd_supplier_monthly", "on_time_pct"),
+                                      (3, "fd_weld_monthly", "repair_pct"),
+                                      (4, "fd_welding_load", "load_pct"),
+                                      (5, "fd_portfolio_index", "CPI"),
+                                      (6, "fd_portfolio_index", "SPI"),
+                                      (7, "fd_hse_monthly", "trir_12m")):
+                series = [r[field] for r in rows(key)]
+                self.assertEqual((card[order]["value"], card[order]["previous"]),
+                                 (series[-1], series[-2]), card[order]["measure"])
+
+            # -- every list behind a figure counts what the figure counts
+            for r in rows("fd_ncr_pareto"):
+                self.assertEqual(r["ncrs"], listed("fd_reg_ncrs", "category = ? AND raised_last_12m = 1",
+                                                   (r["category"],)), r["category"])
+            for r in rows("fd_ncr_root_cause"):
+                where = "root_cause = ? AND raised_last_12m = 1"
+                self.assertEqual(r["ncrs"], listed("fd_reg_ncrs", where, (r["root_cause"],)))
+                self.assertEqual(r["cost_sar"], round(listed("fd_reg_ncrs", where, (r["root_cause"],), "SUM(cost_sar)")))
+            for r in rows("fd_supplier_late"):
+                self.assertEqual(round(r["lines"] * r["late_pct"] / 100),
+                                 listed("fd_reg_pos", "supplier = ? AND late_last_12m = 1", (r["supplier"],)))
+            for r in rows("fd_spend_supplier"):
+                self.assertEqual(r["value_sar"], round(listed("fd_reg_pos", "supplier = ? AND ordered_last_12m = 1",
+                                                              (r["supplier"],), "SUM(value_sar)")))
+            for r in rows("fd_wip"):
+                self.assertEqual(r["items"], listed("fd_reg_operations", "operation = ? AND waiting = 1",
+                                                    (r["operation"],)), r["operation"])
+            for r in rows("fd_late_ops_by_wc"):
+                self.assertEqual(r["late_operations"], listed("fd_reg_operations", "work_center = ? AND late_now = 1",
+                                                              (r["work_center"],)), r["work_center"])
+            for key, field in (("fd_weld_by_process", "process"), ("fd_welders", "welder")):
+                for r in rows(key):
+                    self.assertEqual(round(r["welds"] * r["repair_pct"] / 100), listed(
+                        "fd_reg_welds", f"{field} = ? AND result = 'Rejected' AND welded_last_6m = 1", (r[field],)))
+
+            # -- a few causes make most of the losses (the Pareto boards have a finding)
+            def reach(key, cat, val):
+                p = mf.pareto_bars([{"name": r[cat], "value": r[val]} for r in rows(key)])
+                return p["reach"], p["count"]
+            self.assertEqual(reach("fd_ncr_pareto", "category", "ncrs"), (3, 6))
+            self.assertEqual(reach("fd_ncr_root_cause", "root_cause", "cost_sar"), (3, 6))
+            self.assertEqual(reach("fd_incidents_by_type", "incident_type", "incidents"), (3, 7))
             con.close()
