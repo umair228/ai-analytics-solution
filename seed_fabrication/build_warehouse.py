@@ -18,7 +18,11 @@ but behave like a real shop, so the boards show real-looking problems:
 Weights and multipliers only reshape what each draw picks: every value still takes one
 random draw, so the other stories (and every count) stay as they were.
 
-People appear as codes only (welder W-012, PM-03); clients are "Client A".."H".
+The business around the shop (sales and the order book, invoices and cash, stock,
+maintenance, people and their certificates) is built from these tables afterwards, each
+area with its own random stream: see seed_fabrication/business.py for its stories.
+
+People appear as codes only (welder W-012, PM-03); clients are "Client A".."L".
 
 Run:  .venv/bin/python -m seed_fabrication.build_warehouse [path]
 """
@@ -30,6 +34,8 @@ import sqlite3
 import sys
 from datetime import date, timedelta
 from pathlib import Path
+
+from seed_fabrication.business import TABLES as BUSINESS_TABLES, build_business
 
 DATA_DATE = date(2026, 11, 22)
 START = date(2025, 1, 6)                     # a Monday
@@ -400,13 +406,17 @@ def build(path: Path, verbose: bool = True) -> dict:
         ("data_date", DATA_DATE.isoformat()), ("generator", "seed_fabrication.build_warehouse"),
         ("seed", str(SEED)), ("note", "Demonstration data: invented, not from any client system."),
     ])
+    # the business around the shop (sales, cash, stock, maintenance, people): its own random
+    # streams, so nothing above changes
+    build_business(con, DATA_DATE, SEED)
     for idx in ("operations(project_no)", "operations(work_center)", "welds(project_no)", "welds(welder)",
                 "ncrs(project_no)", "purchase_orders(supplier)", "evm_weekly(week_start)"):
         con.execute(f"CREATE INDEX IF NOT EXISTS ix_{idx.replace('(', '_').replace(')', '')} ON {idx}")
     con.commit()
     counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
               ("projects", "evm_weekly", "items", "operations", "wc_weekly", "welds", "ncrs",
-               "purchase_orders", "shipments", "change_orders", "hse_monthly", "hse_incidents")}
+               "purchase_orders", "shipments", "change_orders", "hse_monthly", "hse_incidents",
+               *BUSINESS_TABLES)}
     con.close()
     if verbose:
         for t, n in counts.items():

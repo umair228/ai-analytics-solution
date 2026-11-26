@@ -589,8 +589,8 @@ class FabricationDemoPackTests(PmsV2PackTests):
         self.pack = load_pack(self.pack_path)
 
     def test_executive_board_comes_first(self):
-        self.assertEqual(self.pack.dashboards[0].name, "Plant Overview")
-        self.assertEqual(self.pack.dashboards[1].name, "Plant Scorecard")
+        self.assertEqual([b.name for b in self.pack.dashboards[:3]],
+                         ["Business Overview", "Plant Overview", "Plant Scorecard"])
         positions = [b.position for b in self.pack.dashboards]
         self.assertEqual(positions, sorted(positions))
 
@@ -621,7 +621,50 @@ class FabricationDemoPackTests(PmsV2PackTests):
             # the welding bay is the constraint
             self.assertEqual(one("SELECT work_center FROM wc_weekly GROUP BY work_center "
                                  "ORDER BY MAX(1.0 * load_hours / capacity_hours) DESC LIMIT 1"), "Welding bay")
+            # the business around the shop agrees with it: every invoice, revenue line and
+            # won tender is a real project; a finished project earned its contract value;
+            # the cash that came in is the invoices paid; the welders are the weld log's
+            for table in ("invoices", "revenue_monthly", "client_feedback"):
+                self.assertEqual(one(f"SELECT COUNT(*) FROM {table} WHERE project_no NOT IN "
+                                     "(SELECT project_no FROM projects)"), 0, table)
+            self.assertEqual(one("SELECT COUNT(*) FROM projects WHERE project_no NOT IN "
+                                 "(SELECT project_no FROM tenders WHERE status = 'Won')"), 0)
+            for pno, contract, earned in con.execute(
+                    "SELECT p.project_no, p.contract_value_sar, SUM(r.revenue_sar) FROM projects p "
+                    "JOIN revenue_monthly r ON r.project_no = p.project_no WHERE p.status = 'Completed' "
+                    "GROUP BY p.project_no"):
+                self.assertAlmostEqual(earned / contract, 1, delta=0.001, msg=pno)
+            self.assertEqual(one("SELECT ROUND(SUM(cash_in_sar)) FROM cash_monthly"),
+                             one("SELECT ROUND(SUM(amount_sar)) FROM invoices WHERE paid_on IS NOT NULL"))
+            self.assertEqual(one("SELECT COUNT(*) FROM people WHERE trade = 'Welder' AND person_id NOT IN "
+                                 "(SELECT DISTINCT welder FROM welds)"), 0)
+            for q in ("SELECT COUNT(*) FROM invoices WHERE issued_on > '2026-11-22' OR paid_on > '2026-11-22'",
+                      "SELECT COUNT(*) FROM tenders WHERE received_on > '2026-11-22' OR decided_on > '2026-11-22'",
+                      "SELECT COUNT(*) FROM maintenance_orders WHERE raised_on > '2026-11-22' OR completed_on > '2026-11-22'",
+                      "SELECT COUNT(*) FROM stockouts WHERE started_on > '2026-11-22'",
+                      "SELECT COUNT(*) FROM training_records WHERE completed_on > '2026-11-22'"):
+                self.assertEqual(one(q), 0, q)
             con.close()
+
+    def test_the_business_areas_never_change_the_shop(self):
+        """Sales, cash, stock, maintenance and people have their own random streams: built
+        or not, every table of the shop holds the same rows."""
+        import sqlite3
+        import tempfile
+        from unittest import mock
+        from seed_fabrication import build_warehouse as bw
+        with tempfile.TemporaryDirectory() as tmp:
+            bw.build(Path(tmp) / "full.sqlite3", verbose=False)
+            with mock.patch.object(bw, "build_business"), mock.patch.object(bw, "BUSINESS_TABLES", ()):
+                bw.build(Path(tmp) / "shop.sqlite3", verbose=False)
+            full, shop = sqlite3.connect(Path(tmp) / "full.sqlite3"), sqlite3.connect(Path(tmp) / "shop.sqlite3")
+            tables = [r[0] for r in shop.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+            self.assertIn("welds", tables)
+            for t in tables:
+                q = f"SELECT * FROM {t} ORDER BY 1, 2"
+                self.assertEqual(full.execute(q).fetchall(), shop.execute(q).fetchall(), t)
+            full.close()
+            shop.close()
 
     def test_figures_lists_and_scorecard_agree_on_the_generated_data(self):
         """Run the pack's own SQL on a freshly generated company: each scorecard row is the
@@ -649,7 +692,7 @@ class FabricationDemoPackTests(PmsV2PackTests):
             def listed(reg, where, params=(), agg="COUNT(*)"):
                 return con.execute(f"SELECT {agg} FROM ({sql[reg]}) WHERE {where}", params).fetchone()[0] or 0
 
-            # -- the scorecard repeats each board's latest figure, and the one before it
+            # -- the scorecards repeat each board's latest figure, and the one before it
             card = {r["sort_order"]: r for r in rows("fd_scorecard")}
             for order, key, field in ((1, "fd_delivery_monthly", "on_time_pct"),
                                       (2, "fd_supplier_monthly", "on_time_pct"),
@@ -657,10 +700,29 @@ class FabricationDemoPackTests(PmsV2PackTests):
                                       (4, "fd_welding_load", "load_pct"),
                                       (5, "fd_portfolio_index", "CPI"),
                                       (6, "fd_portfolio_index", "SPI"),
-                                      (7, "fd_hse_monthly", "trir_12m")):
+                                      (7, "fd_hse_monthly", "trir_12m"),
+                                      (8, "fd_maint_month", "pm_on_time_3m"),
+                                      (9, "fd_labour_month", "welder_overtime_pct"),
+                                      (10, "fd_plate_yield", "yield_pct")):
                 series = [r[field] for r in rows(key)]
                 self.assertEqual((card[order]["value"], card[order]["previous"]),
                                  (series[-1], series[-2]), card[order]["measure"])
+            self.assertEqual(card[11]["value"], rows("fd_people_now")[0]["training_pct"])
+            business = {r["sort_order"]: r for r in rows("fd_business_scorecard")}
+            month = rows("fd_business_month")
+            for order, field in ((1, "revenue_vs_plan_pct"), (2, "margin_12m_pct"), (3, "book_to_bill"),
+                                 (4, "months_of_work"), (5, "win_rate_12m"), (6, "dso_days"),
+                                 (7, "overdue_share_pct")):
+                self.assertEqual((business[order]["value"], business[order]["previous"]),
+                                 (month[-1][field], month[-2][field]), business[order]["measure"])
+            self.assertEqual(business[2]["target"], month[-1]["margin_plan_pct"])
+            # the order book is what was won and not yet earned
+            last = month[-1]
+            won = con.execute("SELECT SUM(value_sar) FROM tenders WHERE status = 'Won' AND decided_on <= ?",
+                              (last["month"] + "-31",)).fetchone()[0]
+            earned = con.execute("SELECT SUM(revenue_sar) FROM revenue_monthly WHERE month <= ?",
+                                 (last["month"],)).fetchone()[0]
+            self.assertEqual(last["order_book_sar"], won - earned)
 
             # -- every list behind a figure counts what the figure counts
             for r in rows("fd_ncr_pareto"):
@@ -687,11 +749,91 @@ class FabricationDemoPackTests(PmsV2PackTests):
                     self.assertEqual(round(r["welds"] * r["repair_pct"] / 100), listed(
                         "fd_reg_welds", f"{field} = ? AND result = 'Rejected' AND welded_last_6m = 1", (r[field],)))
 
+            # -- the business boards' lists count their figures too
+            for r in rows("fd_ar_aging"):
+                where = "age_band = ?"
+                self.assertEqual(r["invoices"], listed("fd_reg_invoices", where, (r["age_band"],)), r["age_band"])
+                self.assertEqual(r["amount_sar"], round(listed("fd_reg_invoices", where, (r["age_band"],), "SUM(amount_sar)")))
+            for r in rows("fd_overdue_client"):
+                self.assertEqual(r["invoices"], listed("fd_reg_invoices", "client = ? AND overdue_now = 1", (r["client"],)))
+            for r in rows("fd_pay_days_matrix"):
+                self.assertEqual(r["invoices"], listed(
+                    "fd_reg_invoices", "issued_quarter = ? AND client = ? AND invoice_type = 'Progress' AND status = 'Paid'",
+                    (r["issued_quarter"], r["client"])))
+            now = rows("fd_finance_now")[0]
+            self.assertEqual(now["overdue_invoices"], listed("fd_reg_invoices", "overdue_now = 1"))
+            self.assertEqual(now["receivables_sar"], round(listed("fd_reg_invoices", "unpaid = 1", agg="SUM(amount_sar)")))
+            self.assertEqual(now["disputed_sar"], round(listed("fd_reg_invoices", "status = 'Disputed'", agg="SUM(amount_sar)")))
+            for key, field, flag in (("fd_loss_reasons", "loss_reason", "lost_last_12m"),
+                                     ("fd_lost_to", "competitor", "lost_last_12m"),
+                                     ("fd_win_rate_margin", "margin_band", "decided_bid_24m"),
+                                     ("fd_win_rate_product", "product_type", "decided_bid_24m")):
+                count = "tenders" if key in ("fd_loss_reasons", "fd_lost_to") else "bids"
+                for r in rows(key):
+                    self.assertEqual(r[count], listed("fd_reg_tenders", f"{field} = ? AND {flag} = 1", (r[field],)), r[field])
+            for r in rows("fd_pipeline_stage"):
+                self.assertEqual(r["tenders"], listed("fd_reg_tenders", "status = ?", (r["status"],)))
+            self.assertEqual(rows("fd_sales_now")[0]["open_tenders"], listed("fd_reg_tenders", "outcome = 'Open'"))
+            for key, field, flag in (("fd_stock_status", "stock_status", None), ("fd_stock_category", "category", None),
+                                     ("fd_stock_tied_up", "description", "tied_up")):
+                for r in rows(key):
+                    where = f"{field} = ?" + (f" AND {flag} = 1" if flag else "")
+                    self.assertEqual(r["value_sar"], round(listed("fd_reg_stock", where, (r[field],), "SUM(value_sar)")))
+            for r in rows("fd_stockouts_supplier"):
+                where = "supplier = ? AND started_last_12m = 1"
+                self.assertEqual((r["stockouts"], r["days_short"]),
+                                 (listed("fd_stockout_list", where, (r["supplier"],)),
+                                  listed("fd_stockout_list", where, (r["supplier"],), "SUM(days)")))
+            for key, field in (("fd_downtime_asset", "asset_id"), ("fd_failure_modes", "failure_mode")):
+                for r in rows(key):
+                    where = f"{field} = ? AND wo_type = 'Breakdown' AND raised_last_12m = 1"
+                    self.assertEqual(r["breakdowns"], listed("fd_reg_maintenance", where, (r[field],)), r[field])
+                    self.assertAlmostEqual(r["downtime_hours"], listed("fd_reg_maintenance", where, (r[field],),
+                                                                       "SUM(downtime_hours)"), places=1)
+            self.assertEqual(rows("fd_maint_now")[0]["open_breakdowns"],
+                             listed("fd_reg_maintenance", "wo_type = 'Breakdown' AND status = 'Open'"))
+            for r in rows("fd_qualification_expiry"):
+                self.assertEqual(r["records"], listed("fd_reg_certificates", "expiry_band = ? AND kind = 'Qualification'",
+                                                      (r["expiry_band"],)))
+            for r in rows("fd_training_compliance"):
+                self.assertEqual(r["people"] - r["up_to_date"], listed(
+                    "fd_reg_certificates", "name = ? AND kind = 'Training' AND up_to_date = 0", (r["course"],)))
+            for r in rows("fd_training_employment"):
+                self.assertEqual(r["not_up_to_date"], listed(
+                    "fd_reg_certificates", "employment = ? AND kind = 'Training' AND up_to_date = 0", (r["employment"],)))
+            people = rows("fd_people_now")[0]
+            self.assertEqual(people["welds_on_lapsed"], listed("fd_reg_welds", "on_lapsed_qualification = 1"))
+            self.assertGreater(people["welds_on_lapsed"], 0)
+
             # -- a few causes make most of the losses (the Pareto boards have a finding)
-            def reach(key, cat, val):
-                p = mf.pareto_bars([{"name": r[cat], "value": r[val]} for r in rows(key)])
+            def reach(key, cat, val, limit=10):
+                p = mf.pareto_bars([{"name": r[cat], "value": r[val]} for r in rows(key)], limit=limit)
                 return p["reach"], p["count"]
             self.assertEqual(reach("fd_ncr_pareto", "category", "ncrs"), (3, 6))
             self.assertEqual(reach("fd_ncr_root_cause", "root_cause", "cost_sar"), (3, 6))
             self.assertEqual(reach("fd_incidents_by_type", "incident_type", "incidents"), (3, 7))
+            self.assertEqual(reach("fd_loss_reasons", "loss_reason", "tenders"), (2, 5))           # price and delivery
+            self.assertEqual(reach("fd_stockouts_supplier", "supplier", "days_short"), (2, 4))     # the two late suppliers
+            self.assertEqual(reach("fd_failure_modes", "failure_mode", "downtime_hours"), (4, 10))
+            downtime = rows("fd_downtime_asset")
+            self.assertEqual(downtime[0]["asset_id"], "FRM-02")                                  # the old plate rolls
+            self.assertGreater(downtime[0]["downtime_hours"], 3 * downtime[1]["downtime_hours"])
+
+            # -- the stories the business boards tell
+            self.assertLess(month[-1]["book_to_bill"], 0.8)                 # winning less than we earn ...
+            self.assertLess(month[-1]["months_of_work"], month[0]["months_of_work"])   # ... so the book shrinks
+            margin = {r["project_no"]: r for r in rows("fd_project_margin")}
+            for pno in ("F-2616", "F-2620"):                                # the troubled two lose half their margin
+                self.assertGreater(margin[pno]["fade_pts"], 10)
+            bands = [r["win_rate_pct"] for r in rows("fd_win_rate_margin")]
+            self.assertLess(bands[-1], bands[0] / 1.5)                      # priced high, we rarely win
+            g = [r["days_late"] for r in rows("fd_pay_days_matrix") if r["client"] == "Client G"]
+            self.assertGreater(g[-1], g[0] + 15)                            # Client G pays later every quarter
+            certs = {r["asset_id"]: r["state"] for r in rows("fd_certificates")}
+            self.assertEqual(certs["LFT-05"], "Expired")
+            maint = {r["month"]: r for r in rows("fd_maint_month")}
+            self.assertLess(maint["2026-08"]["pm_on_time_pct"], 60)        # the summer slip ...
+            self.assertGreater(maint["2026-08"]["breakdowns"], 2 * maint["2026-05"]["breakdowns"])   # ... and after
+            tied = {r["sku"] for r in rows("fd_stock_tied_up")}
+            self.assertTrue({"PL-DX-12", "PL-DX-20"} <= tied)               # duplex bought for the project on hold
             con.close()
