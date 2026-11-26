@@ -1,9 +1,11 @@
 # Fabrication demo pack: boards over a GENERATED fabrication company.
 #
 # Demonstration data only (seed_fabrication.build_warehouse): invented figures for the
-# areas a fabrication shop manages and the client's system does not hold yet (shop floor,
-# weld quality, NCRs, purchasing, dispatch, earned value, change orders, safety). The
-# data source is flagged demo, so every board here shows "Demonstration data".
+# areas a fabrication company manages and the client's system does not hold yet: the shop
+# floor, weld quality, NCRs, purchasing, dispatch, earned value, change orders and safety,
+# and the business around them (tenders and the order book, invoices and cash, stock,
+# maintenance and equipment certificates, the workforce and its qualifications). The data
+# source is flagged demo, so every board here shows "Demonstration data".
 #
 #   manage.py seed_fabrication_demo        (builds the data, registers the source, installs this)
 #
@@ -478,6 +480,29 @@ datasets:
                 WINDOW w AS (ORDER BY month ROWS 11 PRECEDING))
           WHERE n > 6
           ORDER BY month DESC LIMIT 1)
+        UNION ALL
+        SELECT * FROM (
+          SELECT 8, 'Planned maintenance on time (3 months)', pm_on_time_3m, LAG(pm_on_time_3m) OVER (ORDER BY month),
+                 90, 80, '%', 'higher_better', 'vs month before', month
+          FROM v_maintenance_month
+          ORDER BY month DESC LIMIT 1)
+        UNION ALL
+        SELECT * FROM (
+          SELECT 9, 'Welders'' overtime', welder_overtime_pct, LAG(welder_overtime_pct) OVER (ORDER BY month),
+                 10, 20, '%', 'lower_better', 'vs month before', month
+          FROM v_labour_month
+          ORDER BY month DESC LIMIT 1)
+        UNION ALL
+        SELECT * FROM (
+          SELECT 10, 'Plate yield', yield_pct, LAG(yield_pct) OVER (ORDER BY month),
+                 82, 78, '%', 'higher_better', 'vs month before', month
+          FROM plate_yield_monthly
+          WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+          ORDER BY month DESC LIMIT 1)
+        UNION ALL
+        SELECT 11, 'Mandatory training in date', ROUND(100.0 * SUM(up_to_date) / COUNT(*), 1), NULL,
+               95, 85, '%', 'higher_better', NULL, NULL
+        FROM v_certificates WHERE kind = 'Training'
       )
       ORDER BY sort_order
 
@@ -563,8 +588,10 @@ datasets:
     sql: |
       SELECT weld_no, project_no, item_no, welder, process, ndt_method, welded_on, result, repairs,
              substr(welded_on, 1, 7) AS month,
-             CASE WHEN julianday(welded_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182 THEN 1 ELSE 0 END AS welded_last_6m
-      FROM welds
+             CASE WHEN julianday(welded_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 182 THEN 1 ELSE 0 END AS welded_last_6m,
+             CASE WHEN EXISTS (SELECT 1 FROM qualifications q WHERE q.person_id = w.welder AND q.process = w.process
+                                AND w.welded_on > q.expires_on) THEN 1 ELSE 0 END AS on_lapsed_qualification
+      FROM welds w
       ORDER BY welded_on DESC, weld_no
 
   - key: fd_reg_operations
@@ -586,7 +613,600 @@ datasets:
       FROM operations o JOIN projects p ON p.project_no = o.project_no
       ORDER BY planned_start DESC, op_id
 
+  # ================================================================ BUSINESS: ORDER BOOK, REVENUE, CASH
+  # The warehouse's views hold the business rules (v_business_month, v_invoices, v_tenders,
+  # v_stock_now, v_maintenance, v_maintenance_month, v_labour_month, v_certificates), so a
+  # figure and the list behind it read one definition. Closed months only.
+  - key: fd_business_month
+    name: "FAB · Business by month: revenue against plan, margin, order book, cash, receivables"
+    datasource: default
+    sql: |
+      SELECT month, revenue_sar, plan_sar, cost_sar, revenue_vs_plan_pct, margin_12m_pct, margin_plan_pct,
+             receivables_sar, overdue_sar, overdue_share_pct, dso_days, cash_sar, intake_12m_sar,
+             revenue_12m_sar, book_to_bill, order_book_sar, months_of_work, win_rate_12m,
+             revenue_sar AS [Revenue], plan_sar AS [Plan]
+      FROM v_business_month
+      -- from October 2025: the 12-month measures need most of a year behind them (the
+      -- company's projects in this data start in 2025)
+      WHERE month >= '2025-10' AND month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      ORDER BY month
+
+  # The business scorecard: the latest closed month of fd_business_month against target,
+  # and the month before (a pack test checks they agree).
+  - key: fd_business_scorecard
+    name: "FAB · Business scorecard: latest month against target"
+    datasource: default
+    sql: |
+      SELECT k.sort_order, k.measure,
+             CASE k.sort_order WHEN 1 THEN c.revenue_vs_plan_pct WHEN 2 THEN c.margin_12m_pct WHEN 3 THEN c.book_to_bill
+                  WHEN 4 THEN c.months_of_work WHEN 5 THEN c.win_rate_12m WHEN 6 THEN c.dso_days
+                  ELSE c.overdue_share_pct END AS value,
+             CASE k.sort_order WHEN 1 THEN c.p1 WHEN 2 THEN c.p2 WHEN 3 THEN c.p3 WHEN 4 THEN c.p4 WHEN 5 THEN c.p5
+                  WHEN 6 THEN c.p6 ELSE c.p7 END AS previous,
+             CASE k.sort_order WHEN 2 THEN c.margin_plan_pct ELSE k.target END AS target,
+             k.floor, k.unit, k.direction, 'vs month before' AS compared_with
+      FROM (SELECT b.*, LAG(revenue_vs_plan_pct) OVER (ORDER BY month) AS p1, LAG(margin_12m_pct) OVER (ORDER BY month) AS p2,
+                   LAG(book_to_bill) OVER (ORDER BY month) AS p3, LAG(months_of_work) OVER (ORDER BY month) AS p4,
+                   LAG(win_rate_12m) OVER (ORDER BY month) AS p5, LAG(dso_days) OVER (ORDER BY month) AS p6,
+                   LAG(overdue_share_pct) OVER (ORDER BY month) AS p7
+            FROM v_business_month b
+            WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            ORDER BY month DESC LIMIT 1) c
+      CROSS JOIN (SELECT 1 AS sort_order, 'Revenue this year against plan' AS measure, 100 AS target, 92 AS floor,
+                         '%' AS unit, 'higher_better' AS direction
+                  UNION ALL SELECT 2, 'Gross margin (12 months)', NULL, 18, '%', 'higher_better'
+                  UNION ALL SELECT 3, 'Orders won against revenue (12 months)', 1.0, 0.8, 'ratio', 'higher_better'
+                  UNION ALL SELECT 4, 'Order book, months of work', 9, 6, 'months', 'higher_better'
+                  UNION ALL SELECT 5, 'Win rate (12 months)', 25, 18, '%', 'higher_better'
+                  UNION ALL SELECT 6, 'Days sales outstanding', 60, 75, 'd', 'lower_better'
+                  UNION ALL SELECT 7, 'Receivables overdue', 10, 20, '%', 'lower_better') k
+      ORDER BY sort_order
+
+  - key: fd_intake_quarterly
+    name: "FAB · Orders won and revenue by quarter (SAR)"
+    datasource: default
+    sql: |
+      SELECT quarter, SUM(intake_sar) AS [Orders won], SUM(revenue_sar) AS [Revenue]
+      FROM (SELECT substr(month, 1, 4) || ' Q' || ((CAST(substr(month, 6, 2) AS INTEGER) + 2) / 3) AS quarter,
+                   intake_sar, COALESCE(revenue_sar, 0) AS revenue_sar,
+                   substr(month, 1, 4) || '-' || printf('%02d', ((CAST(substr(month, 6, 2) AS INTEGER) + 2) / 3) * 3) AS quarter_end
+            FROM v_business_month WHERE month >= '2025-01')
+      -- whole quarters only: a quarter's orders are never set against part of its revenue
+      WHERE quarter_end < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      GROUP BY quarter
+      ORDER BY quarter
+
+  - key: fd_revenue_ytd
+    name: "FAB · Revenue this year against plan, cumulative (SAR)"
+    datasource: default
+    sql: |
+      SELECT month, SUM(plan_sar) OVER (ORDER BY month) AS [Plan],
+             CASE WHEN month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+                  THEN SUM(COALESCE(revenue_sar, 0)) OVER (ORDER BY month) END AS [Revenue]
+      FROM v_business_month
+      WHERE substr(month, 1, 4) = (SELECT substr(value, 1, 4) FROM data_info WHERE key = 'data_date')
+      ORDER BY month
+
+  - key: fd_revenue_client
+    name: "FAB · Revenue by client, last 12 months (SAR)"
+    datasource: default
+    sql: |
+      SELECT p.client, ROUND(SUM(r.revenue_sar)) AS revenue_sar, COUNT(DISTINCT p.project_no) AS projects
+      FROM revenue_monthly r JOIN projects p ON p.project_no = r.project_no
+      WHERE r.month >= substr(date((SELECT value FROM data_info WHERE key = 'data_date'), 'start of month', '-12 months'), 1, 7)
+        AND r.month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      GROUP BY p.client
+      ORDER BY revenue_sar DESC, client
+
+  # Margin fade: what each running project was bid at, and what it will make at its cost
+  # performance so far (cost at completion = budget / CPI).
+  - key: fd_project_margin
+    name: "FAB · Running projects: margin at bid against forecast (%)"
+    datasource: default
+    sql: |
+      SELECT project_no, client || ' · ' || product_type AS project_name, bid_margin_pct, forecast_margin_pct,
+             ROUND(bid_margin_pct - 5, 1) AS act_below_pct, ROUND(bid_margin_pct - forecast_margin_pct, 1) AS fade_pts
+      FROM (SELECT project_no, client, product_type,
+                   ROUND(100.0 * (contract_value_sar - budget_cost_sar) / contract_value_sar, 1) AS bid_margin_pct,
+                   ROUND(100.0 * (contract_value_sar - budget_cost_sar / cpi) / contract_value_sar, 1) AS forecast_margin_pct
+            FROM projects WHERE status IN ('Active', 'On hold'))
+      ORDER BY fade_pts DESC, project_no
+
+  - key: fd_cash_monthly
+    name: "FAB · Cash in, cash out and the balance by month (SAR)"
+    datasource: default
+    sql: |
+      SELECT month, cash_in_sar AS [Cash in], project_spend_sar + overhead_sar AS [Cash out],
+             closing_cash_sar
+      FROM cash_monthly
+      WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      ORDER BY month
+
+  - key: fd_finance_now
+    name: "FAB · Receivables, overdue, disputed, retention held and unbilled work now (SAR)"
+    datasource: default
+    sql: |
+      SELECT ROUND(SUM(CASE WHEN paid_on IS NULL THEN amount_sar END)) AS receivables_sar,
+             ROUND(SUM(CASE WHEN overdue_now = 1 THEN amount_sar END)) AS overdue_sar,
+             SUM(overdue_now) AS overdue_invoices,
+             ROUND(SUM(CASE WHEN status = 'Disputed' THEN amount_sar END)) AS disputed_sar,
+             ROUND(SUM(CASE WHEN invoice_type = 'Progress' THEN retention_sar ELSE 0 END)
+                   - SUM(CASE WHEN invoice_type = 'Retention release' THEN gross_sar ELSE 0 END)) AS retention_held_sar,
+             (SELECT ROUND(SUM(revenue_sar)) FROM revenue_monthly)
+               - ROUND(SUM(CASE WHEN invoice_type = 'Progress' THEN gross_sar ELSE 0 END)) AS unbilled_sar
+      FROM v_invoices
+
+  - key: fd_ar_aging
+    name: "FAB · Unpaid invoices by age (SAR)"
+    datasource: default
+    sql: |
+      SELECT age_band, band_order, COUNT(*) AS invoices, ROUND(SUM(amount_sar)) AS amount_sar
+      FROM v_invoices WHERE paid_on IS NULL
+      GROUP BY age_band, band_order
+      ORDER BY band_order
+
+  - key: fd_overdue_client
+    name: "FAB · Overdue invoices by client (SAR)"
+    datasource: default
+    sql: |
+      SELECT client, ROUND(SUM(amount_sar)) AS overdue_sar, COUNT(*) AS invoices,
+             CAST(ROUND(AVG(days_overdue)) AS INTEGER) AS avg_days_overdue
+      FROM v_invoices WHERE overdue_now = 1
+      GROUP BY client
+      ORDER BY overdue_sar DESC, client
+
+  - key: fd_pay_days_matrix
+    name: "FAB · Days paid after the due date, by client and quarter invoiced"
+    datasource: default
+    sql: |
+      SELECT client, issued_quarter, CAST(ROUND(AVG(days_late_paid)) AS INTEGER) AS days_late, COUNT(*) AS invoices
+      FROM v_invoices
+      WHERE invoice_type = 'Progress' AND paid_on IS NOT NULL AND issued_on >= '2025-07-01'
+      GROUP BY client, issued_quarter
+      ORDER BY issued_quarter, client
+
+  - key: fd_project_billing
+    name: "FAB · Projects: earned, billed, unbilled, retention held and unpaid (SAR)"
+    datasource: default
+    sql: |
+      SELECT project_no, project, client, status, earned_sar, billed_sar, unbilled_sar, retention_held_sar,
+             unpaid_sar, disputed_sar, unbilled_sar + unpaid_sar AS waiting_sar
+      FROM (SELECT p.project_no, p.project_no || ' · ' || p.client AS project, p.client, p.status,
+                   ROUND(e.earned) AS earned_sar, ROUND(COALESCE(b.billed, 0)) AS billed_sar,
+                   ROUND(e.earned - COALESCE(b.billed, 0)) AS unbilled_sar,
+                   ROUND(COALESCE(b.retained, 0) - COALESCE(b.released, 0)) AS retention_held_sar,
+                   ROUND(COALESCE(b.unpaid, 0)) AS unpaid_sar, ROUND(COALESCE(b.disputed, 0)) AS disputed_sar
+            FROM projects p
+            JOIN (SELECT project_no, SUM(revenue_sar) AS earned FROM revenue_monthly GROUP BY project_no) e
+              ON e.project_no = p.project_no
+            LEFT JOIN (SELECT project_no,
+                              SUM(CASE WHEN invoice_type = 'Progress' THEN gross_sar END) AS billed,
+                              SUM(CASE WHEN invoice_type = 'Progress' THEN retention_sar END) AS retained,
+                              SUM(CASE WHEN invoice_type = 'Retention release' THEN gross_sar END) AS released,
+                              SUM(CASE WHEN paid_on IS NULL THEN amount_sar END) AS unpaid,
+                              SUM(CASE WHEN status = 'Disputed' THEN amount_sar END) AS disputed
+                       FROM invoices GROUP BY project_no) b ON b.project_no = p.project_no)
+      ORDER BY waiting_sar DESC, project_no
+
+  # ================================================================ SALES
+  - key: fd_sales_now
+    name: "FAB · Open tenders, weighted pipeline, price gap and client satisfaction"
+    datasource: default
+    sql: |
+      SELECT ROUND(SUM(CASE WHEN outcome = 'Open' THEN value_sar END)) AS pipeline_sar,
+             ROUND(SUM(weighted_sar)) AS weighted_sar,
+             SUM(CASE WHEN outcome = 'Open' THEN 1 ELSE 0 END) AS open_tenders,
+             ROUND(AVG(CASE WHEN lost_last_12m = 1 AND loss_reason = 'Price' THEN price_gap_pct END), 1) AS price_gap_pct,
+             SUM(CASE WHEN submitted_on > date((SELECT value FROM data_info WHERE key = 'data_date'), '-12 months') THEN 1 ELSE 0 END) AS bids_12m,
+             (SELECT ROUND(AVG(overall), 1) FROM client_feedback) AS client_score,
+             (SELECT ROUND(100.0 * AVG(would_recommend)) FROM client_feedback) AS recommend_pct
+      FROM v_tenders
+
+  - key: fd_tender_funnel
+    name: "FAB · Tenders decided in the last 12 months: received, bid, shortlisted, won"
+    datasource: default
+    sql: |
+      SELECT stage_order, stage, tenders FROM (
+        SELECT 1 AS stage_order, 'Tenders received' AS stage, COUNT(*) AS tenders FROM v_tenders WHERE decided_last_12m = 1
+        UNION ALL SELECT 2, 'Bid', COUNT(*) FROM v_tenders WHERE decided_last_12m = 1 AND stage_reached >= 2
+        UNION ALL SELECT 3, 'Shortlisted', COUNT(*) FROM v_tenders WHERE decided_last_12m = 1 AND stage_reached >= 3
+        UNION ALL SELECT 4, 'Won', COUNT(*) FROM v_tenders WHERE decided_last_12m = 1 AND status = 'Won')
+      ORDER BY stage_order
+
+  - key: fd_win_rate_margin
+    name: "FAB · Win rate by the margin we priced, bids decided in the last 24 months"
+    datasource: default
+    sql: |
+      SELECT margin_band, margin_band_order, COUNT(*) AS bids, SUM(CASE WHEN status = 'Won' THEN 1 ELSE 0 END) AS won,
+             ROUND(100.0 * SUM(CASE WHEN status = 'Won' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate_pct
+      FROM v_tenders WHERE decided_bid_24m = 1
+      GROUP BY margin_band, margin_band_order
+      ORDER BY margin_band_order
+
+  - key: fd_win_rate_product
+    name: "FAB · Win rate by product, bids decided in the last 24 months"
+    datasource: default
+    sql: |
+      SELECT product_type, COUNT(*) AS bids, SUM(CASE WHEN status = 'Won' THEN 1 ELSE 0 END) AS won,
+             ROUND(100.0 * SUM(CASE WHEN status = 'Won' THEN 1 ELSE 0 END) / COUNT(*), 1) AS win_rate_pct
+      FROM v_tenders WHERE decided_bid_24m = 1
+      GROUP BY product_type
+      ORDER BY win_rate_pct DESC, product_type
+
+  - key: fd_loss_reasons
+    name: "FAB · Why we lost, last 12 months"
+    datasource: default
+    sql: |
+      SELECT loss_reason, COUNT(*) AS tenders, ROUND(SUM(value_sar)) AS value_sar
+      FROM v_tenders WHERE lost_last_12m = 1
+      GROUP BY loss_reason
+      ORDER BY tenders DESC, loss_reason
+
+  - key: fd_lost_to
+    name: "FAB · Who won what we lost, last 12 months (SAR)"
+    datasource: default
+    sql: |
+      SELECT competitor, ROUND(SUM(value_sar)) AS value_sar, COUNT(*) AS tenders
+      FROM v_tenders WHERE lost_last_12m = 1
+      GROUP BY competitor
+      ORDER BY value_sar DESC, competitor
+
+  - key: fd_pipeline_stage
+    name: "FAB · Open tenders by stage (SAR)"
+    datasource: default
+    sql: |
+      SELECT status, CASE status WHEN 'In preparation' THEN 1 WHEN 'Submitted' THEN 2 ELSE 3 END AS stage_order,
+             COUNT(*) AS tenders, ROUND(SUM(value_sar)) AS value_sar, ROUND(SUM(weighted_sar)) AS weighted_sar
+      FROM v_tenders WHERE outcome = 'Open'
+      GROUP BY status
+      ORDER BY stage_order
+
+  - key: fd_client_feedback
+    name: "FAB · What clients said at handover (score out of 10)"
+    datasource: default
+    sql: |
+      SELECT f.project_no, f.project_no || ' · ' || f.client AS project, f.overall, f.delivery, f.quality,
+             f.communication, CASE WHEN f.would_recommend = 1 THEN 'would recommend us' ELSE 'would not recommend us yet' END AS recommend
+      FROM client_feedback f
+      ORDER BY overall, project_no
+
+  - key: fd_pipeline_open
+    name: "FAB · Open tenders"
+    datasource: default
+    sql: |
+      SELECT tender_no, client, title, status, value_sar, win_probability_pct, weighted_sar, margin_pct,
+             submitted_on, received_on, estimator
+      FROM v_tenders WHERE outcome = 'Open'
+      ORDER BY value_sar DESC, tender_no
+
+  # ================================================================ MATERIALS AND STOCK
+  - key: fd_stock_month
+    name: "FAB · Stock value, what was used, and stock turns by month (SAR)"
+    datasource: default
+    sql: |
+      SELECT month, stock_sar, used_sar,
+             ROUND(SUM(used_sar) OVER w / AVG(stock_sar) OVER w, 1) AS turns_12m,
+             stock_sar AS [Stock value], used_sar AS [Used]
+      FROM (SELECT month, SUM(closing_value_sar) AS stock_sar, SUM(issued_value_sar) AS used_sar
+            FROM stock_monthly
+            WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            GROUP BY month)
+      WINDOW w AS (ORDER BY month ROWS 11 PRECEDING)
+      ORDER BY month
+
+  - key: fd_stock_status
+    name: "FAB · Stock items by status now (SAR)"
+    datasource: default
+    sql: |
+      SELECT stock_status, status_order, COUNT(*) AS items, ROUND(SUM(value_sar)) AS value_sar
+      FROM v_stock_now
+      GROUP BY stock_status, status_order
+      ORDER BY status_order
+
+  - key: fd_stock_tied_up
+    name: "FAB · Money tied up in stock that does not move (SAR)"
+    datasource: default
+    sql: |
+      SELECT description, sku, stock_status, value_sar, days_since_issue, weeks_of_cover, reserved_for
+      FROM v_stock_now WHERE tied_up = 1
+      ORDER BY value_sar DESC, sku
+
+  - key: fd_stockouts_month
+    name: "FAB · Stock-outs started by month"
+    datasource: default
+    sql: |
+      SELECT c.month, (SELECT COUNT(*) FROM stockouts s WHERE substr(s.started_on, 1, 7) = c.month) AS stockouts,
+             (SELECT COALESCE(SUM(days), 0) FROM stockouts s WHERE substr(s.started_on, 1, 7) = c.month) AS days_short
+      FROM calendar_months c
+      WHERE c.month >= '2025-01' AND c.month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      ORDER BY month
+
+  - key: fd_stockouts_supplier
+    name: "FAB · Days out of stock by supplier, last 12 months"
+    datasource: default
+    sql: |
+      SELECT i.main_supplier AS supplier, SUM(s.days) AS days_short, COUNT(*) AS stockouts
+      FROM stockouts s JOIN stock_items i ON i.sku = s.sku
+      WHERE julianday(s.started_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365
+      GROUP BY i.main_supplier
+      ORDER BY days_short DESC, supplier
+
+  - key: fd_stockout_list
+    name: "FAB · Stock-outs"
+    datasource: default
+    sql: |
+      SELECT s.stockout_no, s.sku, i.description, i.category, i.main_supplier AS supplier, s.started_on,
+             s.ended_on, s.days, s.short_qty, i.uom,
+             CASE WHEN s.ended_on IS NULL THEN 'Still out' ELSE 'Back in stock' END AS state,
+             CASE WHEN julianday(s.started_on) > julianday((SELECT value FROM data_info WHERE key = 'data_date')) - 365 THEN 1 ELSE 0 END AS started_last_12m
+      FROM stockouts s JOIN stock_items i ON i.sku = s.sku
+      ORDER BY started_on DESC, stockout_no
+
+  - key: fd_plate_yield
+    name: "FAB · Plate yield by month (% of plate cut that became parts)"
+    datasource: default
+    sql: |
+      SELECT month, plate_cut_t, scrap_t, offcut_reused_t, yield_pct
+      FROM plate_yield_monthly
+      WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      ORDER BY month
+
+  - key: fd_stock_category
+    name: "FAB · Stock value by category now (SAR)"
+    datasource: default
+    sql: |
+      SELECT category, ROUND(SUM(value_sar)) AS value_sar, COUNT(*) AS items
+      FROM v_stock_now GROUP BY category
+      ORDER BY value_sar DESC, category
+
+  # ================================================================ MAINTENANCE AND EQUIPMENT
+  - key: fd_maint_month
+    name: "FAB · Maintenance by month: planned maintenance on time, breakdowns, cost"
+    datasource: default
+    sql: |
+      SELECT month, pm_due, pm_on_time, pm_on_time_pct, pm_on_time_3m, breakdowns, downtime_hours, planned_share_pct,
+             preventive_cost_sar AS [Planned maintenance], breakdown_cost_sar AS [Breakdown repairs],
+             inspection_cost_sar AS [Inspections]
+      FROM v_maintenance_month
+      ORDER BY month
+
+  - key: fd_maint_now
+    name: "FAB · Maintenance now: open breakdowns, overdue work, certificates due"
+    datasource: default
+    sql: |
+      SELECT (SELECT COUNT(*) FROM maintenance_orders WHERE wo_type = 'Breakdown' AND status = 'Open') AS open_breakdowns,
+             (SELECT COUNT(*) FROM maintenance_orders WHERE status = 'Overdue') AS overdue_orders,
+             (SELECT COUNT(*) FROM assets WHERE certificate IS NOT NULL
+                 AND julianday(certificate_expires_on) - julianday((SELECT value FROM data_info WHERE key = 'data_date')) <= 30) AS certificates_due,
+             (SELECT COUNT(*) FROM assets WHERE certificate IS NOT NULL
+                 AND certificate_expires_on < (SELECT value FROM data_info WHERE key = 'data_date')) AS certificates_expired
+
+  - key: fd_certificates
+    name: "FAB · Equipment certificates: lifting, pressure and calibration"
+    datasource: default
+    sql: |
+      SELECT asset_id, asset_id || ' · ' || asset AS asset, certificate,
+             CASE certificate WHEN 'Lifting inspection (12 months)' THEN 'Lifting' WHEN 'Pressure receiver (24 months)' THEN 'Pressure'
+                  ELSE 'Calibration' END AS kind,
+             last_certified_on, certificate_expires_on, days_left,
+             CASE WHEN days_left < 0 THEN 'Expired' WHEN days_left <= 30 THEN 'Due within 30 days'
+                  WHEN days_left <= 90 THEN 'Due within 90 days' ELSE 'Valid' END AS state
+      FROM (SELECT a.*, CAST(julianday(a.certificate_expires_on) - julianday((SELECT value FROM data_info WHERE key = 'data_date')) AS INTEGER) AS days_left
+            FROM assets a WHERE a.certificate IS NOT NULL)
+      ORDER BY days_left, asset_id
+
+  - key: fd_downtime_asset
+    name: "FAB · Breakdown downtime by machine, last 12 months (hours)"
+    datasource: default
+    sql: |
+      SELECT asset, asset_id, ROUND(SUM(downtime_hours), 1) AS downtime_hours, COUNT(*) AS breakdowns
+      FROM v_maintenance WHERE wo_type = 'Breakdown' AND raised_last_12m = 1
+      GROUP BY asset, asset_id
+      ORDER BY downtime_hours DESC, asset_id
+
+  - key: fd_failure_modes
+    name: "FAB · Breakdown downtime by cause, last 12 months (hours)"
+    datasource: default
+    sql: |
+      SELECT failure_mode, ROUND(SUM(downtime_hours), 1) AS downtime_hours, COUNT(*) AS breakdowns
+      FROM v_maintenance WHERE wo_type = 'Breakdown' AND raised_last_12m = 1
+      GROUP BY failure_mode
+      ORDER BY downtime_hours DESC, failure_mode
+
+  # OEE (availability x performance x quality) of the key machines: the last 3 closed
+  # months against the 3 before.
+  - key: fd_oee
+    name: "FAB · Key machines: overall equipment effectiveness (OEE), last 3 months"
+    datasource: default
+    sql: |
+      SELECT * FROM (
+      SELECT a.asset_id || ' · ' || a.asset AS asset, cur.oee_pct AS oee_pct, prev.oee_pct AS previous_oee_pct,
+             cur.availability_pct, 75 AS target, 60 AS floor, 'vs the 3 months before' AS compared_with
+      FROM assets a
+      JOIN (SELECT asset_id,
+                   ROUND(100.0 * (SUM(planned_hours) - SUM(downtime_hours)) / SUM(planned_hours), 1) AS availability_pct,
+                   ROUND(100.0 * (SUM(planned_hours) - SUM(downtime_hours)) / SUM(planned_hours)
+                         * AVG(performance_pct) / 100 * AVG(quality_pct) / 100, 1) AS oee_pct
+            FROM asset_monthly
+            WHERE month >= substr(date((SELECT value FROM data_info WHERE key = 'data_date'), 'start of month', '-3 months'), 1, 7)
+              AND month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+            GROUP BY asset_id) cur ON cur.asset_id = a.asset_id
+      LEFT JOIN (SELECT asset_id,
+                        ROUND(100.0 * (SUM(planned_hours) - SUM(downtime_hours)) / SUM(planned_hours)
+                              * AVG(performance_pct) / 100 * AVG(quality_pct) / 100, 1) AS oee_pct
+                 FROM asset_monthly
+                 WHERE month >= substr(date((SELECT value FROM data_info WHERE key = 'data_date'), 'start of month', '-6 months'), 1, 7)
+                   AND month < substr(date((SELECT value FROM data_info WHERE key = 'data_date'), 'start of month', '-3 months'), 1, 7)
+                 GROUP BY asset_id) prev ON prev.asset_id = a.asset_id)
+      ORDER BY oee_pct, asset
+
+  - key: fd_reliability
+    name: "FAB · Machines: breakdowns, time between failures and time to repair, last 12 months"
+    datasource: default
+    sql: |
+      SELECT a.asset_id || ' · ' || a.asset AS asset, a.criticality, a.installed_year,
+             COUNT(o.wo_no) AS breakdowns, ROUND(COALESCE(SUM(o.downtime_hours), 0), 1) AS downtime_hours,
+             CASE WHEN COUNT(o.wo_no) > 0 THEN ROUND(365.0 / COUNT(o.wo_no), 1) END AS mtbf_days,
+             CASE WHEN COUNT(o.wo_no) > 0 THEN ROUND(SUM(o.downtime_hours) / COUNT(o.wo_no), 1) END AS mttr_hours,
+             ROUND(COALESCE(SUM(o.cost_sar), 0)) AS repair_cost_sar
+      FROM assets a
+      LEFT JOIN v_maintenance o ON o.asset_id = a.asset_id AND o.wo_type = 'Breakdown' AND o.raised_last_12m = 1
+      GROUP BY a.asset_id, a.asset, a.criticality, a.installed_year
+      ORDER BY downtime_hours DESC, asset
+
+  # ================================================================ WORKFORCE AND COMPETENCE
+  - key: fd_labour_month
+    name: "FAB · Shop workforce by month: headcount, overtime, absence, attrition"
+    datasource: default
+    sql: |
+      SELECT month, headcount, overtime_pct, welder_overtime_pct, absence_pct, leavers, attrition_12m_pct,
+             welder_overtime_pct AS [Welders], overtime_pct AS [All trades],
+             own_staff AS [Own staff], agency AS [Agency]
+      FROM v_labour_month
+      ORDER BY month
+
+  - key: fd_headcount_trade
+    name: "FAB · Headcount by trade, last month: own staff and agency"
+    datasource: default
+    sql: |
+      SELECT trade, SUM(CASE WHEN employment = 'Own staff' THEN headcount ELSE 0 END) AS [Own staff],
+             SUM(CASE WHEN employment = 'Agency' THEN headcount ELSE 0 END) AS [Agency], SUM(headcount) AS total
+      FROM labour_monthly
+      WHERE month = (SELECT MAX(month) FROM labour_monthly WHERE month < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date'))
+      GROUP BY trade
+      ORDER BY total DESC, trade
+
+  - key: fd_qualification_expiry
+    name: "FAB · Qualifications and certificates by when they lapse"
+    datasource: default
+    sql: |
+      SELECT expiry_band, band_order, COUNT(*) AS records
+      FROM v_certificates WHERE kind = 'Qualification'
+      GROUP BY expiry_band, band_order
+      ORDER BY band_order
+
+  - key: fd_training_compliance
+    name: "FAB · Mandatory training up to date, by course (%)"
+    datasource: default
+    sql: |
+      SELECT name AS course, COUNT(*) AS people, SUM(up_to_date) AS up_to_date,
+             ROUND(100.0 * SUM(up_to_date) / COUNT(*), 1) AS compliance_pct, 95 AS target, 85 AS floor
+      FROM v_certificates WHERE kind = 'Training'
+      GROUP BY name
+      ORDER BY compliance_pct, course
+
+  - key: fd_training_employment
+    name: "FAB · Mandatory training up to date: own staff and agency (%)"
+    datasource: default
+    sql: |
+      SELECT employment, COUNT(*) AS records, COUNT(*) - SUM(up_to_date) AS not_up_to_date,
+             ROUND(100.0 * SUM(up_to_date) / COUNT(*), 1) AS compliance_pct
+      FROM v_certificates WHERE kind = 'Training'
+      GROUP BY employment
+      ORDER BY compliance_pct, employment
+
+  - key: fd_people_now
+    name: "FAB · People now: training up to date, qualifications due, welds on a lapsed qualification"
+    datasource: default
+    sql: |
+      SELECT (SELECT ROUND(100.0 * SUM(up_to_date) / COUNT(*), 1) FROM v_certificates WHERE kind = 'Training') AS training_pct,
+             (SELECT COUNT(*) FROM v_certificates WHERE kind = 'Qualification' AND expiry_band IN ('Lapsed', 'Within 30 days')) AS qualifications_due,
+             (SELECT COUNT(*) FROM welds w JOIN qualifications q ON q.person_id = w.welder AND q.process = w.process
+               WHERE w.welded_on > q.expires_on) AS welds_on_lapsed
+
+  - key: fd_productivity
+    name: "FAB · Hours earned per hour worked by month (shop operations finished)"
+    datasource: default
+    sql: |
+      SELECT substr(actual_finish, 1, 7) AS month, ROUND(SUM(planned_hours)) AS earned_hours,
+             ROUND(SUM(actual_hours)) AS worked_hours, ROUND(SUM(planned_hours) / SUM(actual_hours), 2) AS productivity
+      FROM operations
+      WHERE status = 'Done' AND actual_hours > 0
+        AND substr(actual_finish, 1, 7) < (SELECT substr(value, 1, 7) FROM data_info WHERE key = 'data_date')
+      GROUP BY substr(actual_finish, 1, 7)
+      HAVING SUM(actual_hours) >= 500
+      ORDER BY month
+
+  # ================================================================ BUSINESS REGISTERS
+  - key: fd_reg_tenders
+    name: "FAB · Tender register"
+    datasource: default
+    sql: |
+      SELECT tender_no, title, client, client_sector, product_type, estimator, status, outcome, received_on, submitted_on,
+             decided_on, value_sar, margin_pct, margin_band, win_probability_pct, weighted_sar, loss_reason, price_gap_pct,
+             competitor, project_no, planned_start, lost_last_12m, decided_bid_24m
+      FROM v_tenders
+      ORDER BY received_on DESC, tender_no
+
+  - key: fd_reg_invoices
+    name: "FAB · Invoice register"
+    datasource: default
+    sql: |
+      SELECT invoice_no, project_no, client, invoice_type, period, status, age_band, issued_on, due_on, paid_on,
+             terms_days, gross_sar, retention_sar, advance_recovery_sar, amount_sar, days_late_paid, days_overdue,
+             issued_quarter, overdue_now, CASE WHEN paid_on IS NULL THEN 1 ELSE 0 END AS unpaid
+      FROM v_invoices
+      ORDER BY issued_on DESC, invoice_no
+
+  - key: fd_reg_stock
+    name: "FAB · Stock register"
+    datasource: default
+    sql: |
+      SELECT sku, description, category, stock_status, uom, on_hand_qty, unit_cost_sar, value_sar, safety_stock,
+             reorder_point, weekly_use_now, weeks_of_cover, last_issued_on, days_since_issue, last_received_on,
+             main_supplier, lead_days, reserved_for, tied_up
+      FROM v_stock_now
+      ORDER BY value_sar DESC, sku
+
+  - key: fd_reg_maintenance
+    name: "FAB · Maintenance work orders"
+    datasource: default
+    sql: |
+      SELECT wo_no, asset_id, asset, asset_class, work_center, criticality, wo_type, status, raised_on, due_on,
+             completed_on, days_late, downtime_hours, cost_sar, failure_mode, raised_last_12m, raised_last_3_months
+      FROM v_maintenance
+      ORDER BY raised_on DESC, wo_no
+
+  - key: fd_reg_certificates
+    name: "FAB · Qualifications and training"
+    datasource: default
+    sql: |
+      SELECT record_id, person_id, trade, employment, kind, name, process, done_on, expires_on, days_left,
+             expiry_band, band_order, up_to_date
+      FROM v_certificates
+      ORDER BY band_order, expires_on, person_id, name
+
 dashboards:
+  # ======================================================================== BUSINESS OVERVIEW
+  # The managing director's page: is the order book refilling, are we on plan and on
+  # margin, and is the cash coming in?
+  - key: fab_business
+    name: "Business Overview"
+    nav_group: "Fabrication demo"
+    position: 195
+    description: "Demonstration data. Are we winning enough work, earning on it, and getting paid?"
+    widgets:
+      - {title: "The business this month", type: text, config: {content: "Is the order book refilling, are we on plan, and is the cash coming in? Each card is the last closed month against the one before."}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Order book", type: kpi, dataset: fd_business_month, config: {value_field: months_of_work, trend_field: months_of_work, value_from: last, unit: months, direction: higher_better, label: "Order book, months of work", delta_label: "vs month before", thresholds: [{op: lt, value: 6, color: red, label: "Under 6 months"}, {op: lt, value: 9, color: amber, label: "Under the 9-month target"}, {op: gte, value: 9, color: green, label: "On target"}], caption: "Work won and not yet earned, at the last three months' rate of revenue."}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Revenue against plan", type: kpi, dataset: fd_business_month, config: {value_field: revenue_vs_plan_pct, trend_field: revenue_vs_plan_pct, value_from: last, unit: "%", direction: higher_better, label: "Revenue this year, % of plan", delta_label: "vs month before", thresholds: [{op: lt, value: 92, color: red, label: "More than 8% short"}, {op: lt, value: 100, color: amber, label: "Below plan"}, {op: gte, value: 100, color: green, label: "On plan"}], caption: "Revenue earned so far this year against the plan for the same months."}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Gross margin", type: kpi, dataset: fd_business_month, config: {value_field: margin_12m_pct, trend_field: margin_12m_pct, value_from: last, unit: "%", direction: higher_better, label: "Gross margin, 12 months", delta_label: "vs month before", thresholds: [{op: lt, value: 18, color: red, label: "Below 18%"}, {op: lt, value: 22, color: amber, label: "Below the 22% plan"}, {op: gte, value: 22, color: green, label: "On plan"}], caption: "Revenue less the cost of the work, before overheads."}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Days sales outstanding", type: kpi, dataset: fd_business_month, config: {value_field: dso_days, trend_field: dso_days, value_from: last, unit: d, direction: lower_better, label: "Days sales outstanding", delta_label: "vs month before", thresholds: [{op: gt, value: 75, color: red, label: "Over 75 days"}, {op: gt, value: 60, color: amber, label: "Over the 60-day target"}, {op: lte, value: 60, color: green, label: "Within target"}], caption: "Unpaid invoices, in days of revenue."}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "Orders won against revenue", type: kpi, dataset: fd_business_month, config: {value_field: book_to_bill, trend_field: book_to_bill, value_from: last, unit: ratio, direction: higher_better, label: "Orders won against revenue (12 months)", delta_label: "vs month before", thresholds: [{op: lt, value: 0.8, color: red, label: "Book shrinking fast"}, {op: lt, value: 1, color: amber, label: "Book shrinking"}, {op: gte, value: 1, color: green, label: "Book growing"}], caption: "Below 1.0 the order book shrinks."}, layout: {x: 0, y: 7, w: 3, h: 5}}
+      - {title: "Win rate", type: kpi, dataset: fd_business_month, config: {value_field: win_rate_12m, trend_field: win_rate_12m, value_from: last, unit: "%", direction: higher_better, label: "Tenders won, 12 months", delta_label: "vs month before", thresholds: [{op: lt, value: 18, color: red, label: "Below 18%"}, {op: lt, value: 25, color: amber, label: "Below the 25% target"}, {op: gte, value: 25, color: green, label: "On target"}], caption: "Won as a share of the bids decided (won or lost)."}, layout: {x: 3, y: 7, w: 3, h: 5}}
+      - {title: "Overdue invoices", type: kpi, dataset: fd_finance_now, config: {value_field: overdue_sar, rollup: sum, unit: SAR, direction: lower_better, label: "Invoices past their due date", caption: "Disputed invoices included.", drill: {dataset: fd_reg_invoices, filters: [{column: overdue_now, value: 1}], title: "Overdue invoices", label: "See them"}}, layout: {x: 6, y: 7, w: 3, h: 5}}
+      - {title: "Cash", type: kpi, dataset: fd_business_month, config: {value_field: cash_sar, trend_field: cash_sar, value_from: last, unit: SAR, direction: higher_better, label: "Cash at month end", delta_label: "vs month before"}, layout: {x: 9, y: 7, w: 3, h: 5}}
+      - {title: "Business scorecard", type: bullet, dataset: fd_business_scorecard, config: {category_field: measure, value_field: value, target_field: target, floor_field: floor, unit_field: unit, direction_field: direction, previous_field: previous, compared_field: compared_with, caption: "The last closed month against the targets in the business plan. Grey is short of target, darker grey needs action."}, layout: {x: 0, y: 12, w: 12, h: 10}}
+
+      - {title: "Winning work", type: text, config: {content: "Are we winning work as fast as we earn it? When we are not, the order book empties and the shop runs out of work some months later."}, layout: {x: 0, y: 22, w: 12, h: 2}}
+      - {title: "Orders won and revenue by quarter", type: bar, dataset: fd_intake_quarterly, config: {category_field: quarter, value_fields: ["Orders won", "Revenue"], unit: SAR, rollup: none, tones: {"Revenue": neutral}, caption: "Whole quarters. Revenue is the work earned; orders won refill the book."}, layout: {x: 0, y: 24, w: 7, h: 10}}
+      - {title: "Order book, months of work", type: line, dataset: fd_business_month, config: {category_field: month, category_format: month, value_field: months_of_work, unit: months, rollup: none, reference: {value: 9, label: "Target 9 months"}, caption: "Work won and not yet earned, at the current rate of revenue."}, layout: {x: 7, y: 24, w: 5, h: 10}}
+
+      - {title: "Earning and margin", type: text, config: {content: "Are we on the year's plan, where does the revenue come from, and are projects keeping the margin they were bid at?"}, layout: {x: 0, y: 34, w: 12, h: 2}}
+      - {title: "Revenue this year against plan", type: line, dataset: fd_revenue_ytd, config: {category_field: month, category_format: month, value_fields: ["Plan", "Revenue"], unit: SAR, rollup: none, tones: {"Plan": neutral}, caption: "Cumulative, closed months."}, layout: {x: 0, y: 36, w: 6, h: 10}}
+      - {title: "Where the revenue comes from", type: pareto, dataset: fd_revenue_client, config: {category_field: client, value_field: revenue_sar, unit: SAR, items: clients, what: "the revenue", caption: "Revenue earned in the last 12 months, by client. A spread book is safer: no single client can stop the shop."}, layout: {x: 6, y: 36, w: 6, h: 10}}
+      - {title: "Margin at bid against forecast", type: bullet, dataset: fd_project_margin, config: {category_field: project_no, name_field: project_name, value_field: forecast_margin_pct, target_field: bid_margin_pct, floor_field: act_below_pct, unit: "%", direction: higher_better, value_label: "Forecast", target_label: "bid", words: {miss: "{gap} below the bid", met: "at or above the bid"}, caption: "Running projects. Bar: the margin each will make at its cost performance so far. Tick: the margin it was bid at."}, layout: {x: 0, y: 46, w: 7, h: 14}}
+      - {title: "Cash at month end", type: line, dataset: fd_cash_monthly, config: {category_field: month, category_format: month, value_field: closing_cash_sar, unit: SAR, rollup: none, caption: "Lowest in April 2026, when receivables peaked."}, layout: {x: 7, y: 46, w: 5, h: 14}}
+
   # ======================================================================== PLANT OVERVIEW
   - key: fab_overview
     name: "Plant Overview"
@@ -621,13 +1241,64 @@ dashboards:
     description: "Demonstration data. Where is the plant short of its targets, which projects are over budget or late, and what causes most of the losses?"
     widgets:
       - {title: "Against target", type: text, config: {content: "Where is the plant short of the targets management set, and by how much?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
-      - {title: "Plant scorecard", type: bullet, dataset: fd_scorecard, config: {category_field: measure, value_field: value, target_field: target, floor_field: floor, unit_field: unit, direction_field: direction, previous_field: previous, compared_field: compared_with, caption: "The latest full month (weekly measures: the latest week) against target. Grey is short of target, darker grey needs action; the tick is the target."}, layout: {x: 0, y: 2, w: 12, h: 10}}
-      - {title: "Projects against budget and plan", type: text, config: {content: "Is each running project earning what it spends, and keeping to plan? Darker grey: more than 10% over budget or behind plan."}, layout: {x: 0, y: 12, w: 12, h: 2}}
-      - {title: "Spent against the value of the work done", type: bullet, dataset: fd_project_cost, config: {category_field: project_no, name_field: project_name, value_field: spent_pct, target_field: earned_pct, floor_field: act_above_pct, unit: "%", direction: lower_better, gap: relative, value_label: "Spent", target_label: "earned", words: {miss: "{gap} overspent", met: "not overspent"}, reference: {value: 100, label: "Budget"}, caption: "% of each budget. Bar: spent. Tick: value of the work done.", drill: {dataset: fd_reg_operations, field: project_no, title: "Shop operations", columns: [{field: item_no, label: Item}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_finish, label: "Planned finish"}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}}, layout: {x: 0, y: 14, w: 6, h: 12}}
-      - {title: "Work done against plan", type: bullet, dataset: fd_project_schedule, config: {category_field: project_no, name_field: project_name, value_field: earned_pct, target_field: planned_pct, floor_field: act_below_pct, unit: "%", direction: higher_better, value_label: "Done", target_label: "planned", words: {miss: "{gap} behind plan", met: "on or ahead of plan"}, reference: {value: 100, label: "Complete"}, caption: "% of each budget. Bar: work done. Tick: planned by now.", drill: {dataset: fd_reg_operations, field: project_no, title: "Shop operations", columns: [{field: item_no, label: Item}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_finish, label: "Planned finish"}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}}, layout: {x: 6, y: 14, w: 6, h: 12}}
-      - {title: "Where the losses concentrate", type: text, config: {content: "Which few causes make most of the cost of poor quality, and most of the injuries?"}, layout: {x: 0, y: 26, w: 12, h: 2}}
-      - {title: "Cost of poor quality by root cause", type: pareto, dataset: fd_ncr_root_cause, config: {category_field: root_cause, value_field: cost_sar, unit: SAR, items: "root causes", what: "the cost of poor quality", caption: "Rework, scrap and re-inspection of the NCRs raised in the last 12 months.", drill: {dataset: fd_reg_ncrs, field: root_cause, filters: [{column: raised_last_12m, value: 1}], title: "NCRs raised in the last 12 months"}}, layout: {x: 0, y: 28, w: 6, h: 10}}
-      - {title: "Incidents by type, last 12 months", type: pareto, dataset: fd_incidents_by_type, config: {category_field: incident_type, value_field: incidents, items: types, what: "the incidents", caption: "Every incident, near misses included."}, layout: {x: 6, y: 28, w: 6, h: 10}}
+      - {title: "Plant scorecard", type: bullet, dataset: fd_scorecard, config: {category_field: measure, value_field: value, target_field: target, floor_field: floor, unit_field: unit, direction_field: direction, previous_field: previous, compared_field: compared_with, caption: "The latest full month (weekly measures: the latest week) against target. Grey is short of target, darker grey needs action; the tick is the target."}, layout: {x: 0, y: 2, w: 12, h: 14}}
+      - {title: "Projects against budget and plan", type: text, config: {content: "Is each running project earning what it spends, and keeping to plan? Darker grey: more than 10% over budget or behind plan."}, layout: {x: 0, y: 16, w: 12, h: 2}}
+      - {title: "Spent against the value of the work done", type: bullet, dataset: fd_project_cost, config: {category_field: project_no, name_field: project_name, value_field: spent_pct, target_field: earned_pct, floor_field: act_above_pct, unit: "%", direction: lower_better, gap: relative, value_label: "Spent", target_label: "earned", words: {miss: "{gap} overspent", met: "not overspent"}, reference: {value: 100, label: "Budget"}, caption: "% of each budget. Bar: spent. Tick: value of the work done.", drill: {dataset: fd_reg_operations, field: project_no, title: "Shop operations", columns: [{field: item_no, label: Item}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_finish, label: "Planned finish"}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}}, layout: {x: 0, y: 18, w: 6, h: 12}}
+      - {title: "Work done against plan", type: bullet, dataset: fd_project_schedule, config: {category_field: project_no, name_field: project_name, value_field: earned_pct, target_field: planned_pct, floor_field: act_below_pct, unit: "%", direction: higher_better, value_label: "Done", target_label: "planned", words: {miss: "{gap} behind plan", met: "on or ahead of plan"}, reference: {value: 100, label: "Complete"}, caption: "% of each budget. Bar: work done. Tick: planned by now.", drill: {dataset: fd_reg_operations, field: project_no, title: "Shop operations", columns: [{field: item_no, label: Item}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_finish, label: "Planned finish"}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}}, layout: {x: 6, y: 18, w: 6, h: 12}}
+      - {title: "Where the losses concentrate", type: text, config: {content: "Which few causes make most of the cost of poor quality, and most of the injuries?"}, layout: {x: 0, y: 30, w: 12, h: 2}}
+      - {title: "Cost of poor quality by root cause", type: pareto, dataset: fd_ncr_root_cause, config: {category_field: root_cause, value_field: cost_sar, unit: SAR, items: "root causes", what: "the cost of poor quality", caption: "Rework, scrap and re-inspection of the NCRs raised in the last 12 months.", drill: {dataset: fd_reg_ncrs, field: root_cause, filters: [{column: raised_last_12m, value: 1}], title: "NCRs raised in the last 12 months"}}, layout: {x: 0, y: 32, w: 6, h: 10}}
+      - {title: "Incidents by type, last 12 months", type: pareto, dataset: fd_incidents_by_type, config: {category_field: incident_type, value_field: incidents, items: types, what: "the incidents", caption: "Every incident, near misses included."}, layout: {x: 6, y: 32, w: 6, h: 10}}
+
+  # ======================================================================== SALES AND ORDER BOOK
+  - key: fab_sales
+    name: "Sales & Order Book"
+    nav_group: "Fabrication demo"
+    position: 207
+    description: "Demonstration data. What is in the pipeline, why do we win and lose, and what do clients say?"
+    widgets:
+      - {title: "Pipeline", type: text, config: {content: "What are we bidding for, and how likely is it to come in?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Open pipeline", type: kpi, dataset: fd_sales_now, config: {value_field: pipeline_sar, rollup: sum, unit: SAR, label: "Tenders open: in preparation, submitted or in negotiation", drill: {dataset: fd_reg_tenders, filters: [{column: outcome, value: Open}], title: "Open tenders", label: "See them"}}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Weighted pipeline", type: kpi, dataset: fd_sales_now, config: {value_field: weighted_sar, rollup: sum, unit: SAR, label: "Submitted tenders at their chance of winning", caption: "Value times the estimator's chance of winning."}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Win rate", type: kpi, dataset: fd_business_month, config: {value_field: win_rate_12m, trend_field: win_rate_12m, value_from: last, unit: "%", direction: higher_better, label: "Tenders won, 12 months", delta_label: "vs month before", thresholds: [{op: lt, value: 18, color: red, label: "Below 18%"}, {op: lt, value: 25, color: amber, label: "Below the 25% target"}, {op: gte, value: 25, color: green, label: "On target"}]}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Price gap", type: kpi, dataset: fd_sales_now, config: {value_field: price_gap_pct, rollup: sum, unit: "%", direction: lower_better, label: "Above the winner, when we lost on price", caption: "Average of the last 12 months' price losses, where the client told us."}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "From tender to order", type: funnel, dataset: fd_tender_funnel, config: {category_field: stage, value_field: tenders, caption: "Tenders decided in the last 12 months."}, layout: {x: 0, y: 7, w: 4, h: 9}}
+      - {title: "Open tenders by stage", type: bar_list, dataset: fd_pipeline_stage, config: {category_field: status, value_field: value_sar, unit: SAR, sort: false, detail_field: tenders, detail_format: "{value} tenders", drill: {dataset: fd_reg_tenders, field: status, title: "Open tenders"}}, layout: {x: 4, y: 7, w: 4, h: 9}}
+      - {title: "What clients said at handover", type: bar_list, dataset: fd_client_feedback, config: {category_field: project, value_field: overall, sort: false, detail_field: recommend, detail_format: "{value}", limit: 13, caption: "Score out of 10 from the handover survey, lowest first."}, layout: {x: 8, y: 7, w: 4, h: 9}}
+
+      - {title: "Why we win and lose", type: text, config: {content: "Where do we lose, to whom, and does our pricing cost us work?"}, layout: {x: 0, y: 16, w: 12, h: 2}}
+      - {title: "Win rate by the margin we priced", type: bar_list, dataset: fd_win_rate_margin, config: {category_field: margin_band, value_field: win_rate_pct, unit: "%", sort: false, detail_field: bids, detail_format: "of {value} bids", caption: "Bids decided in the last 24 months. Priced above 24%, we rarely win.", drill: {dataset: fd_reg_tenders, field: margin_band, filters: [{column: decided_bid_24m, value: 1}], title: "Bids decided in the last 24 months"}}, layout: {x: 0, y: 18, w: 3, h: 10}}
+      - {title: "Why we lost", type: pareto, dataset: fd_loss_reasons, config: {category_field: loss_reason, value_field: tenders, items: reasons, what: "the tenders we lost", caption: "Lost in the last 12 months, by the reason the client gave.", drill: {dataset: fd_reg_tenders, field: loss_reason, filters: [{column: lost_last_12m, value: 1}], title: "Tenders lost in the last 12 months"}}, layout: {x: 3, y: 18, w: 5, h: 10}}
+      - {title: "Who won what we lost", type: bar_list, dataset: fd_lost_to, config: {category_field: competitor, value_field: value_sar, unit: SAR, detail_field: tenders, detail_format: "{value} tenders", caption: "Last 12 months, by tender value.", drill: {dataset: fd_reg_tenders, field: competitor, filters: [{column: lost_last_12m, value: 1}], title: "Tenders lost in the last 12 months"}}, layout: {x: 8, y: 18, w: 4, h: 10}}
+      - {title: "Win rate by product", type: bar_list, dataset: fd_win_rate_product, config: {category_field: product_type, value_field: win_rate_pct, unit: "%", detail_field: bids, detail_format: "of {value} bids", caption: "Bids decided in the last 24 months.", drill: {dataset: fd_reg_tenders, field: product_type, filters: [{column: decided_bid_24m, value: 1}], title: "Bids decided in the last 24 months"}}, layout: {x: 0, y: 28, w: 5, h: 9}}
+      - {title: "Orders won and revenue by quarter", type: bar, dataset: fd_intake_quarterly, config: {category_field: quarter, value_fields: ["Orders won", "Revenue"], unit: SAR, rollup: none, tones: {"Revenue": neutral}, caption: "Whole quarters. Orders won below revenue empties the order book."}, layout: {x: 5, y: 28, w: 7, h: 9}}
+      - {title: "Open tenders", type: table, dataset: fd_pipeline_open, config: {page_size: 10, columns: [{field: tender_no, label: Tender, format: raw}, {field: client, label: Client}, {field: title, label: Scope}, {field: status, label: Stage}, {field: value_sar, label: "Value (SAR)"}, {field: win_probability_pct, label: "Chance %"}, {field: weighted_sar, label: "Weighted (SAR)"}, {field: margin_pct, label: "Margin %"}, {field: submitted_on, label: Submitted}, {field: estimator, label: Estimator}]}, layout: {x: 0, y: 37, w: 12, h: 9}}
+
+  # ======================================================================== FINANCE AND CASH
+  - key: fab_finance
+    name: "Finance & Cash"
+    nav_group: "Fabrication demo"
+    position: 208
+    description: "Demonstration data. Who owes us money, how late do they pay, and is the cash coming in?"
+    widgets:
+      - {title: "Getting paid", type: text, config: {content: "How much do clients owe us, how much of it is late, and who is holding it?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Receivables", type: kpi, dataset: fd_finance_now, config: {value_field: receivables_sar, rollup: sum, unit: SAR, label: "Invoiced and not yet paid", drill: {dataset: fd_reg_invoices, filters: [{column: unpaid, value: 1}], title: "Unpaid invoices", label: "See them"}}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Overdue", type: kpi, dataset: fd_finance_now, config: {value_field: overdue_sar, rollup: sum, unit: SAR, direction: lower_better, label: "Past the due date", caption: "Disputed invoices included.", drill: {dataset: fd_reg_invoices, filters: [{column: overdue_now, value: 1}], title: "Overdue invoices", label: "See them"}}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Disputed", type: kpi, dataset: fd_finance_now, config: {value_field: disputed_sar, rollup: sum, unit: SAR, direction: lower_better, label: "Held back by a dispute over the progress claimed", drill: {dataset: fd_reg_invoices, filters: [{column: status, value: Disputed}], title: "Disputed invoices", label: "See them"}}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Days sales outstanding", type: kpi, dataset: fd_business_month, config: {value_field: dso_days, trend_field: dso_days, value_from: last, unit: d, direction: lower_better, label: "Days sales outstanding", delta_label: "vs month before", thresholds: [{op: gt, value: 75, color: red, label: "Over 75 days"}, {op: gt, value: 60, color: amber, label: "Over the 60-day target"}, {op: lte, value: 60, color: green, label: "Within target"}]}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "Unpaid invoices by age", type: bar_list, dataset: fd_ar_aging, config: {category_field: age_band, value_field: amount_sar, unit: SAR, sort: false, detail_field: invoices, detail_format: "{value} invoices", tones: {"Not due yet": good, "1-30 days overdue": watch, "31-60 days overdue": serious, "61-90 days overdue": act, "over 90 days overdue": act, "Disputed": act}, drill: {dataset: fd_reg_invoices, field: age_band, title: "Unpaid invoices"}}, layout: {x: 0, y: 7, w: 5, h: 9}}
+      - {title: "Who holds the overdue money", type: pareto, dataset: fd_overdue_client, config: {category_field: client, value_field: overdue_sar, unit: SAR, items: clients, what: "the overdue money", caption: "Invoices past their due date now, disputed ones included.", drill: {dataset: fd_reg_invoices, field: client, filters: [{column: overdue_now, value: 1}], title: "Overdue invoices"}}, layout: {x: 5, y: 7, w: 7, h: 9}}
+      - {title: "How late each client pays", type: heatmap, dataset: fd_pay_days_matrix, config: {category_field: issued_quarter, category_order_field: issued_quarter, series_field: client, value_field: days_late, caption: "Average days paid after the due date, by the quarter invoiced (progress invoices). Client G pays later every quarter.", drill: {dataset: fd_reg_invoices, field: issued_quarter, field2: client, filters: [{column: invoice_type, value: Progress}, {column: status, value: Paid}], title: "Progress invoices paid"}}, layout: {x: 0, y: 16, w: 7, h: 10}}
+      - {title: "Days sales outstanding by month", type: line, dataset: fd_business_month, config: {category_field: month, category_format: month, value_field: dso_days, unit: d, rollup: none, reference: {value: 60, label: "Target 60 days"}}, layout: {x: 7, y: 16, w: 5, h: 10}}
+
+      - {title: "Cash", type: text, config: {content: "Is the cash coming in faster than it goes out, and what is still waiting to be billed or released?"}, layout: {x: 0, y: 26, w: 12, h: 2}}
+      - {title: "Cash", type: kpi, dataset: fd_business_month, config: {value_field: cash_sar, trend_field: cash_sar, value_from: last, unit: SAR, direction: higher_better, label: "Cash at month end", delta_label: "vs month before"}, layout: {x: 0, y: 28, w: 3, h: 5}}
+      - {title: "Retention held", type: kpi, dataset: fd_finance_now, config: {value_field: retention_held_sar, rollup: sum, unit: SAR, label: "Retention clients hold until the warranty ends", caption: "5% of each progress invoice."}, layout: {x: 3, y: 28, w: 3, h: 5}}
+      - {title: "Not yet billed", type: kpi, dataset: fd_finance_now, config: {value_field: unbilled_sar, rollup: sum, unit: SAR, label: "Work earned and not yet invoiced", caption: "Last month's invoices go out in the first days of the month."}, layout: {x: 6, y: 28, w: 3, h: 5}}
+      - {title: "Gross margin", type: kpi, dataset: fd_business_month, config: {value_field: margin_12m_pct, trend_field: margin_12m_pct, value_from: last, unit: "%", direction: higher_better, label: "Gross margin, 12 months", delta_label: "vs month before", thresholds: [{op: lt, value: 18, color: red, label: "Below 18%"}, {op: lt, value: 22, color: amber, label: "Below the 22% plan"}, {op: gte, value: 22, color: green, label: "On plan"}]}, layout: {x: 9, y: 28, w: 3, h: 5}}
+      - {title: "Cash in and cash out by month", type: bar, dataset: fd_cash_monthly, config: {category_field: month, category_format: month, value_fields: ["Cash in", "Cash out"], unit: SAR, rollup: none, tones: {"Cash out": neutral}, caption: "In: invoices paid. Out: the cost of the work (materials paid a month later) and the overheads."}, layout: {x: 0, y: 33, w: 7, h: 10}}
+      - {title: "Cash at month end", type: line, dataset: fd_cash_monthly, config: {category_field: month, category_format: month, value_field: closing_cash_sar, unit: SAR, rollup: none}, layout: {x: 7, y: 33, w: 5, h: 10}}
+      - {title: "Revenue and plan by month", type: bar, dataset: fd_business_month, config: {category_field: month, category_format: month, value_fields: ["Revenue", "Plan"], unit: SAR, rollup: none, tones: {"Plan": neutral}, caption: "Revenue is each project's earned value at its contract price."}, layout: {x: 0, y: 43, w: 12, h: 9}}
+      - {title: "Money waiting on each project", type: table, dataset: fd_project_billing, config: {page_size: 10, columns: [{field: project, label: Project}, {field: status, label: Status}, {field: earned_sar, label: "Earned (SAR)"}, {field: billed_sar, label: "Billed (SAR)"}, {field: unbilled_sar, label: "Not yet billed (SAR)"}, {field: unpaid_sar, label: "Unpaid (SAR)"}, {field: disputed_sar, label: "Disputed (SAR)"}, {field: retention_held_sar, label: "Retention held (SAR)"}], row_rules: [{column: disputed_sar, op: gt, value: 0, bg_color: "#fdecec"}]}, layout: {x: 0, y: 52, w: 12, h: 10}}
 
   # ======================================================================== SHOP FLOOR
   - key: fab_shop
@@ -681,6 +1352,28 @@ dashboards:
       - {title: "Who the money goes to", type: pareto, dataset: fd_spend_supplier, config: {category_field: supplier, value_field: value_sar, unit: SAR, items: suppliers, what: "the spend", limit: 10, caption: "Ordered in the last 12 months. The blue bars are the strategic suppliers: where price and delivery agreements pay most.", drill: {dataset: fd_reg_pos, field: supplier, filters: [{column: ordered_last_12m, value: 1}], title: "Lines ordered in the last 12 months"}}, layout: {x: 0, y: 22, w: 8, h: 10}}
       - {title: "Spend by category", type: bar_list, dataset: fd_spend_category, config: {category_field: category, value_field: value_sar, unit: SAR, detail_field: lines, detail_format: "{value} lines", limit: 7, caption: "Last 12 months.", drill: {dataset: fd_reg_pos, field: category, filters: [{column: ordered_last_12m, value: 1}], title: "Lines ordered in the last 12 months"}}, layout: {x: 8, y: 22, w: 4, h: 10}}
 
+  # ======================================================================== MATERIALS AND STOCK
+  - key: fab_stock
+    name: "Materials & Stock"
+    nav_group: "Fabrication demo"
+    position: 235
+    description: "Demonstration data. What stock do we hold, what does it tie up, and why do we run out?"
+    widgets:
+      - {title: "Stock", type: text, config: {content: "What do we hold, how fast does it turn, and how much money sits in stock that does not move?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Stock value", type: kpi, dataset: fd_stock_month, config: {value_field: stock_sar, trend_field: stock_sar, value_from: last, unit: SAR, label: "Stock held at month end", delta_label: "vs month before"}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Stock turns", type: kpi, dataset: fd_stock_month, config: {value_field: turns_12m, trend_field: turns_12m, value_from: last, direction: higher_better, label: "Stock turns, 12 months", delta_label: "vs month before", thresholds: [{op: lt, value: 4, color: red, label: "Below 4"}, {op: lt, value: 6, color: amber, label: "Below the target of 6"}, {op: gte, value: 6, color: green, label: "On target"}], caption: "What we used in a year, divided by the stock we held on average."}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Stock-outs", type: kpi, dataset: fd_stockouts_supplier, config: {value_field: stockouts, rollup: sum, direction: lower_better, label: "Stock-outs, last 12 months", drill: {dataset: fd_stockout_list, filters: [{column: started_last_12m, value: 1}], title: "Stock-outs, last 12 months", label: "See them"}}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Tied up", type: kpi, dataset: fd_stock_tied_up, config: {value_field: value_sar, rollup: sum, unit: SAR, direction: lower_better, label: "In stock that does not move", caption: "No issue in 90 days, or more than 26 weeks of use.", drill: {dataset: fd_reg_stock, filters: [{column: tied_up, value: 1}], title: "Stock that does not move", label: "See it"}}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "Stock items by status", type: bar_list, dataset: fd_stock_status, config: {category_field: stock_status, value_field: value_sar, unit: SAR, sort: false, detail_field: items, detail_format: "{value} items", tones: {"Out of stock": act, "Below safety stock": serious, "No movement 90+ days": watch, "Excess (over 26 weeks)": watch, "In range": good}, drill: {dataset: fd_reg_stock, field: stock_status, title: "Stock items"}}, layout: {x: 0, y: 7, w: 5, h: 8}}
+      - {title: "Money tied up in stock that does not move", type: bar_list, dataset: fd_stock_tied_up, config: {category_field: description, value_field: value_sar, unit: SAR, detail_field: stock_status, detail_format: "{value}", caption: "The duplex plate was bought for F-2621, on hold since June. Use it elsewhere or sell it back.", drill: {dataset: fd_reg_stock, field: description, filters: [{column: tied_up, value: 1}], title: "Stock that does not move"}}, layout: {x: 5, y: 7, w: 7, h: 8}}
+      - {title: "Running out", type: text, config: {content: "When do we run out of material, and which suppliers cause it?"}, layout: {x: 0, y: 15, w: 12, h: 2}}
+      - {title: "Stock-outs started by month", type: bar, dataset: fd_stockouts_month, config: {category_field: month, category_format: month, value_field: stockouts, rollup: none, caption: "An item with nothing left to issue for at least a day."}, layout: {x: 0, y: 17, w: 7, h: 9}}
+      - {title: "Days out of stock by supplier", type: pareto, dataset: fd_stockouts_supplier, config: {category_field: supplier, value_field: days_short, items: suppliers, what: "the days out of stock", caption: "Last 12 months, by the item's main supplier: the two suppliers late on purchase orders are the ones we run out on.", drill: {dataset: fd_stockout_list, field: supplier, filters: [{column: started_last_12m, value: 1}], title: "Stock-outs, last 12 months"}}, layout: {x: 7, y: 17, w: 5, h: 9}}
+      - {title: "Use and yield", type: text, config: {content: "Does stock follow the work, and how much of the plate we cut becomes parts?"}, layout: {x: 0, y: 26, w: 12, h: 2}}
+      - {title: "Stock held against stock used", type: line, dataset: fd_stock_month, config: {category_field: month, category_format: month, value_fields: ["Stock value", "Used"], unit: SAR, rollup: none, tones: {"Used": neutral}, caption: "Stock at month end and what the shop used in the month."}, layout: {x: 0, y: 28, w: 7, h: 9}}
+      - {title: "Stock by category", type: bar_list, dataset: fd_stock_category, config: {category_field: category, value_field: value_sar, unit: SAR, detail_field: items, detail_format: "{value} items", drill: {dataset: fd_reg_stock, field: category, title: "Stock items"}}, layout: {x: 7, y: 28, w: 5, h: 9}}
+      - {title: "Plate yield by month", type: line, dataset: fd_plate_yield, config: {category_field: month, category_format: month, value_field: yield_pct, unit: "%", rollup: none, reference: {value: 82, label: "Target 82%"}, caption: "Share of the plate cut that became parts. Nesting software from September 2025 lifted it by about 8 points."}, layout: {x: 0, y: 37, w: 12, h: 8}}
+
   # ======================================================================== PROJECT CONTROLS
   - key: fab_controls
     name: "Project Controls"
@@ -700,6 +1393,28 @@ dashboards:
       - {title: "Change orders by reason", type: bar_list, dataset: fd_co_by_reason, config: {category_field: reason, value_field: approved_sar, unit: SAR, detail_field: change_orders, detail_format: "{value} change orders", caption: "Approved value by reason."}, layout: {x: 4, y: 39, w: 8, h: 7}}
       - {title: "Planned value, earned value and actual cost", type: line, dataset: fd_evm_portfolio, config: {category_field: week_start, value_fields: ["Planned value", "Earned value", "Actual cost"], unit: SAR, rollup: none, tones: {"Planned value": neutral, "Actual cost": act}, caption: "The projects still running, cumulative."}, layout: {x: 0, y: 46, w: 12, h: 10}}
 
+  # ======================================================================== MAINTENANCE AND EQUIPMENT
+  - key: fab_maintenance
+    name: "Maintenance & Equipment"
+    nav_group: "Fabrication demo"
+    position: 245
+    description: "Demonstration data. Is planned maintenance done on time, what breaks down, and is the equipment certified?"
+    widgets:
+      - {title: "Equipment health", type: text, config: {content: "Is planned maintenance done on time, what keeps breaking, and is every lifting and pressure certificate in date?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Planned maintenance on time", type: kpi, dataset: fd_maint_month, config: {value_field: pm_on_time_3m, trend_field: pm_on_time_3m, value_from: last, unit: "%", direction: higher_better, label: "Planned maintenance done within a week of due (3 months)", delta_label: "vs month before", thresholds: [{op: lt, value: 80, color: red, label: "Below 80%"}, {op: lt, value: 90, color: amber, label: "Below the 90% target"}, {op: gte, value: 90, color: green, label: "On target"}]}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Breakdowns", type: kpi, dataset: fd_maint_month, config: {value_field: breakdowns, trend_field: breakdowns, value_from: last, direction: lower_better, label: "Breakdowns last month", delta_label: "vs month before"}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Open breakdowns", type: kpi, dataset: fd_maint_now, config: {value_field: open_breakdowns, rollup: sum, direction: lower_better, label: "Machines waiting for repair now", drill: {dataset: fd_reg_maintenance, filters: [{column: wo_type, value: Breakdown}, {column: status, value: Open}], title: "Open breakdowns", label: "See them"}}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Certificates", type: kpi, dataset: fd_maint_now, config: {value_field: certificates_due, rollup: sum, direction: lower_better, label: "Certificates expired or due within 30 days", thresholds: [{op: gt, value: 0, color: red, label: "Act now"}, {op: lte, value: 0, color: green, label: "All in date"}], caption: "Lifting equipment may not be used on an expired certificate."}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "Equipment certificates", type: table, dataset: fd_certificates, config: {page_size: 12, columns: [{field: asset, label: Equipment}, {field: kind, label: Certificate}, {field: state, label: State}, {field: days_left, label: "Days left", format: raw}], row_rules: [{column: days_left, op: lt, value: 0, bg_color: "#fdecec"}, {column: days_left, op: lte, value: 30, bg_color: "#fdf3e1"}]}, layout: {x: 0, y: 7, w: 7, h: 10}}
+      - {title: "Breakdown downtime by machine", type: pareto, dataset: fd_downtime_asset, config: {category_field: asset_id, name_field: asset, value_field: downtime_hours, unit: h, items: machines, what: "the breakdown downtime", limit: 8, caption: "Last 12 months. The 2004 plate rolls (FRM-02) are past economic repair.", drill: {dataset: fd_reg_maintenance, field: asset_id, filters: [{column: wo_type, value: Breakdown}, {column: raised_last_12m, value: 1}], title: "Breakdowns, last 12 months"}}, layout: {x: 7, y: 7, w: 5, h: 10}}
+      - {title: "Planned against unplanned", type: text, config: {content: "When planned maintenance slips, do breakdowns follow? Summer 2026 says they do."}, layout: {x: 0, y: 17, w: 12, h: 2}}
+      - {title: "Planned maintenance on time by month", type: line, dataset: fd_maint_month, config: {category_field: month, category_format: month, value_field: pm_on_time_pct, unit: "%", rollup: none, reference: {value: 90, label: "Target 90%"}, caption: "Done within a week of the due date, by the month it was due."}, layout: {x: 0, y: 19, w: 6, h: 9}}
+      - {title: "Breakdowns by month", type: bar, dataset: fd_maint_month, config: {category_field: month, category_format: month, value_field: breakdowns, rollup: none}, layout: {x: 6, y: 19, w: 6, h: 9}}
+      - {title: "Key machines: effectiveness (OEE)", type: bullet, dataset: fd_oee, config: {category_field: asset, value_field: oee_pct, target_field: target, floor_field: floor, unit: "%", direction: higher_better, previous_field: previous_oee_pct, compared_field: compared_with, value_label: "OEE", target_label: "target", caption: "Last 3 months: availability x speed x quality. Bar: OEE. Tick: the 75% target.", drill: {dataset: fd_reg_maintenance, field: asset, filters: [{column: wo_type, value: Breakdown}, {column: raised_last_3_months, value: 1}], title: "Breakdowns, last 3 months"}}, layout: {x: 0, y: 28, w: 6, h: 10}}
+      - {title: "Why machines stop", type: pareto, dataset: fd_failure_modes, config: {category_field: failure_mode, value_field: downtime_hours, unit: h, items: causes, what: "the breakdown downtime", limit: 6, caption: "Last 12 months.", drill: {dataset: fd_reg_maintenance, field: failure_mode, filters: [{column: wo_type, value: Breakdown}, {column: raised_last_12m, value: 1}], title: "Breakdowns, last 12 months"}}, layout: {x: 6, y: 28, w: 6, h: 10}}
+      - {title: "Maintenance cost by month", type: bar, dataset: fd_maint_month, config: {category_field: month, category_format: month, value_fields: ["Planned maintenance", "Breakdown repairs", "Inspections"], unit: SAR, rollup: none, stacked: true, caption: "Breakdown repairs cost several times what planned maintenance does."}, layout: {x: 0, y: 38, w: 12, h: 8}}
+      - {title: "Machine reliability", type: table, dataset: fd_reliability, config: {page_size: 12, columns: [{field: asset, label: Machine}, {field: installed_year, label: Installed, format: raw}, {field: breakdowns, label: Breakdowns}, {field: downtime_hours, label: "Downtime (h)"}, {field: mtbf_days, label: "Days between failures"}, {field: mttr_hours, label: "Hours to repair"}, {field: repair_cost_sar, label: "Repair cost (SAR)"}]}, layout: {x: 0, y: 46, w: 12, h: 10}}
+
   # ======================================================================== SAFETY
   - key: fab_safety
     name: "Safety"
@@ -714,6 +1429,28 @@ dashboards:
       - {title: "Incidents by severity, last 12 months", type: bar_list, dataset: fd_incident_pyramid, config: {category_field: classification, value_field: incidents, sort: false, tones: {"Near miss": info, "First aid": watch, "Recordable": serious, "Lost time": act}, caption: "Many near misses reported is good: they are warnings caught early."}, layout: {x: 0, y: 12, w: 6, h: 9}}
       - {title: "Incidents by type, last 12 months", type: pareto, dataset: fd_incidents_by_type, config: {category_field: incident_type, value_field: incidents, items: types, what: "the incidents", caption: "Every incident, near misses included."}, layout: {x: 6, y: 12, w: 6, h: 9}}
       - {title: "Hours worked by month", type: bar, dataset: fd_hse_monthly, config: {category_field: month, category_format: month, value_field: man_hours, unit: h, rollup: none}, layout: {x: 0, y: 21, w: 12, h: 8}}
+
+  # ======================================================================== WORKFORCE AND COMPETENCE
+  - key: fab_people
+    name: "Workforce & Competence"
+    nav_group: "Fabrication demo"
+    position: 255
+    description: "Demonstration data. Do we have the people, are their hours sustainable, and are they qualified and trained?"
+    widgets:
+      - {title: "People", type: text, config: {content: "Do we have the people we need, and are their hours sustainable?"}, layout: {x: 0, y: 0, w: 12, h: 2}}
+      - {title: "Shop headcount", type: kpi, dataset: fd_labour_month, config: {value_field: headcount, trend_field: headcount, value_from: last, label: "People in the shop trades at month end", delta_label: "vs month before", caption: "Own staff and agency staff."}, layout: {x: 0, y: 2, w: 3, h: 5}}
+      - {title: "Welders' overtime", type: kpi, dataset: fd_labour_month, config: {value_field: welder_overtime_pct, trend_field: welder_overtime_pct, value_from: last, unit: "%", direction: lower_better, label: "Welders' overtime, % of normal hours", delta_label: "vs month before", thresholds: [{op: gt, value: 20, color: red, label: "Over 20%"}, {op: gt, value: 10, color: amber, label: "Over the 10% limit"}, {op: lte, value: 10, color: green, label: "Within the limit"}], caption: "Rises when the welding bay is overloaded."}, layout: {x: 3, y: 2, w: 3, h: 5}}
+      - {title: "Training up to date", type: kpi, dataset: fd_people_now, config: {value_field: training_pct, rollup: sum, unit: "%", direction: higher_better, label: "Mandatory training in date", thresholds: [{op: lt, value: 85, color: red, label: "Below 85%"}, {op: lt, value: 95, color: amber, label: "Below the 95% target"}, {op: gte, value: 95, color: green, label: "On target"}], drill: {dataset: fd_reg_certificates, filters: [{column: kind, value: Training}, {column: up_to_date, value: 0}], title: "Training not up to date", label: "Who needs it"}}, layout: {x: 6, y: 2, w: 3, h: 5}}
+      - {title: "Welds on a lapsed qualification", type: kpi, dataset: fd_people_now, config: {value_field: welds_on_lapsed, rollup: sum, direction: lower_better, label: "Welds made after the welder's qualification lapsed", thresholds: [{op: gt, value: 0, color: red, label: "Review with QC"}, {op: lte, value: 0, color: green, label: "None"}], caption: "Each needs a QC review: the code allows welding only on a current qualification.", drill: {dataset: fd_reg_welds, filters: [{column: on_lapsed_qualification, value: 1}], title: "Welds on a lapsed qualification", label: "See them"}}, layout: {x: 9, y: 2, w: 3, h: 5}}
+      - {title: "Headcount by trade", type: bar, dataset: fd_headcount_trade, config: {category_field: trade, value_fields: ["Own staff", "Agency"], rollup: none, orientation: horizontal, stacked: true, tones: {"Agency": neutral}, caption: "Last month."}, layout: {x: 0, y: 7, w: 6, h: 9}}
+      - {title: "Overtime by month", type: line, dataset: fd_labour_month, config: {category_field: month, category_format: month, value_fields: ["Welders", "All trades"], unit: "%", rollup: none, reference: {value: 10, label: "Limit 10%"}, caption: "Overtime as a share of normal hours. The welders' peak follows the welding bay's load."}, layout: {x: 6, y: 7, w: 6, h: 9}}
+      - {title: "Competence", type: text, config: {content: "Which qualifications lapse soon, and which mandatory training is out of date?"}, layout: {x: 0, y: 16, w: 12, h: 2}}
+      - {title: "Qualifications by when they lapse", type: bar_list, dataset: fd_qualification_expiry, config: {category_field: expiry_band, value_field: records, sort: false, tones: {"Lapsed": act, "Within 30 days": serious, "31-90 days": watch, "Later": good}, caption: "Welder qualifications, NDT and inspector certificates, rigger and crane-operator cards.", drill: {dataset: fd_reg_certificates, field: expiry_band, filters: [{column: kind, value: Qualification}], title: "Qualifications"}}, layout: {x: 0, y: 18, w: 4, h: 10}}
+      - {title: "Mandatory training by course", type: bullet, dataset: fd_training_compliance, config: {category_field: course, value_field: compliance_pct, target_field: target, floor_field: floor, unit: "%", direction: higher_better, value_label: "In date", target_label: "target", caption: "Share of the people who need each course whose training is in date. Click a course for who needs it.", drill: {dataset: fd_reg_certificates, field: name, filters: [{column: kind, value: Training}, {column: up_to_date, value: 0}], title: "Training not up to date"}}, layout: {x: 4, y: 18, w: 8, h: 10}}
+      - {title: "Training: own staff and agency", type: bar_list, dataset: fd_training_employment, config: {category_field: employment, value_field: compliance_pct, unit: "%", detail_field: not_up_to_date, detail_format: "{value} not in date", caption: "The yearly H2S course run for agency staff in October 2025 has lapsed.", drill: {dataset: fd_reg_certificates, field: employment, filters: [{column: kind, value: Training}, {column: up_to_date, value: 0}], title: "Training not up to date"}}, layout: {x: 0, y: 28, w: 4, h: 8}}
+      - {title: "Absence by month", type: line, dataset: fd_labour_month, config: {category_field: month, category_format: month, value_field: absence_pct, unit: "%", rollup: none, caption: "Days absent as a share of working days. Higher in the summer and in Ramadan."}, layout: {x: 4, y: 28, w: 4, h: 8}}
+      - {title: "Hours earned per hour worked", type: line, dataset: fd_productivity, config: {category_field: month, category_format: month, value_field: productivity, unit: ratio, rollup: none, reference: {value: 1, label: "As estimated"}, y_scale: true, caption: "Estimated hours of the operations finished, per hour booked to them."}, layout: {x: 8, y: 28, w: 4, h: 8}}
+      - {title: "Own staff and agency by month", type: bar, dataset: fd_labour_month, config: {category_field: month, category_format: month, value_fields: ["Own staff", "Agency"], rollup: none, stacked: true, tones: {"Agency": neutral}, caption: "Agency staff covered the 2026 peak and left in October."}, layout: {x: 0, y: 36, w: 12, h: 8}}
 
   # ======================================================================== REGISTERS
   - key: fab_reg_ncrs
@@ -744,3 +1481,38 @@ dashboards:
     description: "Demonstration data. Every shop operation: filter by status, lateness, work centre or operation."
     widgets:
       - {title: "Shop operations", type: register, dataset: fd_reg_operations, config: {noun: operations, key_field: op_id, page_size: 50, search: [item_no, project_no, operation, work_center], dimensions: [{field: status, label: "Status", order: ["Not started", "In progress", "Done", "On hold"]}, {field: lateness, label: "Lateness", order: ["On time", "1-7 days late", "8-21 days late", "over 21 days late"], tones: {"8-21 days late": watch, "over 21 days late": act}}, {field: work_center, label: "Work centre"}, {field: operation, label: "Operation", limit: 9}], columns: [{field: item_no, label: Item}, {field: project_no, label: Project}, {field: operation, label: Operation}, {field: work_center, label: "Work centre"}, {field: status, label: Status}, {field: planned_start, label: "Planned start"}, {field: planned_finish, label: "Planned finish"}, {field: actual_finish, label: Finished}, {field: planned_hours, label: "Planned h"}, {field: actual_hours, label: "Actual h"}, {field: days_late, label: "Days late"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_tenders
+    name: "Tenders"
+    nav_group: "Fabrication demo"
+    position: 300
+    description: "Demonstration data. Every tender: filter by outcome, stage, product, client or margin."
+    widgets:
+      - {title: "Tender register", type: register, dataset: fd_reg_tenders, config: {noun: tenders, key_field: tender_no, page_size: 50, search: [tender_no, title, client, competitor], dimensions: [{field: outcome, label: "Outcome", order: ["Open", "Won", "Lost", "Not bid or withdrawn"]}, {field: status, label: "Stage"}, {field: product_type, label: "Product"}, {field: margin_band, label: "Margin priced", order: ["Below 20%", "20-24%", "24% and above"]}, {field: client, label: "Client", limit: 8}], columns: [{field: tender_no, label: Tender}, {field: client, label: Client}, {field: title, label: Scope}, {field: status, label: Stage}, {field: received_on, label: Received}, {field: decided_on, label: Decided}, {field: value_sar, label: "Value (SAR)"}, {field: margin_pct, label: "Margin %"}, {field: loss_reason, label: "Lost on"}, {field: competitor, label: "Lost to"}, {field: project_no, label: Project}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_invoices
+    name: "Invoices"
+    nav_group: "Fabrication demo"
+    position: 310
+    description: "Demonstration data. Every invoice: filter by status, age, client or type."
+    widgets:
+      - {title: "Invoice register", type: register, dataset: fd_reg_invoices, config: {noun: invoices, key_field: invoice_no, page_size: 50, search: [invoice_no, project_no, client], dimensions: [{field: age_band, label: "Age", order: ["Not due yet", "1-30 days overdue", "31-60 days overdue", "61-90 days overdue", "over 90 days overdue", "Disputed", "Paid"], tones: {"31-60 days overdue": watch, "61-90 days overdue": act, "over 90 days overdue": act, "Disputed": act}}, {field: client, label: "Client"}, {field: invoice_type, label: "Type"}, {field: issued_quarter, label: "Invoiced", limit: 8}], columns: [{field: invoice_no, label: Invoice}, {field: project_no, label: Project}, {field: client, label: Client}, {field: invoice_type, label: Type}, {field: period, label: "Work of"}, {field: issued_on, label: Issued}, {field: due_on, label: Due}, {field: paid_on, label: Paid}, {field: amount_sar, label: "Amount (SAR)"}, {field: status, label: Status}, {field: days_overdue, label: "Days overdue"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_stock
+    name: "Stock"
+    nav_group: "Fabrication demo"
+    position: 320
+    description: "Demonstration data. Every stock item: filter by status, category or supplier."
+    widgets:
+      - {title: "Stock register", type: register, dataset: fd_reg_stock, config: {noun: items, key_field: sku, page_size: 50, search: [sku, description, main_supplier], dimensions: [{field: stock_status, label: "Status", order: ["Out of stock", "Below safety stock", "No movement 90+ days", "Excess (over 26 weeks)", "In range"], tones: {"Out of stock": act, "Below safety stock": serious, "No movement 90+ days": watch, "Excess (over 26 weeks)": watch}}, {field: category, label: "Category"}, {field: main_supplier, label: "Supplier", limit: 8}], columns: [{field: sku, label: Item}, {field: description, label: Description}, {field: category, label: Category}, {field: stock_status, label: Status}, {field: on_hand_qty, label: "On hand"}, {field: uom, label: Unit}, {field: value_sar, label: "Value (SAR)"}, {field: weeks_of_cover, label: "Weeks of use"}, {field: last_issued_on, label: "Last issued"}, {field: main_supplier, label: Supplier}, {field: reserved_for, label: "Bought for"}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_maintenance
+    name: "Maintenance work orders"
+    nav_group: "Fabrication demo"
+    position: 330
+    description: "Demonstration data. Every maintenance work order: filter by type, status, machine or cause."
+    widgets:
+      - {title: "Maintenance work orders", type: register, dataset: fd_reg_maintenance, config: {noun: "work orders", key_field: wo_no, page_size: 50, search: [wo_no, asset, failure_mode], dimensions: [{field: wo_type, label: "Type"}, {field: status, label: "Status", order: ["Open", "Overdue", "Done"], tones: {"Overdue": act}}, {field: asset_class, label: "Equipment"}, {field: failure_mode, label: "Cause", limit: 8}], columns: [{field: wo_no, label: "Work order"}, {field: asset, label: Machine}, {field: wo_type, label: Type}, {field: status, label: Status}, {field: raised_on, label: Raised}, {field: due_on, label: Due}, {field: completed_on, label: Done}, {field: downtime_hours, label: "Downtime (h)"}, {field: cost_sar, label: "Cost (SAR)"}, {field: failure_mode, label: Cause}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
+  - key: fab_reg_certificates
+    name: "Qualifications and training"
+    nav_group: "Fabrication demo"
+    position: 340
+    description: "Demonstration data. Every qualification and mandatory course: filter by when it lapses, trade or course."
+    widgets:
+      - {title: "Qualifications and training", type: register, dataset: fd_reg_certificates, config: {noun: records, key_field: record_id, page_size: 50, search: [person_id, name, trade], dimensions: [{field: expiry_band, label: "Lapses", order: ["Not done", "Lapsed", "Within 30 days", "31-90 days", "Later"], tones: {"Not done": act, "Lapsed": act, "Within 30 days": serious, "31-90 days": watch}}, {field: kind, label: "Kind"}, {field: trade, label: "Trade"}, {field: employment, label: "Employment"}, {field: name, label: "Qualification or course", limit: 8}], columns: [{field: person_id, label: Person}, {field: trade, label: Trade}, {field: employment, label: Employment}, {field: kind, label: Kind}, {field: name, label: "Qualification or course"}, {field: done_on, label: "Done"}, {field: expires_on, label: Expires}, {field: days_left, label: "Days left", format: raw}, {field: expiry_band, label: Lapses}]}, layout: {x: 0, y: 0, w: 12, h: 40}}
